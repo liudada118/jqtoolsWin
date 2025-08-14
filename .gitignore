@@ -1,0 +1,10 @@
+/node_modules
+*.zip
+*.exe
+/build
+/data
+/data1
+/db
+/db1 
+/dist
+/dist*
