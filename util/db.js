@@ -331,7 +331,7 @@ async function getCsvData(file) {
         results.push({ ...data, file: file })
       })
       .on("end", () => {
-        console.log(results)
+        // console.log(results)
         resolve(results)
       });
   })

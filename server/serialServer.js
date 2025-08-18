@@ -1,6 +1,9 @@
 
 
 const express = require('express')
+const os = require('os')
+const fs = require('fs')
+const path = require('path')
 const cors = require('cors');
 const WebSocket = require("ws");
 const HttpResult = require('./HttpResult')
@@ -11,24 +14,31 @@ const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData } = require('../util/db');
 const { hand } = require('../util/line');
+const { callPy } = require('../pyWorker');
 
 
+console.log('userData from env:', typeof process.env.isPackaged);
+
+let { isPackaged, appPath } = process.env
+isPackaged = isPackaged == 'true'
 const app = express()
 app.use(cors());
 app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 let dbPath = __dirname + '/../db'
 
-// console.log(appExe.isPackaged , 'app.isPackaged')
+console.log(isPackaged, appPath, 'app.isPackaged')
 
-// if (appExe.isPackaged) {
+// if (isPackaged) {
 //   if (os.platform() == 'darwin') {
 //     // filePath = '../..' + '/db'
 //     // filePath = path.join(app.getAppPath(), 'Resources/db',);
 //     dbPath = path.join(__dirname, '../../db')
 //     csvPath = path.join(__dirname, '../../data')
 //     nameTxt = path.join(__dirname, '../../config.txt')
-//     console.log(dbPath, path.join(appExe.getAppPath(), 'Resources/db',))
+//     console.log(dbPath, path.join(appPath, 'Resources/db',))
 //     // nameTxt = 
 //     // csvPath = '../..' + '/data'
 //     // nameTxt = '../..' + "/config.txt";
@@ -37,7 +47,7 @@ let dbPath = __dirname + '/../db'
 //     dbPath = 'resources' + '/db'
 //     csvPath = 'resources' + '/data'
 //     nameTxt = 'resources' + "/config.txt";
-//     console.log(dbPath, path.join(appExe.getAppPath(), 'Resources/db',))
+//     console.log(dbPath, path.join(appPath, 'Resources/db',))
 //   }
 
 // }
@@ -45,9 +55,9 @@ let dbPath = __dirname + '/../db'
 const port = 19245
 
 // 当前的软件系统 , 当前的波特率
-var file = '', baudRate = 3000000, parserArr = {}, dataMap = {},
+var file = 'sit', baudRate = 1000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
-  HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ
+  HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 
 // 选择数据库数据
@@ -55,14 +65,38 @@ let historyDbArr;
 
 const { db } = initDb('hand', dbPath)
 
-console.log(__dirname,dbPath, '__dirname')
+console.log(__dirname, dbPath, '__dirname')
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
 })
 
+// async function demo(matrix) {
+//   // 构造一条 1024 长度的测试数据
+
+//   // console.log(matrix)
+//   // const data = new Array(10).fill(new Array(1024).fill(50)); // 可以放多条
+//   // const res = await callPy('cal_cop_fromData', { data : matrix });
+//   const res = await callPy('cal_cop_fromData', { data: matrix });
+//   // console.log(res);
+//   console.log(res, new Date().getTime()); // { left: [...], right: [...] }
+// }
 
 
+// async function main() {
+//   const data1 = await getCsvData('D:/jqtoolsWin - 副本/python/app/静态数据集1.csv')
+
+//   const matrix = data1.map((a) => JSON.parse(a.data))
+//   await demo(matrix)
+//   await demo(matrix)
+//   await demo(matrix)
+//   await demo(matrix)
+//   await demo(matrix)
+//   await demo(matrix)
+//   await demo(matrix)
+// }
+
+// main()
 
 
 // 绑定密钥
@@ -300,6 +334,25 @@ app.post('/getCsvData', async (req, res) => {
   res.json(new HttpResult(0, data, 'success'));
 })
 
+// 计算cop 
+let arr = []
+app.post('/getCop', async (req, res) => {
+  const { MatrixList } = req.body
+  // console.log(MatrixList)
+  const data = await callPy('cal_cop_fromData', { data: MatrixList })
+  // console.log(data)
+  // csvArr = data
+
+  arr.push({MatrixList , data})
+  fs.writeFile('D:/jqtoolsWin - 副本/server/data.txt', JSON.stringify(arr), 'utf8', (err) => {
+  if (err) {
+    console.error('追加失败:', err);
+  } else {
+    console.log('追加成功');
+  }
+});
+  res.json(new HttpResult(0, data, 'success'));
+})
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
@@ -405,6 +458,7 @@ function parseData(parserArr, objs, type) {
         json[data.type].rotate = data.rotate
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
+        if (data.cop) json[data.type].cop = data.cop
         // json[data.type].stampDiff = new Date().getTime() - data.stamp
       } else {
         json[data.type].status = 'offline'
@@ -445,7 +499,7 @@ async function connectPort() {
       const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate })
 
       parserItem.port = port
-      parser.on("data", function (data) {
+      parser.on("data", async function (data) {
 
         let buffer = Buffer.from(data);
         pointArr = new Array();
@@ -460,7 +514,7 @@ async function connectPort() {
           pointArr[i] = buffer.readUInt8(i);
         }
         // console.log(pointArr.length)
-        console.log(pointArr.length)
+        // console.log(pointArr.length)
         // 陀螺仪
         if (pointArr.length == 18) {
           const length = pointArr.length
@@ -483,7 +537,56 @@ async function connectPort() {
           dataItem.stamp = new Date().getTime()
         } else if (pointArr.length == 1024) {
           // dataItem[path]
-          dataItem.arr1024 = hand(pointArr)
+          dataItem.type = 'sit'
+          const matrix = hand(pointArr)
+          dataItem.arr = matrix
+          if (!dataItem.arrList) {
+            dataItem.arrList = []
+          } else {
+            if (dataItem.arrList.length < 60) {
+              dataItem.arrList.push(matrix)
+            } else {
+              dataItem.arrList.shift()
+              dataItem.arrList.push(matrix)
+            }
+            // dataItem.cop = await callPy('cal_cop_fromData', { data: dataItem.arrList })
+            // console.log(dataItem.cop)
+          }
+
+
+          const stamp = new Date().getTime()
+          dataItem.stamp = stamp
+          // console.log(dataItem)
+          if (oldTimeObj[dataItem.type]) {
+            dataItem.HZ = stamp - oldTimeObj[dataItem.type]
+            if (dataItem.HZ < 50) {
+              return
+            }
+            if (!MaxHZ && oldTimeObj[dataItem.type]) {
+              MaxHZ = Math.floor(1000 / dataItem.HZ)
+              HZ = MaxHZ
+              console.log('playtimer',HZ)
+              if(playtimer){
+                clearInterval(playtimer)
+              }
+              playtimer = setInterval(() => {
+                colAndSendData()
+              }, 80)
+            }
+            // if(!playtimer){
+            //      playtimer = setInterval(() => {
+            //     colAndSendData()
+            //   }, 80)
+            // }
+          }
+          // console.log(stamp, oldTimeObj[dataItem.type],dataItem.HZ,HZ,playtimer)
+          // if (!oldTimeObj[dataItem.type]) {
+          oldTimeObj[dataItem.type] = dataItem.stamp
+          // } else {
+
+          // }
+
+
         } else if (pointArr.length == 146) {
           const length = pointArr.length
           const arr = pointArr.splice(length - 16, length)
@@ -508,9 +611,9 @@ async function connectPort() {
             }
           }
           dataItem.stamp = stamp
-          // if(!oldTimeObj[dataItem.type]){
+          // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
-          // }else{
+          // } else {
 
           // }
         }
@@ -553,6 +656,16 @@ function colAndSendData() {
   //   }
   // }
 }
+
+
+// if (file == 'sit') {
+//   if(playtimer){
+//     clearInterval(playtimer)
+//   }
+//   playtimer = setInterval(() => {
+//     colAndSendData()
+//   }, 80)
+// }
 
 
 
