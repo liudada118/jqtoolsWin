@@ -23,7 +23,33 @@ console.log('userData from env:', typeof process.env.isPackaged);
 let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
-app.use(cors());
+
+const ORIGIN = 'http://sensor.bodyta.com';
+
+// 1) 所有实际请求自动带上 CORS 头
+app.use(cors({
+  origin: ORIGIN,        // 不能是 *
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','X-Requested-With'],
+  maxAge: 600,
+}));
+
+// 2) 统一处理预检；顺带支持 PNA（公网页面 -> 本地/内网）
+app.options('*', (req, res) => {
+  if (req.header('Access-Control-Request-Private-Network') === 'true') {
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  }
+  // 把常见 CORS 预检头也回上（有些环境需要显式返回）
+  res.setHeader('Access-Control-Allow-Origin', ORIGIN);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+  res.sendStatus(204);
+});
+
+
+// app.use(cors());
 app.use(express.json());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -134,7 +160,7 @@ app.post('/selectSystem', (req, res) => {
 
 // 查询系统列表和当前系统
 app.get('/getSystem', async (req, res) => {
-  
+
   const config = fs.readFileSync('./config.txt', 'utf-8',)
   const result = JSON.parse(decryptStr(config))
   console.log((JSON.parse(decryptStr(config))))
