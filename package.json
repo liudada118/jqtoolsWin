@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "electron-builder -w"
+    "build": "electron-builder -w",
+    "build:mac": "electron-builder -m"
   },
   "author": "",
   "license": "ISC",
@@ -16,9 +17,10 @@
     "crypto-js": "^4.2.0",
     "csv-parser": "^3.2.0",
     "csv-writer": "^1.6.0",
+    "dmg-license": "^1.0.11",
     "express": "^5.1.0",
     "serialport": "^13.0.0",
-    "sqlite3": "^5.1.7",
+    "sqlite3": "5.1.6",
     "systeminformation": "^5.27.1",
     "ws": "^8.18.2"
   },

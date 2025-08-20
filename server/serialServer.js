@@ -160,10 +160,14 @@ app.post('/selectSystem', (req, res) => {
 
 // 查询系统列表和当前系统
 app.get('/getSystem', async (req, res) => {
-
-  const config = fs.readFileSync('./config.txt', 'utf-8',)
-  const result = JSON.parse(decryptStr(config))
-  console.log((JSON.parse(decryptStr(config))))
+  
+  // const config = fs.readFileSync('./config.txt', 'utf-8',)
+  // const result = JSON.parse(decryptStr(config))
+  // console.log((JSON.parse(decryptStr(config))))
+  const result = {
+    value: "bed",
+    typeArr: [ "bed",  "hand"]
+}
   baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
   res.json(new HttpResult(0, result, '获取设备列表成功'));
 })
