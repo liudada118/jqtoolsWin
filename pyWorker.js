@@ -9,7 +9,8 @@ const fs = require('fs');
 // console.log('userData from env:', process.workerData.isPackaged);
 let isPackaged = process.env.isPackaged
 isPackaged = isPackaged == 'true'
-console.log(process.resourcesPath , !isPackaged , isPackaged , 'isPackaged')
+// isPackaged = true
+console.log(process.resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(process.resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
 function pythonBin() {
   const isDev = !isPackaged;
   if (process.platform === 'win32') {
@@ -69,7 +70,7 @@ function startWorker() {
       if (!rec) continue;
       clearTimeout(rec.timer);
       pending.delete(msg.id);
-      if (msg.ok === false) rec.reject(new Error(msg.error || 'python error'));
+      if (msg.ok === false) {}//rec.reject(new Error(msg.error || 'python error'));
       else rec.resolve(msg.data);
     }
   });

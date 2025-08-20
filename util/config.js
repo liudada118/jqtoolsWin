@@ -1,3 +1,22 @@
+
+const baudRate921600Arr = []
+const baudRate1000000Arr = ['hand' , 'bed']
+const baudRate3000000Arr = ['bigHand']
+
+const baudRateObj = {}
+baudRate921600Arr.forEach((file) => {
+    baudRateObj[file] = 921600
+})
+
+baudRate1000000Arr.forEach((file) => {
+    baudRateObj[file] = 1000000
+})
+
+baudRate3000000Arr.forEach((file) => {
+    baudRateObj[file] = 3000000
+})
+
+
 const constantObj = {
     splitArr: [0xaa, 0x55, 0x03, 0x99],
     blue : ['robot'] ,
@@ -14,7 +33,9 @@ const constantObj = {
         6: 'FR'
     },
     backendAddress: 'http://localhost:3000',
-    blueArr : ['robot']
+    blueArr : ['robot'],
+    baudRateObj
 }
+
 
 module.exports = constantObj

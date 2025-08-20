@@ -13,8 +13,9 @@ const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData } = require('../util/db');
-const { hand } = require('../util/line');
-const { callPy } = require('../pyWorker');
+const { hand, jqbed } = require('../util/line');
+// const { callPy } = require('../pyWorker');
+const { decryptStr } = require('../util/aes_ecb');
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -31,26 +32,26 @@ let dbPath = __dirname + '/../db'
 
 console.log(isPackaged, appPath, 'app.isPackaged')
 
-// if (isPackaged) {
-//   if (os.platform() == 'darwin') {
-//     // filePath = '../..' + '/db'
-//     // filePath = path.join(app.getAppPath(), 'Resources/db',);
-//     dbPath = path.join(__dirname, '../../db')
-//     csvPath = path.join(__dirname, '../../data')
-//     nameTxt = path.join(__dirname, '../../config.txt')
-//     console.log(dbPath, path.join(appPath, 'Resources/db',))
-//     // nameTxt = 
-//     // csvPath = '../..' + '/data'
-//     // nameTxt = '../..' + "/config.txt";
-//   } else {
+if (isPackaged) {
+  if (os.platform() == 'darwin') {
+    // filePath = '../..' + '/db'
+    // filePath = path.join(app.getAppPath(), 'Resources/db',);
+    dbPath = path.join(__dirname, '../../db')
+    csvPath = path.join(__dirname, '../../data')
+    nameTxt = path.join(__dirname, '../../config.txt')
+    console.log(dbPath, path.join(appPath, 'Resources/db',))
+    // nameTxt = 
+    // csvPath = '../..' + '/data'
+    // nameTxt = '../..' + "/config.txt";
+  } else {
 
-//     dbPath = 'resources' + '/db'
-//     csvPath = 'resources' + '/data'
-//     nameTxt = 'resources' + "/config.txt";
-//     console.log(dbPath, path.join(appPath, 'Resources/db',))
-//   }
+    dbPath = 'resources' + '/db'
+    csvPath = 'resources' + '/data'
+    nameTxt = 'resources' + "/config.txt";
+    console.log(dbPath, path.join(appPath, 'Resources/db',))
+  }
 
-// }
+}
 
 const port = 19245
 
@@ -59,11 +60,14 @@ var file = 'sit', baudRate = 1000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
+let linkIngPort = [] ,currentDb
 
 // 选择数据库数据
 let historyDbArr;
 
-const { db } = initDb('hand', dbPath)
+
+const { db } = initDb(file, dbPath)
+currentDb = db
 
 console.log(__dirname, dbPath, '__dirname')
 
@@ -128,6 +132,16 @@ app.post('/selectSystem', (req, res) => {
   }
 })
 
+// 查询系统列表和当前系统
+app.get('/getSystem', async (req, res) => {
+  
+  const config = fs.readFileSync('./config.txt', 'utf-8',)
+  const result = JSON.parse(decryptStr(config))
+  console.log((JSON.parse(decryptStr(config))))
+  baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+  res.json(new HttpResult(0, result, '获取设备列表成功'));
+})
+
 // 查询串口
 app.get('/getPort', async (req, res) => {
   const ports = await SerialPort.list()
@@ -172,7 +186,7 @@ app.get('/getColHistory', async (req, res) => {
     "select DISTINCT date from matrix ORDER BY timestamp DESC LIMIT ?,?";
   const params = [0, 500];
 
-  db.all(selectQuery, params, (err, rows) => {
+  currentDb.all(selectQuery, params, (err, rows) => {
     if (err) {
       console.error(err);
     } else {
@@ -203,7 +217,7 @@ app.post('/downlaod', async (req, res) => {
     const { fileArr } = req.body
 
     const params = fileArr;
-    const data = await dbLoadCsv({ db, params, file })
+    const data = await dbLoadCsv({ db : currentDb, params, file })
     res.json(new HttpResult(0, data, '下载'));
   } catch {
 
@@ -216,7 +230,7 @@ app.post('/delete', async (req, res) => {
     const { fileArr } = req.body
 
     const params = fileArr;
-    const data = await deleteDbData({ db, params })
+    const data = await deleteDbData({db: currentDb, params })
     console.log(data)
     res.json(new HttpResult(0, data, '删除成功'));
   } catch {
@@ -232,7 +246,7 @@ app.post('/getDbHistory', async (req, res) => {
 
   const params = [time];
 
-  const { length, pressArr, areaArr, rows } = await dbGetData({ db, params })
+  const { length, pressArr, areaArr, rows } = await dbGetData({ db : currentDb, params })
 
   const data = { length, pressArr, areaArr, }
 
@@ -243,6 +257,12 @@ app.post('/getDbHistory', async (req, res) => {
   playIndex = 0
 
   res.json(new HttpResult(0, data, 'success'));
+})
+
+app.post('/changeDbDataName' , async(req ,res) => {
+  const { oldName , newName } = req.body
+
+  changeDbDataName({db : currentDb, params : [oldName , newName]})
 })
 
 // 取消播放
@@ -278,6 +298,7 @@ app.post('/getDbHistoryPlay', async (req, res) => {
   res.json(new HttpResult(0, {}, 'success'));
 })
 
+// 修改播放速度
 app.post('/changeDbplaySpeed', async (req, res) => {
   const { speed } = req.body
   // historyPlayFlag = true
@@ -307,6 +328,17 @@ app.post('/changeDbplaySpeed', async (req, res) => {
   res.json(new HttpResult(0, {}, 'success'));
 })
 
+// 修改系统类型
+app.post('/changeSystemType', async (req, res) => {
+  const { system } = req.body
+  file = system
+  baudRate = constantObj.baudRateObj[system] ? constantObj.baudRateObj[system] : 1000000
+  console.log(baudRate)
+  stopPort()
+  res.json(new HttpResult(0, {}, 'success'));
+})
+
+
 // 取消播放
 app.post('/getDbHistoryStop', async (req, res) => {
   historyPlayFlag = false
@@ -335,24 +367,26 @@ app.post('/getCsvData', async (req, res) => {
 })
 
 // 计算cop 
-let arr = []
-app.post('/getCop', async (req, res) => {
-  const { MatrixList } = req.body
-  // console.log(MatrixList)
-  const data = await callPy('cal_cop_fromData', { data: MatrixList })
-  // console.log(data)
-  // csvArr = data
+// let arr = []
+// app.post('/getCop', async (req, res) => {
+//   const { MatrixList } = req.body
+//   // console.log(MatrixList)
+//   const data = await callPy('cal_cop_fromData', { data: MatrixList })
+//   // console.log(data)
+//   // csvArr = data
 
-  arr.push({MatrixList , data})
-  fs.writeFile('D:/jqtoolsWin - 副本/server/data.txt', JSON.stringify(arr), 'utf8', (err) => {
-  if (err) {
-    console.error('追加失败:', err);
-  } else {
-    console.log('追加成功');
-  }
-});
-  res.json(new HttpResult(0, data, 'success'));
-})
+//   // arr.push({ MatrixList, data })
+//   // fs.writeFile('D:/jqtoolsWin - 副本/server/data.txt', JSON.stringify(arr), 'utf8', (err) => {
+//   //   if (err) {
+//   //     console.error('追加失败:', err);
+//   //   } else {
+//   //     console.log('追加成功');
+//   //   }
+//   // });
+//   res.json(new HttpResult(0, data, 'success'));
+// })
+
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
@@ -427,8 +461,8 @@ const newSerialPortLink = ({ path, parser, baudRate = 1000000 }) => {
  * @returns 解析蓝牙分包数据
  */
 function parseData(parserArr, objs, type) {
+
   let json = {}
-  // console.log(objs)
   Object.keys(objs).forEach((key) => {
     const obj = parserArr[key]
     const data = objs[key]
@@ -446,7 +480,6 @@ function parseData(parserArr, objs, type) {
       } else if (type == 'highHZ') {
         blueArr = data.arr
       }
-
       // 当前时间戳与发数据时间戳之差
       const dataStamp = new Date().getTime() - data.stamp
       json[data.type] = {}
@@ -463,8 +496,6 @@ function parseData(parserArr, objs, type) {
       } else {
         json[data.type].status = 'offline'
       }
-
-
     }
 
   })
@@ -480,10 +511,15 @@ function parseData(parserArr, objs, type) {
 const oldTimeObj = {}
 async function connectPort() {
   let ports = await SerialPort.list()
-  console.log(ports, 'ports')
+  // console.log(ports, 'ports')
   // 创建并连接数据通道并且设置回调
   for (let i = 0; i < ports.length; i++) {
+
     const portInfo = ports[i]
+
+
+
+
     const { path } = portInfo
     // parserArr[path]
     const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
@@ -498,8 +534,36 @@ async function connectPort() {
     if (!(parserItem.port && parserItem.port.isOpen)) {
       const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate })
 
+      // linkIngPort.push(port)
+
+      // port.open(err => {
+      //   if (err) {
+      //     return console.error('err1:', err.message);
+      //   }
+      //   console.log('open');
+
+      //   // 发送 AT 指令
+      //   const command = 'AT\r\n';
+      //   port.write(command, err => {
+      //     if (err) {
+      //       return console.error('err2:', err.message);
+      //     }
+      //     console.log('已发送:', command.trim());
+      //   });
+      // });
+
+      const command = 'AT\r\n';
+      port.write(command, err => {
+        if (err) {
+          return console.error('err2:', err.message);
+        }
+        console.log('已发送:', command.trim());
+      });
+
       parserItem.port = port
       parser.on("data", async function (data) {
+
+
 
         let buffer = Buffer.from(data);
         pointArr = new Array();
@@ -513,7 +577,23 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-        // console.log(pointArr.length)
+        console.log(pointArr.length)
+
+        // if (pointArr.length != 1024) {
+        //   console.log(buffer.toString())
+        //   const str = buffer.toString()
+        //   if (str.includes('ID')) {
+
+        //     const uniqueIdMatch = str.match(/Unique ID:\s*([^\s-]+)/);
+        //     const versionMatch = str.match(/Versions:\s*([^\s-]+)/);
+
+        //     const uniqueId = uniqueIdMatch ? uniqueIdMatch[1] : null;
+        //     const version = versionMatch ? versionMatch[1] : null;
+
+        //     console.log("Unique ID:", uniqueId);  // 34463730155032138F
+        //     console.log("Versions:", version);    // C40510
+        //   }
+        // }
         // console.log(pointArr.length)
         // 陀螺仪
         if (pointArr.length == 18) {
@@ -538,18 +618,32 @@ async function connectPort() {
         } else if (pointArr.length == 1024) {
           // dataItem[path]
           dataItem.type = 'sit'
-          const matrix = hand(pointArr)
+          let matrix
+          if (file == 'hand') {
+            matrix = hand(pointArr)
+          } else if (file == 'bed') {
+            matrix = jqbed(pointArr)
+          }else{
+            matrix = pointArr
+          }
+
           dataItem.arr = matrix
-          if (!dataItem.arrList) {
-            dataItem.arrList = []
-          } else {
-            if (dataItem.arrList.length < 60) {
-              dataItem.arrList.push(matrix)
+
+          // 如果是脚垫  添加算法包COP数据
+          if (file == 'foot') {
+            if (!dataItem.arrList) {
+              dataItem.arrList = []
             } else {
-              dataItem.arrList.shift()
-              dataItem.arrList.push(matrix)
+              if (dataItem.arrList.length < 60) {
+                dataItem.arrList.push(matrix)
+              } else {
+                dataItem.arrList.shift()
+                dataItem.arrList.push(matrix)
+              }
+
+              // dataItem.cop = await callPy('cal_cop_fromData', { data: dataItem.arrList })
             }
-            // dataItem.cop = await callPy('cal_cop_fromData', { data: dataItem.arrList })
+
             // console.log(dataItem.cop)
           }
 
@@ -565,8 +659,8 @@ async function connectPort() {
             if (!MaxHZ && oldTimeObj[dataItem.type]) {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
-              console.log('playtimer',HZ)
-              if(playtimer){
+              console.log('playtimer', HZ)
+              if (playtimer) {
                 clearInterval(playtimer)
               }
               playtimer = setInterval(() => {
@@ -605,7 +699,7 @@ async function connectPort() {
             if (!MaxHZ) {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
-              setInterval(() => {
+              playtimer = setInterval(() => {
                 colAndSendData()
               }, 1000 / HZ)
             }
@@ -632,8 +726,41 @@ async function connectPort() {
   return ports
 }
 
+// 关闭正在连接的串口
+async function stopPort() {
+  // let ports = await SerialPort.list()
+
+  // 关闭串口
+  const portArr = Object.keys(parserArr).map((path) => {
+    return parserArr[path].port
+  })
+
+
+  // 关闭串口,并且清除本地缓存数据
+  portArr.forEach((port, index) => {
+    if (port?.isOpen) {
+      port.close((err) => {
+        if (!err) {
+          // linkIngPort.splice(index, 1)
+          const path = Object.keys(parserArr)[index];
+          // parserArr[path] = null;
+          delete parserArr[path]
+          delete dataMap[path]
+          console.log(parserArr, 'delte')
+        }
+      });
+    }
+  })
+
+  // 清除发送数据定时器
+  clearInterval(playtimer)
+
+  // 将hz清除掉
+  MaxHZ = undefined
+}
+
 function colAndSendData() {
-  if (!historyFlag) {
+  if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     if (colFlag) {
       storageData(obj)
@@ -717,7 +844,7 @@ function storageData(data) {
   const insertQuery =
     "INSERT INTO matrix (data, timestamp,date) VALUES (?, ?,?)";
 
-  db.run(
+  currentDb.run(
     insertQuery,
     [JSON.stringify(data), timestamp, colName],
     function (err) {
@@ -729,3 +856,28 @@ function storageData(data) {
     }
   );
 }
+
+// 做一个定时器任务  监听是否存在意外情况串口断开连接 然后重新连接 
+setInterval(() => {
+  if (Object.keys(parserArr).length) {
+    Object.keys(parserArr).map((path) => {
+      // parserArr[path].port
+      if (parserArr[path] && !parserArr[path].port.isOpen) {
+        parserArr[path].port = new SerialPort(
+          {
+            path: path,
+            baudRate: baudRate,
+            autoOpen: true,
+          },
+          function (err) {
+            console.log(err, "err");
+          }
+        );
+        //管道添加解析器
+        parserArr[path].port.pipe(parserArr[path].parser);
+      }
+    })
+
+  }
+
+}, 3000)

@@ -337,10 +337,21 @@ async function getCsvData(file) {
   })
 }
 
+async function changeDbDataName({ db, params }) {
+  const sql = `UPDATE matrix SET "date" = ? WHERE "date" = ?`;
+  db.run(sql, params, function (err) {
+    if (err) {
+      return console.error('更新失败:', err.message);
+    }
+    console.log(`更新完成，共修改了 ${this.changes} 行`);
+  });
+}
+
 module.exports = {
   initDb,
   dbLoadCsv,
   deleteDbData,
   dbGetData,
-  getCsvData
+  getCsvData,
+  changeDbDataName
 }

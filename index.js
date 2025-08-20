@@ -4,7 +4,8 @@ const { fork, spawn } = require('child_process')
 const { getHardwareFingerprint } = require('./util/getWinConfig')
 const { getKeyfromWinuuid } = require('./util/getServer')
 const { initDb, getCsvData } = require('./util/db')
-const { startWorker, callPy } = require('./pyWorker')
+// const { startWorker, callPy } = require('./pyWorker')
+
 
 
 
@@ -20,7 +21,9 @@ const createWindow = () => {
 
   })
 
-  win.loadURL('http://sensor.bodyta.com/4096')
+  // win.loadURL('http://sensor.bodyta.com/4096')
+
+  win.loadURL('http://sensor.bodyta.com/jqtools2')
 }
 
 
@@ -145,11 +148,11 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  startWorker(); // 
+  // startWorker(); // 
 
-  const data1 = await getCsvData('D:/jqtoolsWin - 副本/python/app/静态数据集1.csv')
+  // const data1 = await getCsvData('D:/jqtoolsWin - 副本/python/app/静态数据集1.csv')
 
-  const matrix = data1.map((a) => JSON.parse(a.data))
+  // const matrix = data1.map((a) => JSON.parse(a.data))
 
 
   // try {
