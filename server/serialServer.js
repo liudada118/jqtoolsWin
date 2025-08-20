@@ -24,7 +24,7 @@ let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
 
-const ORIGIN = 'http://sensor.bodyta.com';
+const ORIGIN = 'https://sensor.bodyta.com';
 
 // 1) 所有实际请求自动带上 CORS 头
 app.use(cors({

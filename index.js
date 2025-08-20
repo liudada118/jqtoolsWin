@@ -23,7 +23,7 @@ const createWindow = () => {
 
   // win.loadURL('http://sensor.bodyta.com/4096')
 
-  win.loadURL('http://sensor.bodyta.com/jqtools2')
+  win.loadURL('https://sensor.bodyta.com/jqtools2')
 }
 
 
