@@ -4,10 +4,95 @@ const { fork, spawn } = require('child_process')
 const { getHardwareFingerprint } = require('./util/getWinConfig')
 const { getKeyfromWinuuid } = require('./util/getServer')
 const { initDb, getCsvData } = require('./util/db')
+const http = require('http')
+const fs = require('fs')
 // const { startWorker, callPy } = require('./pyWorker')
+const isPackaged = app.isPackaged
 
+function openWeb({ hostname, port, fn }) {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/") {
+      // 读取打包后的 index.html 文件
 
+      const filePath =isPackaged ? path.join(__dirname, '..', "build", "index.html") : path.join(__dirname, "build", "index.html");
 
+     console.log(filePath)
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain");
+          res.end("Internal Server Error");
+        } else {
+          // 设置响应头和内容，发送网页文件
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/html");
+          res.end(data);
+        }
+      });
+    } else {
+      // 处理其他请求（如样式表、脚本、图片等）
+      const filePath = isPackaged ? path.join(__dirname, '..', "build", req.url) :path.join(__dirname,  "build", req.url) ;
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "text/plain");
+          res.end("Not Found");
+        } else {
+          res.statusCode = 200;
+          res.setHeader("Content-Type", getContentType(filePath));
+          res.end(data);
+        }
+      });
+    }
+  });
+
+  server.listen(port, hostname, () => {
+    const url = `http://${hostname}:${port}`;
+    // console.log(`Server running at http://${hostname}:${port}/`);
+    // exec(`start chrome "${url}"`, (err, stdout, stderr) => {
+    //     if (err) {
+    //         console.error(`exec error: ${err}`);
+    //         return;
+    //     }
+    //     console.log(`stdout: ${stdout}`);
+    //     console.error(`stderr: ${stderr}`);
+    // });
+    fn()
+  });
+
+  function getContentType(filePath) {
+    const extname = path.extname(filePath);
+    switch (extname) {
+      case ".html":
+        return "text/html";
+      case ".css":
+        return "text/css";
+      case ".js":
+        return "text/javascript";
+      case ".png":
+        return "image/png";
+      case ".jpg":
+        return "image/jpg";
+      default:
+        return "text/plain";
+    }
+  }
+}
+
+const child = fork(path.join(__dirname, './server/serialServer.js'), {
+  env: {
+    isPackaged: isPackaged,
+    appPath: app.getAppPath()
+  }
+})
+
+const child1 = fork(path.join(__dirname, './pyWorker.js'), {
+  env: {
+    isPackaged: isPackaged,
+    appPath: app.getAppPath()
+  }
+})
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -21,27 +106,25 @@ const createWindow = () => {
 
   })
 
+  const hostname = "127.0.0.1";
+  const port = 3000;
+
+
   // win.loadURL('http://sensor.bodyta.com/4096')
 
-  win.loadURL('https://sensor.bodyta.com/jqtools2')
+  // win.loadURL('https://sensor.bodyta.com/jqtools2')
+
+  function fn() {
+    win.loadURL(`http://${hostname}:${port}`)
+  }
+
+  openWeb({ hostname, port, fn })
 }
 
 
-const isPackaged = app.isPackaged
 
-const child = fork(path.join(__dirname, './server/serialServer.js'), {
-  env: {
-    isPackaged: isPackaged,
-    appPath : app.getAppPath()
-  }
-})
 
-const child1 = fork(path.join(__dirname, './pyWorker.js'), {
-  env: {
-    isPackaged: isPackaged,
-    appPath : app.getAppPath()
-  }
-})
+
 
 
 function pyBin() {
