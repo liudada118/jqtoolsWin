@@ -14,9 +14,9 @@ function openWeb({ hostname, port, fn }) {
     if (req.url === "/") {
       // 读取打包后的 index.html 文件
 
-      const filePath =isPackaged ? path.join(__dirname, '..', "build", "index.html") : path.join(__dirname, "build", "index.html");
+      const filePath = isPackaged ? path.join(__dirname, '..', "build", "index.html") : path.join(__dirname, "build", "index.html");
 
-     console.log(filePath)
+      console.log(filePath)
 
       fs.readFile(filePath, (err, data) => {
         if (err) {
@@ -32,7 +32,7 @@ function openWeb({ hostname, port, fn }) {
       });
     } else {
       // 处理其他请求（如样式表、脚本、图片等）
-      const filePath = isPackaged ? path.join(__dirname, '..', "build", req.url) :path.join(__dirname,  "build", req.url) ;
+      const filePath = isPackaged ? path.join(__dirname, '..', "build", req.url) : path.join(__dirname, "build", req.url);
       fs.readFile(filePath, (err, data) => {
         if (err) {
           res.statusCode = 404;
@@ -80,12 +80,38 @@ function openWeb({ hostname, port, fn }) {
   }
 }
 
-const child = fork(path.join(__dirname, './server/serialServer.js'), {
-  env: {
-    isPackaged: isPackaged,
-    appPath: app.getAppPath()
-  }
-})
+
+
+function startApiChild() {
+  return new Promise((resolve, reject) => {
+    const child = fork(path.join(__dirname, './server/serialServer.js'), {
+      env: {
+        isPackaged: isPackaged,
+        appPath: app.getAppPath()
+      }
+    })
+
+    const readyTimer = setTimeout(() => {
+      reject(new Error('API child not ready in time'));
+    }, 15000);
+
+    child.on('message', (msg) => {
+      if (msg.type === 'ready') {
+        clearTimeout(readyTimer);
+        apiPort = msg.port;
+        resolve(msg.port);
+      }else if(msg?.type === 'error'){
+        clearTimeout(readyTimer);
+        reject(new Error(`API child error: ${msg.code || ''} ${msg.message || ''}`));
+      }
+    })
+
+    child.on('exit', (code, signal) => {
+      // 如果需要可在这里做自动重启
+      console.log(`API child exited: code=${code} signal=${signal}`);
+    });
+  })
+}
 
 const child1 = fork(path.join(__dirname, './pyWorker.js'), {
   env: {
@@ -204,9 +230,9 @@ const pending = new Map();
 // }
 
 
-child.on('message', (msg) => {
-  console.log('主线程', msg)
-})
+// child.on('message', (msg) => {
+//   console.log('主线程', msg)
+// })
 
 function startServerProcess() {
 
@@ -229,6 +255,7 @@ app.whenReady().then(async () => {
   const dateKey = await getKeyfromWinuuid(uuid)
   console.log(uuid, dateKey)
 
+  await startApiChild()
   createWindow()
 
   // startWorker(); // 
