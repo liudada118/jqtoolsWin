@@ -27,6 +27,7 @@
   "build": {
     "asar": true,
     "win": {
+      "icon" : "./logo" ,
       "target": [
         {
           "target": "nsis",

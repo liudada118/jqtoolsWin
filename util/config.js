@@ -32,7 +32,7 @@ const constantObj = {
         5: 'FL',
         6: 'FR'
     },
-    backendAddress: 'http://localhost:3000',
+    backendAddress: 'https://sensor.bodyta.com',
     blueArr : ['robot'],
     baudRateObj
 }

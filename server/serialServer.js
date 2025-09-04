@@ -12,10 +12,11 @@ const { getPort } = require('../util/serialport')
 const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
-const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData } = require('../util/db');
+const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
 const { hand, jqbed } = require('../util/line');
 // const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
+const { default: axios } = require('axios');
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -74,6 +75,7 @@ if (isPackaged) {
     dbPath = 'resources' + '/db'
     csvPath = 'resources' + '/data'
     nameTxt = 'resources' + "/config.txt";
+
     console.log(dbPath, path.join(appPath, 'Resources/db',))
   }
 
@@ -81,8 +83,10 @@ if (isPackaged) {
 
 const port = 19245
 
+const config = fs.readFileSync('./config.txt', 'utf-8',)
+const result = JSON.parse(decryptStr(config))
 // 当前的软件系统 , 当前的波特率
-var file = 'sit', baudRate = 1000000, parserArr = {}, dataMap = {},
+var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
@@ -150,7 +154,8 @@ app.post('/bindKey', (req, res) => {
  * */
 app.post('/selectSystem', (req, res) => {
   file = req.query.file;
-  initDb('file', dbPath)
+  const { db } = initDb(file, dbPath)
+  currentDb = db
   if (blue.includes(file)) {
     baudRate = 921600
   } else {
@@ -161,14 +166,19 @@ app.post('/selectSystem', (req, res) => {
 // 查询系统列表和当前系统
 app.get('/getSystem', async (req, res) => {
 
-  // const config = fs.readFileSync('./config.txt', 'utf-8',)
-  // const result = JSON.parse(decryptStr(config))
-  // console.log((JSON.parse(decryptStr(config))))
-  const result = {
-    value: "bed",
-    typeArr: ["bed", "hand"]
-  }
+  const config = fs.readFileSync('./config.txt', 'utf-8',)
+  const result = JSON.parse(decryptStr(config))
+  result.value = file
+
+  // const result = {
+  //   value: "bed",
+  //   typeArr: ["bed", "hand", 'foot', 'bigHand']
+  // }
   baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+
+  const { db } = initDb(file, dbPath)
+  currentDb = db
+
   res.json(new HttpResult(0, result, '获取设备列表成功'));
 })
 
@@ -184,6 +194,7 @@ app.get('/connPort', async (req, res) => {
   try {
     let port = await connectPort()
     res.json(new HttpResult(0, port, '连接成功'));
+
   } catch {
     res.json(new HttpResult(1, {}, '连接失败'));
   }
@@ -194,9 +205,19 @@ app.get('/connPort', async (req, res) => {
 app.post('/startCol', async (req, res) => {
   try {
     const { fileName } = req.body
-    colFlag = true
-    colName = fileName
-    res.json(new HttpResult(0, port, '开始采集'));
+
+    const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
+
+    const length = sensorArr.filter((a) => a.includes(file)).length
+    console.log(sensorArr, file, length)
+    if (length > 0) {
+      colFlag = true
+      colName = fileName
+      res.json(new HttpResult(0, port, '开始采集'));
+    } else {
+      res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
+    }
+
   } catch {
 
   }
@@ -216,11 +237,13 @@ app.get('/getColHistory', async (req, res) => {
     "select DISTINCT date from matrix ORDER BY timestamp DESC LIMIT ?,?";
   const params = [0, 500];
 
+  historyFlag = true
+
   currentDb.all(selectQuery, params, (err, rows) => {
     if (err) {
       console.error(err);
     } else {
-      console.log(rows);
+
       let jsonData;
       let sitTimeArr = rows;
       let timeArr = rows;
@@ -232,22 +255,25 @@ app.get('/getColHistory', async (req, res) => {
         sitData: new Array(4096).fill(0),
       });
 
-      res.json(new HttpResult(0, timeArr, '停止采集'));
+      res.json(new HttpResult(0, timeArr, 'success'));
 
       // socketSendData(server, jsonData)
 
 
     }
   });
+  socketSendData(server, JSON.stringify({ sitData: {} }))
 })
 
 // 下载成csv
 app.post('/downlaod', async (req, res) => {
   try {
     const { fileArr } = req.body
-
+    if (!fileArr.length) {
+      res.json(new HttpResult(555, '请选择先数据', 'error'));
+    }
     const params = fileArr;
-    const data = await dbLoadCsv({ db: currentDb, params, file })
+    const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged })
     res.json(new HttpResult(0, data, '下载'));
   } catch {
 
@@ -261,6 +287,19 @@ app.post('/delete', async (req, res) => {
 
     const params = fileArr;
     const data = await deleteDbData({ db: currentDb, params })
+    console.log(data)
+    res.json(new HttpResult(0, data, '删除成功'));
+  } catch {
+
+  }
+})
+
+app.post('/changeDbName', async (req, res) => {
+  try {
+    const { newDate, oldDate } = req.body
+
+    console.log([newDate, oldDate])
+    const data = await changeDbName({ db: currentDb, params: [newDate, oldDate] })
     console.log(data)
     res.json(new HttpResult(0, data, '删除成功'));
   } catch {
@@ -297,35 +336,58 @@ app.post('/changeDbDataName', async (req, res) => {
 
 // 取消播放
 app.post('/cancalDbPlay', async (req, res) => {
+  // 将回放flag置为false 并且将当前数据数组置为空
   historyFlag = false
-  res.json(new HttpResult(0, {}, 'success'));
-})
-
-// 开始播放
-app.post('/getDbHistoryPlay', async (req, res) => {
-  historyPlayFlag = true
+  historyDbArr = null
 
   if (colTimer) {
     clearInterval(colTimer)
   }
 
-  colTimer = setInterval(() => {
-    if (historyPlayFlag) {
-      console.log(historyDbArr[playIndex])
-      socketSendData(server, JSON.stringify({
-        sitData: JSON.parse(historyDbArr[playIndex].data),
-        index: playIndex,
-        timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
-      }))
-      if (playIndex < historyDbArr.length - 1) {
-        playIndex++
-      } else {
-        historyPlayFlag = false
-        clearInterval(colTimer)
-      }
-    }
-  }, 1000 / colplayHZ)
   res.json(new HttpResult(0, {}, 'success'));
+})
+
+// 开始播放
+app.post('/getDbHistoryPlay', async (req, res) => {
+
+
+  if (historyDbArr) {
+
+
+    if (playIndex == historyDbArr.length - 1) {
+      playIndex = 0
+    }
+    // 播放flag打开
+    historyPlayFlag = true
+
+    if (colTimer) {
+      clearInterval(colTimer)
+    }
+
+    socketSendData(server, JSON.stringify({ playEnd: true }))
+
+    colTimer = setInterval(() => {
+      if (historyPlayFlag && historyDbArr) {
+
+        socketSendData(server, JSON.stringify({
+          sitData: JSON.parse(historyDbArr[playIndex].data),
+          index: playIndex,
+          timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
+        }))
+        if (playIndex < historyDbArr.length - 1) {
+          playIndex++
+        } else {
+          historyPlayFlag = false
+          socketSendData(server, JSON.stringify({ playEnd: false }))
+          clearInterval(colTimer)
+        }
+      }
+    }, 1000 / colplayHZ)
+    res.json(new HttpResult(0, {}, 'success'));
+
+  } else {
+    res.json(new HttpResult(1, '请选择回放时间段', 'error'));
+  }
 })
 
 // 修改播放速度
@@ -339,7 +401,7 @@ app.post('/changeDbplaySpeed', async (req, res) => {
     }
     colTimer = setInterval(() => {
       if (historyPlayFlag) {
-        console.log(historyDbArr[playIndex])
+
         socketSendData(server, JSON.stringify({
           sitData: JSON.parse(historyDbArr[playIndex].data),
           index: playIndex,
@@ -348,6 +410,7 @@ app.post('/changeDbplaySpeed', async (req, res) => {
         if (playIndex < historyDbArr.length - 1) {
           playIndex++
         } else {
+          socketSendData(server, JSON.stringify({ playEnd: false }))
           historyPlayFlag = false
           clearInterval(colTimer)
         }
@@ -363,8 +426,11 @@ app.post('/changeSystemType', async (req, res) => {
   const { system } = req.body
   file = system
   baudRate = constantObj.baudRateObj[system] ? constantObj.baudRateObj[system] : 1000000
+  const { db } = initDb(file, dbPath)
+  currentDb = db
   console.log(baudRate)
-  stopPort()
+  // stopPort()
+  socketSendData(server, JSON.stringify({ sitData: {} }))
   res.json(new HttpResult(0, {}, 'success'));
 })
 
@@ -378,6 +444,12 @@ app.post('/getDbHistoryStop', async (req, res) => {
 // 获取某个时间的数据的某个索引数据
 app.post('/getDbHistoryIndex', async (req, res) => {
   const { index } = req.body
+
+  if (!historyDbArr) {
+    res.json(new HttpResult(555, '请选择回放时间段', 'error'));
+    return
+  }
+
   playIndex = index
   socketSendData(server, JSON.stringify({
     sitData: JSON.parse(historyDbArr[playIndex].data),
@@ -396,22 +468,41 @@ app.post('/getCsvData', async (req, res) => {
   res.json(new HttpResult(0, data, 'success'));
 })
 
-app.get('/sendMac', (req, res) => {
-  if (Object.keys(parserArr).length) {
-    for (let i = 0; i < Object.keys(parserArr).length; i++) {
-      const key = Object.keys(parserArr)[i]
-      const port = parserArr[key].port
-
-      const command = 'AT\r\n';
+function portWirte(port){
+  return new Promise((resolve , reject) => {
+    const command = 'AT\r\n';
       port.write(command, err => {
         if (err) {
           return console.error('err2:', err.message);
         }
-        console.log('已发送:', command.trim());
-        res.json(new HttpResult(0, {}, '读取成功'));
+        console.log('send:', command.trim());
+        resolve(command.trim())
       });
+  })
+}
+
+app.get('/sendMac', async(req, res) => {
+
+  if (Object.keys(parserArr).length) {
+    const task = []
+    for (let i = 0; i < Object.keys(parserArr).length; i++) {
+      const key = Object.keys(parserArr)[i]
+      const port = parserArr[key].port
+
+      // const command = 'AT\r\n';
+      // port.write(command, err => {
+      //   if (err) {
+      //     return console.error('err2:', err.message);
+      //   }
+      //   console.log('send:', command.trim());
+        
+      // });
+       
+      task.push(portWirte(port))
     }
-  }else{
+    const results = await Promise.all(task);
+     res.json(new HttpResult(0, {}, '发送成功'));
+  } else {
     res.json(new HttpResult(0, {}, '请先连接串口'));
   }
 })
@@ -537,8 +628,10 @@ function parseData(parserArr, objs, type) {
 
       // 根据发送时间与最新时间戳的差值  判断设备的在离线状态
       if (dataStamp < 1000) {
-        // json[data.type].status = 'online'
-        json[data.type].arr = blueArr
+        console.log(historyFlag)
+        json[data.type].status = 'online'
+        // console.log(first)
+        if (data.type.includes(file)) json[data.type].arr = blueArr
         json[data.type].rotate = data.rotate
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
@@ -547,6 +640,9 @@ function parseData(parserArr, objs, type) {
       } else {
         json[data.type].status = 'offline'
       }
+    } else {
+      json[data.type] = {}
+      json[data.type].status = 'offline'
     }
 
   })
@@ -559,10 +655,13 @@ function parseData(parserArr, objs, type) {
  * 
  */
 
+
+
 const oldTimeObj = {}
 async function connectPort() {
   macInfo = {}
   let ports = await SerialPort.list()
+  ports = getPort(ports)
   // console.log(ports, 'ports')
   // 创建并连接数据通道并且设置回调
   for (let i = 0; i < ports.length; i++) {
@@ -609,7 +708,7 @@ async function connectPort() {
         if (err) {
           return console.error('err2:', err.message);
         }
-        console.log('已发送:', command.trim());
+        console.log('send:', command.trim());
       });
 
       parserItem.port = port
@@ -618,6 +717,7 @@ async function connectPort() {
 
 
         let buffer = Buffer.from(data);
+
         pointArr = new Array();
 
         if (![18, 1024, 130, 146].includes(buffer.length)) {
@@ -629,12 +729,12 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-        console.log(pointArr.length)
 
-        if (buffer.toString().includes('ID')) {
+
+        if (buffer.toString().includes('Unique ID')) {
           console.log(buffer.toString())
           const str = buffer.toString()
-          if (str.includes('ID')) {
+          if (str.includes('Unique ID')) {
 
             const uniqueIdMatch = str.match(/Unique ID:\s*([^\s-]+)/);
             const versionMatch = str.match(/Versions:\s*([^\s-]+)/);
@@ -650,7 +750,28 @@ async function connectPort() {
               version
             }
 
-            console.log(macInfo)
+            try {
+
+
+              const response = await axios.get(`${constantObj.backendAddress}/device-manage/device/getDetail/${uniqueId}`)
+              const time = await axios.get(`http://sensor.bodyta.com:8080/rcv/login/getSystemTime`)
+
+
+              // 截至时间
+              if (!response.data.data) {
+                dataItem.premission = false
+              } else {
+                const expireTime = response.data.data.expireTime
+                const nowTime = time.data.time
+                if (nowTime < expireTime) {
+                  dataItem.premission = true
+                }
+                dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
+              }
+            }catch(err){
+              console.log(err ,'err')
+            }
+
 
             if (Object.keys(macInfo).length == ports.length) {
               // console.log(macInfo)
@@ -682,21 +803,29 @@ async function connectPort() {
           dataItem.type = constantObj.type[type]
           dataItem.stamp = new Date().getTime()
         } else if (pointArr.length == 1024) {
+          if (!dataItem.premission) return
           // dataItem[path]
-          dataItem.type = 'sit'
+          // dataItem.type = 'sit'
           let matrix
-          if (file == 'hand') {
+          if (dataItem.type == 'hand') {
             matrix = hand(pointArr)
-          } else if (file == 'bed') {
+          } else if (dataItem.type == 'bed') {
+            matrix = jqbed(pointArr)
+          } else if (dataItem.type == 'car-back') {
             matrix = jqbed(pointArr)
           } else {
             matrix = pointArr
           }
 
+          // 设备型号跟传感器类型匹配上
+
           dataItem.arr = matrix
+
+
 
           // 如果是脚垫  添加算法包COP数据
           if (file == 'foot') {
+            // console.log(matrix)
             if (!dataItem.arrList) {
               dataItem.arrList = []
             } else {
@@ -716,7 +845,7 @@ async function connectPort() {
 
           const stamp = new Date().getTime()
           dataItem.stamp = stamp
-          // console.log(dataItem)
+
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
             if (dataItem.HZ < 50) {
@@ -757,6 +886,7 @@ async function connectPort() {
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
+          if (!dataItem.premission) return
           dataItem.type = 'sit'
           dataItem.arr = pointArr
           const stamp = new Date().getTime()
@@ -885,7 +1015,7 @@ function sendData() {
   } else {
     // 如果串口发送数据
     const arr = []
-    // console.log(dataMap)
+
     obj = parseData(parserArr, JSON.parse(JSON.stringify({ ...dataMap })), 'highHZ')
     for (let i = 0; i < 4096; i++) {
       arr.push(Math.floor(Math.random() * 100))
@@ -907,12 +1037,21 @@ function sendData() {
 function storageData(data) {
   const timestamp = Date.now(); // 获取当前时间的时间戳
   // const date = saveTime;
+  console.log(data)
+
+  // const newData = Object.keys(data)
+  const newData = { ...data }
+  for (let i = 0; i < Object.keys(data).length; i++) {
+    const key = Object.keys(data)[i]
+    if (newData[key].status) delete newData[key].status
+  }
+
   const insertQuery =
     "INSERT INTO matrix (data, timestamp,date) VALUES (?, ?,?)";
 
   currentDb.run(
     insertQuery,
-    [JSON.stringify(data), timestamp, colName],
+    [JSON.stringify(newData), timestamp, colName],
     function (err) {
       if (err) {
         console.error(err);

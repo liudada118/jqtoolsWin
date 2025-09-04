@@ -1,8 +1,8 @@
 const module2 = require('./util/aes_ecb')
 
 const obj = {
-    value: "bed",
-    typeArr: [ "bed",  "hand"]
+    value: "hand",
+    typeArr: [ "bed",  "hand", 'car' , 'endi']
 }
 
 const config = JSON.stringify(obj)

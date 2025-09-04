@@ -1,6 +1,8 @@
 # python/app/server.py
 import sys, json, traceback
 import numpy as np
+from scipy.spatial.distance import euclidean, cdist
+import cv2
 
 def ping():
     return {"pong": True}
@@ -251,6 +253,97 @@ def calculate_cop_metrics(cop_trajectory, dt=0.08):
     }
 
 
+# 摇摆特征,这里的fps表示采样频率，r_radius表示圆的半径，time_window表示滑窗时间
+# 确定一个半径固定的圆，让这个圆随 COP 轨迹移动。统计每个时刻落入圆内的点数，得到摇摆密度曲线
+# 统计每个时刻落入圆内的COP 轨迹长度，得到摇摆长度曲线。这些值越大，表明 COP 轨迹移动范围的跨度不大，证明人体越稳定。
+# 确定一个时长固定的时间窗口随 COP 轨迹滑动，对于每个时间窗口内的 COP 轨迹，计算能包含这段 COP 轨迹的圆的最小半径，统计所有采样点得到摇摆半径曲线。
+def calculate_sway_features(cop_trajectory, fps=12.5, r_radius=0.1, time_window=0.5):
+    """
+    改进版COP摇摆特征计算
+    参数:
+        cop_trajectory: COP轨迹点列表，格式为[[x1,y1], [x2,y2], ...]
+        fps: 采样频率(Hz)，默认12.5
+        r_radius: 邻域半径（单位与坐标相同），默认0.1
+        time_window: 滑动时间窗(秒)，默认0.5
+    返回:
+        dict: 包含9个标准摇摆特征的字典
+    """
+    n = len(cop_trajectory)
+    # 检查数据量是否足够（至少0.5秒数据）
+    if n < int(fps * 0.5):
+        return None
+
+    # 转换为NumPy数组并去中心化
+    cop = np.array(cop_trajectory)
+    center = np.mean(cop, axis=0)  # 计算轨迹中心点
+    centered_cop = cop - center  # 去中心化处理
+
+    # 摇摆密度曲线计算
+    window_size = int(fps * time_window)  # 固定时间窗口大小（0.5秒）
+    density_curve = np.zeros(n)  # 初始化密度曲线数组
+    for i in range(n):
+        # 确定滑动窗口边界
+        start = max(0, i - window_size // 2)
+        end = min(n, i + window_size // 2)
+        # 计算当前点到窗口内所有点的距离
+        dists = cdist([centered_cop[i]], centered_cop[start:end])[0]
+        # 统计距离小于半径的点数（即圆内点数）
+        density_curve[i] = np.sum(dists <= r_radius)
+
+    # 摇摆长度曲线计算
+    length_curve = np.zeros(n)  # 初始化数组
+    window_points = int(fps * time_window)  # 使用统一的滑窗时间
+    for i in range(n):
+        # 确定滑窗范围
+        start = max(0, i - window_points // 2)
+        end = min(n, i + window_points // 2)
+        # 获取圆内点
+        center = centered_cop[i]  # 当前中心点
+        points_in_window = centered_cop[start:end]
+        # 计算点到中心距离
+        dists = cdist([center], points_in_window)[0]
+        mask = dists <= r_radius  # 标记圆内点
+        # 提取圆内点并排序(按时间顺序)
+        in_radius_points = points_in_window[mask]
+        # 计算轨迹长度
+        segment_length = 0
+        if len(in_radius_points) > 1:
+            # 按时间顺序(即索引顺序)连接各点
+            for j in range(1, len(in_radius_points)):
+                segment_length += euclidean(in_radius_points[j], in_radius_points[j - 1])
+        length_curve[i] = segment_length
+
+    # 摇摆半径曲线计算（最小包围圆）
+    window_points = int(fps * time_window)  # 时间窗对应的点数
+    radius_curve = []  # 初始化半径曲线列表
+    # 遍历中心区域（跳过边界点）
+    for i in range(window_points // 2, n - window_points // 2):
+        # 提取时间窗口内的点
+        window = centered_cop[i - window_points // 2: i + window_points // 2]
+        if len(window) >= 3:  # 至少需要3个点计算最小包围圆
+            # 使用OpenCV计算最小包围圆
+            _, radius = cv2.minEnclosingCircle(window.astype(np.float32))
+            radius_curve.append(radius)
+        else:
+            radius_curve.append(0)  # 点数不足时填充0
+
+    # 特征提取：从三条曲线提取统计特征
+      
+    features = {
+        "swing_density_max": float(np.max(density_curve)),
+        "swing_density_mean": float(np.mean(density_curve)),
+        "swing_density_std": float(np.std(density_curve)),
+        "swing_length_max": float(np.max(length_curve)),
+        "swing_length_mean": float(np.mean(length_curve)),
+        "swing_length_std": float(np.std(length_curve)),
+         # 处理半径曲线可能为空的情况
+        "swing_radius_max": float(np.max(radius_curve)) if radius_curve else 0.0,
+        "swing_radius_mean": float(np.mean(radius_curve)) if radius_curve else 0.0,
+        "swing_radius_std": float(np.std(radius_curve)) if radius_curve else 0.0
+    }
+    return features
+
+
 def cal_cop_fromData(data):
     # print(data)
     left_data , right_data = getMatrixData(data)
@@ -259,7 +352,12 @@ def cal_cop_fromData(data):
     left_data_serial_matrix_cop, right_data_serial_matrix_cop = get_serial_matrix_cop(left_data_left_index, left_data_right_index, right_data_left_index, right_data_right_index , data)
     left_cop = calculate_cop_metrics(left_data_serial_matrix_cop)
     right_cop = calculate_cop_metrics(right_data_serial_matrix_cop)
-    return {"left": left_cop, "right" :right_cop}
+    left_sway = calculate_sway_features(left_data_serial_matrix_cop) or {}
+    right_sway = calculate_sway_features(right_data_serial_matrix_cop) or {}
+
+    return {"left_cop": left_cop, "right_cop" :right_cop 
+    , "left_sway" : left_sway , "right_sway" : right_sway
+    }
 FUNCS = {"ping": ping, "cal_cop_fromData": cal_cop_fromData}
 
 def handle(req):

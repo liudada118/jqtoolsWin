@@ -4,7 +4,7 @@ const createCsvWriter = require("csv-writer").createObjectCsvWriter;
 const fs = require('fs');
 const { timeStampTo_Date } = require("./time");
 const constantObj = require("./config");
-const csvPath = __dirname + "/../data";
+
 /**
  * 输入当前系统名  返回可执行数据库
  * @param {*string} fileStr 输入当前选择系统名
@@ -19,6 +19,7 @@ const initDb = (fileStr, filePath) => {
   // } else 
   {
     // console.log(first)
+    console.log(`${filePath}/${file}.db`)
     db = genDb(`${filePath}/${file}.db`, filePath)
   }
   return { db, db1 }
@@ -44,7 +45,12 @@ function genDb(file, filePath) {
   }
 }
 
-function dbload(db, param, file) {
+function isAllDigits(str) {
+  return /^\d+$/.test(str) && str.includes('.') && str.length == 15;
+}
+
+
+function dbload(db, param, file ,isPackaged) {
   const selectQuery = "select * from matrix WHERE date=?";
   return new Promise((resolve, reject) => {
     db.all(selectQuery, param, (err, rows) => {
@@ -65,6 +71,8 @@ function dbload(db, param, file) {
 
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
+
+            if(!JSON.parse(rows[i][`data`])[key]) continue
             const data = JSON.parse(rows[i][`data`])[key].arr
 
             if (j == 0) {
@@ -88,8 +96,9 @@ function dbload(db, param, file) {
 
         // let str = nowGetTime.replace(/[/:]/g, "-");
         let str = param;
-        if (str.includes(" ")) {
-          str = str.split(" ")[0];
+        console.log(str , 'str')
+        if (!isAllDigits(str)) {
+          // str = str.split(" ")[0];
         } else {
           str = timeStampTo_Date(Number(str));
         }
@@ -109,6 +118,10 @@ function dbload(db, param, file) {
             { id: `${key}realData`, title: `${key}data` },)
         }
 
+        let csvPath = __dirname + "/../data";
+        if(isPackaged){
+          csvPath = 'resources/data'
+        }
 
         const csvWriter1 = createCsvWriter({
           path: `${csvPath}/${file}${str}.csv`,
@@ -136,7 +149,7 @@ function dbload(db, param, file) {
   })
 }
 
-async function dbLoadCsv({ db, params, file }) {
+async function dbLoadCsv({ db, params, file,isPackaged }) {
   const selectQuery = "select * from matrix WHERE date=?";
   // params.forEach((param) => {
   //   db.all(selectQuery, param, (err, rows) => {
@@ -218,7 +231,7 @@ async function dbLoadCsv({ db, params, file }) {
   //     }
   //   });
   // })
-  const promises = params.map((param) => dbload(db, param, file))
+  const promises = params.map((param) => dbload(db, param, file,isPackaged))
   const results = await Promise.all(promises);
   console.log(results, promises, 'result')
   return results
@@ -253,6 +266,17 @@ async function deleteDbData({ db, params }) {
   return results
 }
 
+async function changeDbName({db , params}) {
+  const changeQuery = `UPDATE matrix SET "date" = ? WHERE "date" = ?`;
+  db.run(changeQuery, params, function (err) {
+    if (err) {
+      console.error('更新失败:', err.message);
+    } else {
+      console.log(`更新成功，修改了 ${this.changes} 行`);
+    }
+  });
+}
+
 async function dbGetData({ db, params }) {
   const selectQuery = "select * from matrix WHERE date=?";
 
@@ -279,6 +303,8 @@ async function dbGetData({ db, params }) {
           let pressValue = 0, areaValue = 0
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
+            if(!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
+            console.log(JSON.parse(rows[i][`data`])[key])
             const data = JSON.parse(rows[i][`data`])[key].arr
             pressValue += data.reduce((a, b) => a + b, 0)
             areaValue += data.filter((a) => a > 0).length
@@ -353,5 +379,6 @@ module.exports = {
   deleteDbData,
   dbGetData,
   getCsvData,
-  changeDbDataName
+  changeDbDataName,
+  changeDbName
 }

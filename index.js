@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow,Menu } = require('electron')
 const path = require('path')
 const { fork, spawn } = require('child_process')
 const { getHardwareFingerprint } = require('./util/getWinConfig')
@@ -113,27 +113,28 @@ function startApiChild() {
   })
 }
 
-const child1 = fork(path.join(__dirname, './pyWorker.js'), {
-  env: {
-    isPackaged: isPackaged,
-    appPath: app.getAppPath()
-  }
-})
+// const child1 = fork(path.join(__dirname, './pyWorker.js'), {
+//   env: {
+//     isPackaged: isPackaged,
+//     appPath: app.getAppPath()
+//   }
+// })
 
 const createWindow = () => {
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    // width: 800,
+    // height: 600,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false
-    }
+    },
+    icon : path.join(__dirname, 'logo.ico')
 
   })
 
   const hostname = "127.0.0.1";
-  const port = 3000;
+  const port = 2999;
 
 
   // win.loadURL('http://sensor.bodyta.com/4096')
@@ -239,26 +240,29 @@ function startServerProcess() {
 }
 
 // 调用你的函数（示例）
-async function demo(matrix) {
-  // 构造一条 1024 长度的测试数据
+// async function demo(matrix) {
+//   // 构造一条 1024 长度的测试数据
 
-  // console.log(matrix)
-  // const data = new Array(10).fill(new Array(1024).fill(50)); // 可以放多条
-  // const res = await callPy('cal_cop_fromData', { data : matrix });
-  const res = await callPy('cal_cop_fromData', { data: matrix });
-  console.log(res);
-  console.log('结果:', res, new Date().getTime()); // { left: [...], right: [...] }
-}
+//   // console.log(matrix)
+//   // const data = new Array(10).fill(new Array(1024).fill(50)); // 可以放多条
+//   // const res = await callPy('cal_cop_fromData', { data : matrix });
+//   const res = await callPy('cal_cop_fromData', { data: matrix });
+//   console.log(res);
+//   console.log('结果:', res, new Date().getTime()); // { left: [...], right: [...] }
+// }
 
 app.whenReady().then(async () => {
   const uuid = await getHardwareFingerprint()
   const dateKey = await getKeyfromWinuuid(uuid)
   console.log(uuid, dateKey)
 
+  // 开始本地api线程
   await startApiChild()
+  // 开启python线程
+  //  startWorker(); // 
   createWindow()
 
-  // startWorker(); // 
+  // Menu.setApplicationMenu(null);
 
   // const data1 = await getCsvData('D:/jqtoolsWin - 副本/python/app/静态数据集1.csv')
 
