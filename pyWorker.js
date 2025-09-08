@@ -9,7 +9,7 @@ const fs = require('fs');
 // console.log('userData from env:', process.workerData.isPackaged);
 let isPackaged = process.env.isPackaged
 isPackaged = isPackaged == 'true'
-isPackaged = true
+// isPackaged = true
 console.log(process.resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(process.resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
 function pythonBin() {
   const isDev = !isPackaged;
@@ -25,8 +25,8 @@ function pythonBin() {
 function serverPy() {
   const isDev = !isPackaged;
   return isDev
-    ? path.join(__dirname,  'python', 'app', 'server.py')
-    : path.join(process.resourcesPath, 'python', 'app', 'server.py');
+    ? path.join(__dirname,  'python', 'app', 'onbed_filter_example.py')
+    : path.join(process.resourcesPath, 'python', 'app', 'onbed_filter_example.py');
 }
 
 let child = null;
@@ -59,8 +59,10 @@ function startWorker() {
 
   child.stdout.on('data', (d) => {
     buf += d.toString();
+    // console.log(JSON.parse(buf))
     const lines = buf.split(/\r?\n/);
     buf = lines.pop() || ''; // 剩下一半行，等待下一次拼接
+
     for (const line of lines) {
       if (!line.trim()) continue;
       let msg;

@@ -14,7 +14,7 @@ const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
 const { hand, jqbed } = require('../util/line');
-// const { callPy } = require('../pyWorker');
+const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
 
@@ -468,20 +468,20 @@ app.post('/getCsvData', async (req, res) => {
   res.json(new HttpResult(0, data, 'success'));
 })
 
-function portWirte(port){
-  return new Promise((resolve , reject) => {
+function portWirte(port) {
+  return new Promise((resolve, reject) => {
     const command = 'AT\r\n';
-      port.write(command, err => {
-        if (err) {
-          return console.error('err2:', err.message);
-        }
-        console.log('send:', command.trim());
-        resolve(command.trim())
-      });
+    port.write(command, err => {
+      if (err) {
+        return console.error('err2:', err.message);
+      }
+      console.log('send:', command.trim());
+      resolve(command.trim())
+    });
   })
 }
 
-app.get('/sendMac', async(req, res) => {
+app.get('/sendMac', async (req, res) => {
 
   if (Object.keys(parserArr).length) {
     const task = []
@@ -495,13 +495,13 @@ app.get('/sendMac', async(req, res) => {
       //     return console.error('err2:', err.message);
       //   }
       //   console.log('send:', command.trim());
-        
+
       // });
-       
+
       task.push(portWirte(port))
     }
     const results = await Promise.all(task);
-     res.json(new HttpResult(0, {}, '发送成功'));
+    res.json(new HttpResult(0, {}, '发送成功'));
   } else {
     res.json(new HttpResult(0, {}, '请先连接串口'));
   }
@@ -628,7 +628,7 @@ function parseData(parserArr, objs, type) {
 
       // 根据发送时间与最新时间戳的差值  判断设备的在离线状态
       if (dataStamp < 1000) {
-        console.log(historyFlag)
+
         json[data.type].status = 'online'
         // console.log(first)
         if (data.type.includes(file)) json[data.type].arr = blueArr
@@ -636,6 +636,7 @@ function parseData(parserArr, objs, type) {
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
         if (data.cop) json[data.type].cop = data.cop
+        if (data.breatheData) json[data.type].cop = data.breatheData
         // json[data.type].stampDiff = new Date().getTime() - data.stamp
       } else {
         json[data.type].status = 'offline'
@@ -768,8 +769,8 @@ async function connectPort() {
                 }
                 dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
               }
-            }catch(err){
-              console.log(err ,'err')
+            } catch (err) {
+              console.log(err, 'err')
             }
 
 
@@ -990,6 +991,35 @@ function colAndSendData() {
 //   }, 80)
 // }
 
+
+setInterval(async () => {
+  // console.log(dataMap)
+  const keyArr = Object.keys(dataMap)
+  const equipArr = {}
+  for (let i = 0; i < keyArr.length; i++) {
+    const key = keyArr[i]
+    // console.log(key)
+    // equipArr.push(dataMap[key].type)
+    equipArr[dataMap[key].type] = key
+  }
+
+  if (Object.keys(equipArr).includes('bed')) {
+    const dataObj = dataMap[equipArr['bed']]
+
+    // console.log(dataObj.arr, )
+    if (dataObj.arr) {
+
+
+      const data = await callPy('getData', { data: dataObj.arr })
+      if (data.rate != -1) {
+        dataMap[equipArr['bed']].breatheData = data
+      }
+
+
+    }
+    // console.log(dataMap)
+  }
+}, 125);
 
 
 /**
