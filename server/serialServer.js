@@ -158,7 +158,9 @@ app.post('/selectSystem', (req, res) => {
   currentDb = db
   if (blue.includes(file)) {
     baudRate = 921600
-  } else {
+  } else if(file == 'hand'){
+    baudRate = 3000000
+  }else{
     baudRate = 1000000
   }
 })
@@ -170,6 +172,9 @@ app.get('/getSystem', async (req, res) => {
   const result = JSON.parse(decryptStr(config))
   result.value = file
 
+  if(result.value == 'hand'){
+    baudRate = 3000000
+  }
   // const result = {
   //   value: "bed",
   //   typeArr: ["bed", "hand", 'foot', 'bigHand']
@@ -631,7 +636,8 @@ function parseData(parserArr, objs, type) {
         console.log(historyFlag)
         json[data.type].status = 'online'
         // console.log(first)
-        if (data.type.includes(file)) json[data.type].arr = blueArr
+        // if (data.type.includes(file)) 
+          json[data.type].arr = blueArr
         json[data.type].rotate = data.rotate
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
@@ -717,7 +723,7 @@ async function connectPort() {
 
 
         let buffer = Buffer.from(data);
-
+        console.log(buffer.length)
         pointArr = new Array();
 
         if (![18, 1024, 130, 146].includes(buffer.length)) {
@@ -886,7 +892,7 @@ async function connectPort() {
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
-          if (!dataItem.premission) return
+          // if (!dataItem.premission) return
           dataItem.type = 'sit'
           dataItem.arr = pointArr
           const stamp = new Date().getTime()
