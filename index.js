@@ -6,7 +6,7 @@ const { getKeyfromWinuuid } = require('./util/getServer')
 const { initDb, getCsvData } = require('./util/db')
 const http = require('http')
 const fs = require('fs')
-const { startWorker, callPy } = require('./pyWorker')
+// const { startWorker, callPy } = require('./pyWorker')
 const isPackaged = app.isPackaged
 
 function openWeb({ hostname, port, fn }) {
@@ -259,7 +259,7 @@ app.whenReady().then(async () => {
   // 开始本地api线程
   await startApiChild()
   // 开启python线程
-  startWorker(); // 
+  // startWorker(); // 
   createWindow()
 
   Menu.setApplicationMenu(null);
@@ -268,25 +268,25 @@ app.whenReady().then(async () => {
 
   // const matrix = data1.map((a) => JSON.parse(a.data))
 
-  try {
-    console.log('setTimeout')
-    const data = await callPy('getData', { data: new Array(1024).fill(20)})
+  // try {
+  //   console.log('setTimeout')
+  //   const data = await callPy('getData', { data: new Array(1024).fill(20)})
 
-    //  {
-    //   'frameData': new Array(1024).fill(0),
-    //   'tim': new Date().getTime() % 1000,
-    //   'threshold_factor': 25,
-    //   'continuous_on_bed_duration_minutes': 1.0,
-    //   'unlock_sitting_alarm_duration_minutes': 1.0,
-    //   'unlock_falling_alarm_duration_minutes': 1.0,
-    //   'sosPeakThreshold': 25.0,
-    //   'points_threshold_in': 3.0
-    // }
-    console.log(data, 'data')
-  }
-  catch (e) {
-    console.error('[PY ERROR]', e)
-  }
+  //   //  {
+  //   //   'frameData': new Array(1024).fill(0),
+  //   //   'tim': new Date().getTime() % 1000,
+  //   //   'threshold_factor': 25,
+  //   //   'continuous_on_bed_duration_minutes': 1.0,
+  //   //   'unlock_sitting_alarm_duration_minutes': 1.0,
+  //   //   'unlock_falling_alarm_duration_minutes': 1.0,
+  //   //   'sosPeakThreshold': 25.0,
+  //   //   'points_threshold_in': 3.0
+  //   // }
+  //   console.log(data, 'data')
+  // }
+  // catch (e) {
+  //   console.error('[PY ERROR]', e)
+  // }
 
 
   // try {

@@ -25,8 +25,8 @@ function pythonBin() {
 function serverPy() {
   const isDev = !isPackaged;
   return isDev
-    ? path.join(__dirname,  'python', 'app', 'onbed_filter_example.py')
-    : path.join(process.resourcesPath, 'python', 'app', 'onbed_filter_example.py');
+    ? path.join(__dirname,  'python', 'app', 'Comprehensive_Indicators_multi_input.py')
+    : path.join(process.resourcesPath, 'python', 'app', 'Comprehensive_Indicators_multi_input.py');
 }
 
 let child = null;

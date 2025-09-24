@@ -14,9 +14,10 @@ const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
 const { hand, jqbed } = require('../util/line');
-const { callPy } = require('../pyWorker');
+// const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
+const module2 = require('../util/aes_ecb')
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -431,7 +432,8 @@ app.post('/changeSystemType', async (req, res) => {
   console.log(baudRate)
   // stopPort()
   socketSendData(server, JSON.stringify({ sitData: {} }))
-  res.json(new HttpResult(0, {}, 'success'));
+
+  res.json(new HttpResult(0, { optimalObj: result.optimalObj[file], maxObj: result.maxObj[file] }, 'success'));
 })
 
 
@@ -505,6 +507,18 @@ app.get('/sendMac', async (req, res) => {
   } else {
     res.json(new HttpResult(0, {}, '请先连接串口'));
   }
+})
+
+app.post('/getSysconfig', async (req, res) => {
+  const { config } = req.body
+  // const data = getCsvData(fileName)
+  const result = JSON.stringify(config)
+
+  let str = module2.encStr(`${result}`);
+  const data = str
+  //   console.log(data)
+  // csvArr = data
+  res.json(new HttpResult(0, data, 'success'));
 })
 
 // 计算cop 
@@ -631,7 +645,8 @@ function parseData(parserArr, objs, type) {
 
         json[data.type].status = 'online'
         // console.log(first)
-        if (data.type.includes(file)) json[data.type].arr = blueArr
+        // if (data.type.includes(file)) json[data.type].arr = blueArr
+        json[data.type].arr = blueArr
         json[data.type].rotate = data.rotate
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
@@ -730,7 +745,7 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-
+        console.log(buffer.length)
 
         if (buffer.toString().includes('Unique ID')) {
           console.log(buffer.toString())
@@ -887,9 +902,10 @@ async function connectPort() {
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
-          if (!dataItem.premission) return
+          // if (!dataItem.premission) return
           dataItem.type = 'sit'
           dataItem.arr = pointArr
+          console.log(444)
           const stamp = new Date().getTime()
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
@@ -907,6 +923,21 @@ async function connectPort() {
           // } else {
 
           // }
+
+          if (!dataItem.arrList) {
+            dataItem.arrList = []
+          } else {
+            if (dataItem.arrList.length < 3) {
+              dataItem.arrList.push(pointArr)
+            } else {
+              dataItem.arrList.shift()
+              dataItem.arrList.push(pointArr)
+            }
+
+            // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
+            console.log(dataItem.arrList, pointArr.length, dataItem.cop)
+          }
+
         }
 
 
@@ -992,34 +1023,34 @@ function colAndSendData() {
 // }
 
 
-setInterval(async () => {
-  // console.log(dataMap)
-  const keyArr = Object.keys(dataMap)
-  const equipArr = {}
-  for (let i = 0; i < keyArr.length; i++) {
-    const key = keyArr[i]
-    // console.log(key)
-    // equipArr.push(dataMap[key].type)
-    equipArr[dataMap[key].type] = key
-  }
+// setInterval(async () => {
+//   // console.log(dataMap)
+//   const keyArr = Object.keys(dataMap)
+//   const equipArr = {}
+//   for (let i = 0; i < keyArr.length; i++) {
+//     const key = keyArr[i]
+//     // console.log(key)
+//     // equipArr.push(dataMap[key].type)
+//     equipArr[dataMap[key].type] = key
+//   }
 
-  if (Object.keys(equipArr).includes('bed')) {
-    const dataObj = dataMap[equipArr['bed']]
+//   if (Object.keys(equipArr).includes('bed')) {
+//     const dataObj = dataMap[equipArr['bed']]
 
-    // console.log(dataObj.arr, )
-    if (dataObj.arr) {
-
-
-      const data = await callPy('getData', { data: dataObj.arr })
-      if (data.rate != -1) {
-        dataMap[equipArr['bed']].breatheData = data
-      }
+//     // console.log(dataObj.arr, )
+//     if (dataObj.arr) {
 
 
-    }
-    // console.log(dataMap)
-  }
-}, 125);
+//       // const data = await callPy('getData', { data: dataObj.arr })
+//       // if (data.rate != -1) {
+//       //   dataMap[equipArr['bed']].breatheData = data
+//       // }
+
+
+//     }
+//     // console.log(dataMap)
+//   }
+// }, 125);
 
 
 /**
