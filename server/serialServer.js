@@ -819,6 +819,7 @@ async function connectPort() {
           dataItem.type = constantObj.type[type]
           dataItem.stamp = new Date().getTime()
         } else if (pointArr.length == 1024) {
+          // ret
           if (!dataItem.premission) return
           // dataItem[path]
           // dataItem.type = 'sit'
@@ -892,7 +893,53 @@ async function connectPort() {
           // }
 
 
-        } else if (pointArr.length == 146) {
+        } else if (pointArr.length == 1025) {
+          const type = pointArr.shift()
+          dataItem.premission = true
+            console.log(type ,Object.keys(constantObj.typeConfig) )
+          if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
+            dataItem.premission = false
+            return
+          }
+
+          dataItem.type = constantObj.typeConfig[type]
+          console.log(dataItem.type)
+          if (constantObj.typeConfig[type] == 'car-back') {
+            matrix = jqbed(pointArr)
+          } else if (constantObj.typeConfig[type] == 'car-sit') {
+            matrix = jqbed(pointArr)
+          }else if (constantObj.typeConfig[type] == 'bed') {
+            matrix = jqbed(pointArr)
+          }
+          dataItem.arr = matrix
+
+          const stamp = new Date().getTime()
+          dataItem.stamp = stamp
+
+          if (oldTimeObj[dataItem.type]) {
+            dataItem.HZ = stamp - oldTimeObj[dataItem.type]
+            if (dataItem.HZ < 50) {
+              return
+            }
+            if (!MaxHZ && oldTimeObj[dataItem.type]) {
+              MaxHZ = Math.floor(1000 / dataItem.HZ)
+              HZ = MaxHZ
+              console.log('playtimer', HZ)
+              if (playtimer) {
+                clearInterval(playtimer)
+              }
+              playtimer = setInterval(() => {
+                colAndSendData()
+              }, 80)
+            }
+          }
+
+          oldTimeObj[dataItem.type] = dataItem.stamp
+
+
+        }
+
+        else if (pointArr.length == 146) {
           const length = pointArr.length
           const arr = pointArr.splice(length - 16, length)
           pointArr.splice(0, 2)
