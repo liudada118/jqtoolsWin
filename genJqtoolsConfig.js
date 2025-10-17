@@ -1,15 +1,17 @@
 const module2 = require('./util/aes_ecb')
 
 const obj = {
-    value: "bed",
-    typeArr: ["bed", 'car'],
+    value: "foot4",
+    typeArr: ["bed", 'car','foot4'],
     optimalObj: {
         bed: { gauss: 2.6, color: 355, filter: 6, height: 2.02, coherent: 1 },
-        car: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 }
+        car: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 },
+        foot4: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 }
     },
     maxObj: {
         bed: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },
-        car: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 }
+        car: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },
+        foot4: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 }
     }
 }
 

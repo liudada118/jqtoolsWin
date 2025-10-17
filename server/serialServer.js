@@ -87,7 +87,7 @@ const port = 19245
 const config = fs.readFileSync('./config.txt', 'utf-8',)
 const result = JSON.parse(decryptStr(config))
 // 当前的软件系统 , 当前的波特率
-var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
+var file = result.value, baudRate = 3000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
@@ -175,7 +175,7 @@ app.get('/getSystem', async (req, res) => {
   //   value: "bed",
   //   typeArr: ["bed", "hand", 'foot', 'bigHand']
   // }
-  baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+  baudRate = 3000000//constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
 
   const { db } = initDb(file, dbPath)
   currentDb = db
@@ -950,7 +950,7 @@ async function connectPort() {
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
           // if (!dataItem.premission) return
-          dataItem.type = 'sit'
+          dataItem.type = path
           dataItem.arr = pointArr
           console.log(444)
           const stamp = new Date().getTime()
