@@ -13,7 +13,7 @@ const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
-const { hand, jqbed } = require('../util/line');
+const { hand, jqbed, endiSit, endiBack } = require('../util/line');
 // const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
@@ -86,6 +86,7 @@ const port = 19245
 
 const config = fs.readFileSync('./config.txt', 'utf-8',)
 const result = JSON.parse(decryptStr(config))
+console.log(result)
 // 当前的软件系统 , 当前的波特率
 var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
@@ -472,13 +473,17 @@ app.post('/getCsvData', async (req, res) => {
 
 function portWirte(port) {
   return new Promise((resolve, reject) => {
-    const command = 'AT\r\n';
+    // const command = 'AT\r\n';
+    const command = Buffer.from('41542B4E414D453D45535033320d0a', 'hex')
     port.write(command, err => {
       if (err) {
         return console.error('err2:', err.message);
       }
-      console.log('send:', command.trim());
-      resolve(command.trim())
+      // console.log('send:', command.trim());
+      // resolve(command.trim())
+
+      console.log('send:', 11);
+      resolve(11)
     });
   })
 }
@@ -503,6 +508,8 @@ app.get('/sendMac', async (req, res) => {
       task.push(portWirte(port))
     }
     const results = await Promise.all(task);
+    sendMacNum++
+    console.log('sendTotal:', sendMacNum, '-----', 'success:', successNum)
     res.json(new HttpResult(0, {}, '发送成功'));
   } else {
     res.json(new HttpResult(0, {}, '请先连接串口'));
@@ -671,7 +678,7 @@ function parseData(parserArr, objs, type) {
  * 
  */
 
-
+var sendMacNum = 0, successNum = 0
 
 const oldTimeObj = {}
 async function connectPort() {
@@ -719,12 +726,14 @@ async function connectPort() {
       //   });
       // });
 
-      const command = 'AT\r\n';
+      // const command = 'AT\r\n';
+      const command = Buffer.from('41542B4E414D453D45535033320d0a', 'hex')
       port.write(command, err => {
         if (err) {
           return console.error('err2:', err.message);
         }
-        console.log('send:', command.trim());
+        console.log('send:', 22);
+        sendMacNum++
       });
 
       parserItem.port = port
@@ -760,7 +769,9 @@ async function connectPort() {
 
             console.log("Unique ID:", uniqueId);  // 34463730155032138F
             console.log("Versions:", version);    // C40510
+            successNum++
 
+            console.log('sendTotal:', sendMacNum, '-----', 'success:', successNum)
             macInfo[path] = {
               uniqueId,
               version
@@ -896,7 +907,7 @@ async function connectPort() {
         } else if (pointArr.length == 1025) {
           const type = pointArr.shift()
           dataItem.premission = true
-            console.log(type ,Object.keys(constantObj.typeConfig) )
+          console.log(type, Object.keys(constantObj.typeConfig))
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
@@ -908,7 +919,7 @@ async function connectPort() {
             matrix = jqbed(pointArr)
           } else if (constantObj.typeConfig[type] == 'car-sit') {
             matrix = jqbed(pointArr)
-          }else if (constantObj.typeConfig[type] == 'bed') {
+          } else if (constantObj.typeConfig[type] == 'bed') {
             matrix = jqbed(pointArr)
           }
           dataItem.arr = matrix
@@ -949,9 +960,72 @@ async function connectPort() {
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
+          if (!dataItem.premission) return
+          // dataItem.type = 'sit'
+
+          if (dataItem.type == 'endi-sit') {
+            dataItem.arr = endiSit(pointArr)
+          }else if(dataItem.type == 'endi-back'){
+            dataItem.arr = endiBack(pointArr)
+          }else{
+            dataItem.arr = pointArr
+          }
+
+          console.log(444)
+          const stamp = new Date().getTime()
+          if (oldTimeObj[dataItem.type]) {
+            dataItem.HZ = stamp - oldTimeObj[dataItem.type]
+            if (!MaxHZ) {
+              MaxHZ = Math.floor(1000 / dataItem.HZ)
+              HZ = MaxHZ
+              playtimer = setInterval(() => {
+                colAndSendData()
+              }, 1000 / HZ)
+            }
+          }
+          dataItem.stamp = stamp
+          // if (!oldTimeObj[dataItem.type]) {
+          oldTimeObj[dataItem.type] = dataItem.stamp
+          // } else {
+
+          // }
+
+          if (!dataItem.arrList) {
+            dataItem.arrList = []
+          } else {
+            if (dataItem.arrList.length < 3) {
+              dataItem.arrList.push(pointArr)
+            } else {
+              dataItem.arrList.shift()
+              dataItem.arrList.push(pointArr)
+            }
+
+            // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
+            console.log(dataItem.arrList, pointArr.length, dataItem.cop)
+          }
+
+        }else if (pointArr.length == 4097) {
           // if (!dataItem.premission) return
-          dataItem.type = 'sit'
-          dataItem.arr = pointArr
+          // dataItem.type = 'sit'
+
+          const type = pointArr.shift()
+          dataItem.premission = true
+          console.log(type, Object.keys(constantObj.typeConfig))
+          if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
+            dataItem.premission = false
+            return
+          }
+
+          dataItem.type = constantObj.typeConfig[type]
+
+          if (dataItem.type == 'endi-sit') {
+            dataItem.arr = endiSit(pointArr)
+          }else if(dataItem.type == 'endi-back'){
+            dataItem.arr = endiBack(pointArr)
+          }else{
+            dataItem.arr = pointArr
+          }
+
           console.log(444)
           const stamp = new Date().getTime()
           if (oldTimeObj[dataItem.type]) {

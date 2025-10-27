@@ -1,7 +1,7 @@
 
 const baudRate921600Arr = []
 const baudRate1000000Arr = ['hand' , 'bed']
-const baudRate3000000Arr = ['bigHand']
+const baudRate3000000Arr = ['bigHand' , 'endi']
 
 const baudRateObj = {}
 baudRate921600Arr.forEach((file) => {
@@ -19,7 +19,9 @@ baudRate3000000Arr.forEach((file) => {
 const typeConfig = {
     1 : 'car-back',
     2 : 'car-sit',
-    3 : 'bed'
+    3 : 'bed',
+    4 : 'endi-back',
+    5 : 'endi-sit'
 }
 
 
