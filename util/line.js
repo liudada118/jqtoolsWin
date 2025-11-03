@@ -45,7 +45,6 @@ function jqbed(arr) {
 function arrToRealLine(arr, arrX, arrY) {
     const realX = [], realY = []
     arrX.forEach((a) => {
-        console.log(a)
         if (Array.isArray(a)) {
             // for(let i = )
             if (a[0] > a[1]) {

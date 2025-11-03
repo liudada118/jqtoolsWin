@@ -754,7 +754,7 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-        console.log(buffer.length)
+   
 
         if (buffer.toString().includes('Unique ID')) {
           console.log(buffer.toString())
@@ -907,14 +907,14 @@ async function connectPort() {
         } else if (pointArr.length == 1025) {
           const type = pointArr.shift()
           dataItem.premission = true
-          console.log(type, Object.keys(constantObj.typeConfig))
+        
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
           }
-
+          let matrix
           dataItem.type = constantObj.typeConfig[type]
-          console.log(dataItem.type)
+       
           if (constantObj.typeConfig[type] == 'car-back') {
             matrix = jqbed(pointArr)
           } else if (constantObj.typeConfig[type] == 'car-sit') {
@@ -971,7 +971,7 @@ async function connectPort() {
             dataItem.arr = pointArr
           }
 
-          console.log(444)
+          // console.log(444)
           const stamp = new Date().getTime()
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
@@ -1001,7 +1001,7 @@ async function connectPort() {
             }
 
             // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
-            console.log(dataItem.arrList, pointArr.length, dataItem.cop)
+            // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
         }else if (pointArr.length == 4097) {
@@ -1010,7 +1010,7 @@ async function connectPort() {
 
           const type = pointArr.shift()
           dataItem.premission = true
-          console.log(type, Object.keys(constantObj.typeConfig))
+  
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
@@ -1026,7 +1026,6 @@ async function connectPort() {
             dataItem.arr = pointArr
           }
 
-          console.log(444)
           const stamp = new Date().getTime()
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
@@ -1056,7 +1055,7 @@ async function connectPort() {
             }
 
             // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
-            console.log(dataItem.arrList, pointArr.length, dataItem.cop)
+            // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
         }
@@ -1064,8 +1063,6 @@ async function connectPort() {
 
         else if (![18, 1024, 130].includes(pointArr.length)) {
 
-          // console.log(path,pointArr, pointArr.length, new Date().getTime())
-          // console.log(pointArr)
         }
       })
     }
@@ -1219,7 +1216,7 @@ function sendData() {
 function storageData(data) {
   const timestamp = Date.now(); // 获取当前时间的时间戳
   // const date = saveTime;
-  console.log(data)
+
 
   // const newData = Object.keys(data)
   const newData = { ...data }
