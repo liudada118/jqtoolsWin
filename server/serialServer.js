@@ -98,6 +98,10 @@ let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 let historyDbArr;
 
 
+//对比数据
+let leftDbArr, rightDbArr;
+
+
 const { db } = initDb(file, dbPath)
 currentDb = db
 
@@ -361,7 +365,26 @@ app.post('/getDbHistory', async (req, res) => {
   res.json(new HttpResult(0, data, 'success'));
 })
 
-app.post('/get')
+app.post('/getContrastData', async (req, res) => {
+  const { left, right } = req.body
+
+  const selectQuery = "select * from matrix WHERE date=?";
+
+  const params = [left];
+  const params1 = [right]
+
+  const { length : lengthL, pressArr :pressArrL, areaArr : areaArrL, rows : rowsL } = await dbGetData({ db: currentDb, params })
+  const { length, pressArr, areaArr, rows } = await dbGetData({ db: currentDb, params: params1 })
+
+  leftDbArr = rowsL
+  rightDbArr = rows
+
+  const data = { left: { length : lengthL, pressArr : pressArrL, areaArr : areaArrL, }, right: { length, pressArr, areaArr, } }
+
+  res.json(new HttpResult(0, data, 'success'));
+
+})
+
 
 app.post('/changeDbDataName', async (req, res) => {
   const { oldName, newName } = req.body

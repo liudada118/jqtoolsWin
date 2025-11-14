@@ -74,7 +74,7 @@ function dbload(db, param, file, isPackaged) {
 
             if (!JSON.parse(rows[i][`data`])[key]) continue
             const data = JSON.parse(rows[i][`data`])[key].arr
-            if(!data) continue
+            if (!data) continue
 
             if (j == 0) {
               newData.time = timeStampTo_Date(rows[i][`timestamp`])
@@ -303,25 +303,32 @@ async function dbGetData({ db, params }) {
           area = [];
         // console.log(rows , 'rows',params)
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
+        let pressValue = {}, areaValue = {}
+         for (let j = 0; j < keyArr.length; j++) {
+            const key = keyArr[j]
+            pressValue[key] = []
+            areaValue[key] = []
+          }
         for (let i = 0; i < rows.length; i++) {
 
-          let pressValue = 0, areaValue = 0
+          
+         
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
             if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
             console.log(JSON.parse(rows[i][`data`])[key])
             const data = JSON.parse(rows[i][`data`])[key].arr
-            pressValue += data.reduce((a, b) => a + b, 0)
-            areaValue += data.filter((a) => a > 0).length
+            pressValue[key].push(data.reduce((a, b) => a + b, 0))
+            areaValue[key].push(data.filter((a) => a > 0).length)
           }
-          press.push(pressValue);
-          area.push(areaValue);
+          // press.push(pressValue);
+          // area.push(areaValue);
         }
 
         resolve({
           length,
-          pressArr: press,
-          areaArr: area,
+          pressArr: pressValue,
+          areaArr: areaValue,
           rows: rows
         })
 
