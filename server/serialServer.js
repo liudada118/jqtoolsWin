@@ -373,13 +373,19 @@ app.post('/getContrastData', async (req, res) => {
   const params = [left];
   const params1 = [right]
 
-  const { length : lengthL, pressArr :pressArrL, areaArr : areaArrL, rows : rowsL } = await dbGetData({ db: currentDb, params })
+  const { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, rows: rowsL } = await dbGetData({ db: currentDb, params })
   const { length, pressArr, areaArr, rows } = await dbGetData({ db: currentDb, params: params1 })
 
   leftDbArr = rowsL
   rightDbArr = rows
 
-  const data = { left: { length : lengthL, pressArr : pressArrL, areaArr : areaArrL, }, right: { length, pressArr, areaArr, } }
+  const data = { left: { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, }, right: { length, pressArr, areaArr, } }
+
+  socketSendData(server, JSON.stringify({
+    contrastData: {left : JSON.parse(leftDbArr[0].data) , right : JSON.parse(rightDbArr[0].data)},
+    // index: playIndex,
+    // timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
+  }))
 
   res.json(new HttpResult(0, data, 'success'));
 

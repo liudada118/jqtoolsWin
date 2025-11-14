@@ -79,6 +79,8 @@ function arrToRealLine(arr, arrX, arrY) {
     })
 
     let newArr = []
+
+    console.log(realY.length ,realX.length,JSON.stringify(realY) )
     for (let i = 0; i < realY.length; i++) {
         for (let j = 0; j < realX.length; j++) {
             const realXCoo = realY[i]
@@ -136,7 +138,7 @@ function arrToRealLine(arr, arrX, arrY) {
 
 function endiSit(arr) {
     let arrX = [[63, 19]]
-    let arrY = [[20, 32], 0, [63, 56], [34, 55]]
+    let arrY = [[20, 32], 0, [63, 56], [33, 55]]
 
     let newArr = arrToRealLine(arr, arrX, arrY)
     // newArr = rotate90(newArr, 45, 45)
