@@ -90,10 +90,20 @@ function arrToRealLine(arr, arrX, arrY) {
     return newArr
 }
 
+// function endiSit(arr) {
+//     let arrX = [[22, 0], [23, 44]]
+//     let arrY = [[1, 32], 0, [63, 63 - 11]]
+//     return arrToRealLine(arr, arrX, arrY)
+// }
+
 function endiSit(arr) {
-    let arrX = [[22, 0], [23, 44]]
-    let arrY = [[1, 32], 0, [63, 63 - 11]]
-    return arrToRealLine(arr, arrX, arrY)
+    let arrX = [[63, 19]]
+    let arrY = [[20, 32], 0, [63, 56], [34, 55]]
+
+    let newArr = arrToRealLine(arr, arrX, arrY)
+    // newArr = rotate90(newArr, 45, 45)
+    return newArr
+
 }
 
 function endiBack(arr) {
