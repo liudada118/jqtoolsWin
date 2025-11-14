@@ -92,7 +92,7 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   // 发送HZ , 串口最大hz, 采集开关 , 采集命名 , 历史数据开关 , 历史播放开关 , 数据播放索引 , 回放定时器 , 保存数据最大HZ
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
-let linkIngPort = [], currentDb, macInfo = {}
+let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 
 // 选择数据库数据
 let historyDbArr;
@@ -206,8 +206,8 @@ app.get('/connPort', async (req, res) => {
 // 开始采集
 app.post('/startCol', async (req, res) => {
   try {
-    const { fileName } = req.body
-
+    const { fileName, select } = req.body
+    selectArr = select
     const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
 
     const length = sensorArr.filter((a) => a.includes(file)).length
@@ -235,8 +235,22 @@ app.get('/endCol', async (req, res) => {
 
 // 获取数据库所有存取列表
 app.get('/getColHistory', async (req, res) => {
-  const selectQuery =
-    "select DISTINCT date from matrix ORDER BY timestamp DESC LIMIT ?,?";
+  // const selectQuery =
+  //   "select DISTINCT date,timestamp, `select` from matrix ORDER BY timestamp DESC LIMIT ?,?";
+
+  const selectQuery = `
+  SELECT m.date, m.timestamp, m.\`select\`
+  FROM matrix m
+  INNER JOIN (
+    SELECT date, MAX(timestamp) AS max_ts
+    FROM matrix
+    GROUP BY date
+  ) t
+  ON m.date = t.date  AND m.timestamp = t.max_ts
+  ORDER BY m.timestamp DESC
+  LIMIT ?, ?
+`;
+
   const params = [0, 500];
 
   historyFlag = true
@@ -248,6 +262,7 @@ app.get('/getColHistory', async (req, res) => {
 
       let jsonData;
       let sitTimeArr = rows;
+      console.log(rows, '1111')
       let timeArr = rows;
 
 
@@ -266,6 +281,22 @@ app.get('/getColHistory', async (req, res) => {
   });
   socketSendData(server, JSON.stringify({ sitData: {} }))
 })
+
+// app.post('/changeSelect', async (req, res) => {
+//   try {
+//     const { select } = req.body
+//     selectArr = select
+//     console.log(first)
+//     // if (!selectArr.length) {
+//     //   res.json(new HttpResult(555, '请选择先数据', 'error'));
+//     // }
+//     // const params = selectArr;
+//     // const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged })
+//     // res.json(new HttpResult(0, data, '下载'));
+//   } catch {
+
+//   }
+// })
 
 // 下载成csv
 app.post('/downlaod', async (req, res) => {
@@ -329,6 +360,8 @@ app.post('/getDbHistory', async (req, res) => {
 
   res.json(new HttpResult(0, data, 'success'));
 })
+
+app.post('/get')
 
 app.post('/changeDbDataName', async (req, res) => {
   const { oldName, newName } = req.body
@@ -678,8 +711,7 @@ function parseData(parserArr, objs, type) {
  * 
  */
 
-var sendMacNum = 0, successNum = 0
-
+var sendMacNum = 0, successNum = 0, sendDataLength = 0
 const oldTimeObj = {}
 async function connectPort() {
   macInfo = {}
@@ -754,7 +786,7 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-   
+
 
         if (buffer.toString().includes('Unique ID')) {
           console.log(buffer.toString())
@@ -808,7 +840,7 @@ async function connectPort() {
             }
           }
         }
-        // console.log(pointArr.length)
+        console.log(pointArr.length)
         // 陀螺仪
         if (pointArr.length == 18) {
           const length = pointArr.length
@@ -832,6 +864,7 @@ async function connectPort() {
         } else if (pointArr.length == 1024) {
           // ret
           if (!dataItem.premission) return
+          // dataItem.type = 'hand'
           // dataItem[path]
           // dataItem.type = 'sit'
           let matrix
@@ -907,14 +940,14 @@ async function connectPort() {
         } else if (pointArr.length == 1025) {
           const type = pointArr.shift()
           dataItem.premission = true
-        
+
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
           }
           let matrix
           dataItem.type = constantObj.typeConfig[type]
-       
+
           if (constantObj.typeConfig[type] == 'car-back') {
             matrix = jqbed(pointArr)
           } else if (constantObj.typeConfig[type] == 'car-sit') {
@@ -960,27 +993,33 @@ async function connectPort() {
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
-          if (!dataItem.premission) return
+          // if (!dataItem.premission) return
           // dataItem.type = 'sit'
-
-          if (dataItem.type == 'endi-sit') {
-            dataItem.arr = endiSit(pointArr)
-          }else if(dataItem.type == 'endi-back'){
-            dataItem.arr = endiBack(pointArr)
-          }else{
-            dataItem.arr = pointArr
+          if (!dataItem.premission) {
+            dataItem.status = 'expired'
+          } else {
+            if (dataItem.type == 'endi-sit') {
+              dataItem.arr = endiSit(pointArr)
+            } else if (dataItem.type == 'endi-back') {
+              dataItem.arr = endiBack(pointArr)
+            } else {
+              dataItem.arr = pointArr
+            }
           }
-
           // console.log(444)
           const stamp = new Date().getTime()
+          if (sendDataLength < 20) {
+            sendDataLength++
+          }
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
-            if (!MaxHZ) {
+            if (!MaxHZ && sendDataLength == 20) {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
               playtimer = setInterval(() => {
                 colAndSendData()
               }, 1000 / HZ)
+              sendDataLength = 0
             }
           }
           dataItem.stamp = stamp
@@ -1004,13 +1043,13 @@ async function connectPort() {
             // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
-        }else if (pointArr.length == 4097) {
+        } else if (pointArr.length == 4097) {
           // if (!dataItem.premission) return
           // dataItem.type = 'sit'
 
           const type = pointArr.shift()
           dataItem.premission = true
-  
+
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
@@ -1020,9 +1059,9 @@ async function connectPort() {
 
           if (dataItem.type == 'endi-sit') {
             dataItem.arr = endiSit(pointArr)
-          }else if(dataItem.type == 'endi-back'){
+          } else if (dataItem.type == 'endi-back') {
             dataItem.arr = endiBack(pointArr)
-          }else{
+          } else {
             dataItem.arr = pointArr
           }
 
@@ -1108,6 +1147,14 @@ async function stopPort() {
 function colAndSendData() {
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
+    // selectArr
+    if (Object.keys(selectArr).length) {
+      for (let i = 0; i < Object.keys(selectArr).length; i++) {
+        const key = Object.keys(selectArr)[i]
+        obj[key].select = selectArr[key]
+      }
+    }
+
     if (colFlag) {
       storageData(obj)
     }
@@ -1226,11 +1273,11 @@ function storageData(data) {
   }
 
   const insertQuery =
-    "INSERT INTO matrix (data, timestamp,date) VALUES (?, ?,?)";
+    "INSERT INTO matrix (data, timestamp,date ,`select`) VALUES (?, ?,? ,?)";
 
   currentDb.run(
     insertQuery,
-    [JSON.stringify(newData), timestamp, colName],
+    [JSON.stringify(newData), timestamp, colName, JSON.stringify(selectArr)],
     function (err) {
       if (err) {
         console.error(err);

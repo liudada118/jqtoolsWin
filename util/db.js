@@ -50,7 +50,7 @@ function isAllDigits(str) {
 }
 
 
-function dbload(db, param, file ,isPackaged) {
+function dbload(db, param, file, isPackaged) {
   const selectQuery = "select * from matrix WHERE date=?";
   return new Promise((resolve, reject) => {
     db.all(selectQuery, param, (err, rows) => {
@@ -72,20 +72,23 @@ function dbload(db, param, file ,isPackaged) {
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
 
-            if(!JSON.parse(rows[i][`data`])[key]) continue
+            if (!JSON.parse(rows[i][`data`])[key]) continue
             const data = JSON.parse(rows[i][`data`])[key].arr
+            if(!data) continue
 
             if (j == 0) {
               newData.time = timeStampTo_Date(rows[i][`timestamp`])
             }
 
             const press = data.reduce((a, b) => a + b, 0);
-            const area = data.filter((a) => a > 10).length;
+            const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
+            const aver = (press / area).toFixed(1)
 
             newData[`${key}pressureArea`] = area
             newData[`${key}pressure`] = press
             newData[`${key}max`] = max
+            newData[`${key}aver`] = aver
             newData[`${key}realData`] = JSON.stringify(data)
           }
 
@@ -96,7 +99,7 @@ function dbload(db, param, file ,isPackaged) {
 
         // let str = nowGetTime.replace(/[/:]/g, "-");
         let str = param;
-        console.log(str , 'str')
+        console.log(str, 'str')
         if (!isAllDigits(str)) {
           // str = str.split(" ")[0];
         } else {
@@ -115,11 +118,13 @@ function dbload(db, param, file ,isPackaged) {
             { id: `${key}max`, title: `${key}max` },
             { id: `${key}pressureArea`, title: `${key}area` },
             { id: `${key}pressure`, title: `${key}pressure` },
-            { id: `${key}realData`, title: `${key}data` },)
+            { id: `${key}realData`, title: `${key}data` },
+            { id: `${key}aver`, title: `${key}aver` },
+          )
         }
 
         let csvPath = __dirname + "/../data";
-        if(isPackaged){
+        if (isPackaged) {
           csvPath = 'resources/data'
         }
 
@@ -149,7 +154,7 @@ function dbload(db, param, file ,isPackaged) {
   })
 }
 
-async function dbLoadCsv({ db, params, file,isPackaged }) {
+async function dbLoadCsv({ db, params, file, isPackaged }) {
   const selectQuery = "select * from matrix WHERE date=?";
   // params.forEach((param) => {
   //   db.all(selectQuery, param, (err, rows) => {
@@ -231,7 +236,7 @@ async function dbLoadCsv({ db, params, file,isPackaged }) {
   //     }
   //   });
   // })
-  const promises = params.map((param) => dbload(db, param, file,isPackaged))
+  const promises = params.map((param) => dbload(db, param, file, isPackaged))
   const results = await Promise.all(promises);
   console.log(results, promises, 'result')
   return results
@@ -266,7 +271,7 @@ async function deleteDbData({ db, params }) {
   return results
 }
 
-async function changeDbName({db , params}) {
+async function changeDbName({ db, params }) {
   const changeQuery = `UPDATE matrix SET "date" = ? WHERE "date" = ?`;
   db.run(changeQuery, params, function (err) {
     if (err) {
@@ -303,7 +308,7 @@ async function dbGetData({ db, params }) {
           let pressValue = 0, areaValue = 0
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
-            if(!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
+            if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
             console.log(JSON.parse(rows[i][`data`])[key])
             const data = JSON.parse(rows[i][`data`])[key].arr
             pressValue += data.reduce((a, b) => a + b, 0)

@@ -87,14 +87,64 @@ function arrToRealLine(arr, arrX, arrY) {
         }
     }
 
+
     return newArr
 }
 
+
+// endi 1.0
+// function endiSit(arr) {
+//     let arrX = [[22, 0], [23, 44]]
+//     let arrY = [[1, 32], 0, [63, 63 - 11]]
+
+//     function rotate90(arr, height, width) {
+//         //逆时针旋转 90 度
+//         //列 = 行
+//         //行 = n - 1 - 列(j);  n表示总行数
+//         let matrix = [];
+//         for (let i = 0; i < height; i++) {
+//             matrix[i] = [];
+//             for (let j = 0; j < width; j++) {
+//                 matrix[i].push(arr[i * height + j]);
+//             }
+//         }
+
+//         var temp = [];
+//         var len = matrix.length;
+//         for (var i = 0; i < len; i++) {
+//             for (var j = 0; j < len; j++) {
+//                 var k = len - 1 - j;
+//                 if (!temp[k]) {
+//                     temp[k] = [];
+//                 }
+//                 temp[k][i] = matrix[i][j];
+//             }
+//         }
+//         let res = [];
+//         for (let i = 0; i < temp.length; i++) {
+//             res = res.concat(temp[i]);
+//         }
+//         return res;
+//     }
+//     let newArr = arrToRealLine(arr, arrX, arrY)
+//     newArr = rotate90(newArr, 45, 45)
+//     return newArr
+
+// }
+
+// endi 2.0
+
 function endiSit(arr) {
-    let arrX = [[22, 0], [23, 44]]
-    let arrY = [[1, 32], 0, [63, 63 - 11]]
-    return arrToRealLine(arr, arrX, arrY)
+    let arrX = [[63, 19]]
+    let arrY = [[20, 32], 0, [63, 56], [34, 55]]
+
+    let newArr = arrToRealLine(arr, arrX, arrY)
+    // newArr = rotate90(newArr, 45, 45)
+    return newArr
+
 }
+
+
 
 function endiBack(arr) {
     let arrX = [[14, 63]]
