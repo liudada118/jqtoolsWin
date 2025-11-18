@@ -13,7 +13,7 @@ const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
-const { hand, jqbed, endiSit, endiBack } = require('../util/line');
+const { hand, jqbed, endiSit, endiBack, endiSit1024 } = require('../util/line');
 // const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
@@ -754,7 +754,7 @@ async function connectPort() {
         for (var i = 0; i < buffer.length; i++) {
           pointArr[i] = buffer.readUInt8(i);
         }
-   
+
 
         if (buffer.toString().includes('Unique ID')) {
           console.log(buffer.toString())
@@ -841,6 +841,8 @@ async function connectPort() {
             matrix = jqbed(pointArr)
           } else if (dataItem.type == 'car-back') {
             matrix = jqbed(pointArr)
+          } else if (dataItem.type == 'endi-sit') {
+            matrix = endiSit1024(pointArr)
           } else {
             matrix = pointArr
           }
@@ -907,14 +909,14 @@ async function connectPort() {
         } else if (pointArr.length == 1025) {
           const type = pointArr.shift()
           dataItem.premission = true
-        
+
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
           }
           let matrix
           dataItem.type = constantObj.typeConfig[type]
-       
+
           if (constantObj.typeConfig[type] == 'car-back') {
             matrix = jqbed(pointArr)
           } else if (constantObj.typeConfig[type] == 'car-sit') {
@@ -965,9 +967,9 @@ async function connectPort() {
 
           if (dataItem.type == 'endi-sit') {
             dataItem.arr = endiSit(pointArr)
-          }else if(dataItem.type == 'endi-back'){
+          } else if (dataItem.type == 'endi-back') {
             dataItem.arr = endiBack(pointArr)
-          }else{
+          } else {
             dataItem.arr = pointArr
           }
 
@@ -1004,13 +1006,13 @@ async function connectPort() {
             // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
-        }else if (pointArr.length == 4097) {
+        } else if (pointArr.length == 4097) {
           // if (!dataItem.premission) return
           // dataItem.type = 'sit'
 
           const type = pointArr.shift()
           dataItem.premission = true
-  
+
           if (!Object.keys(constantObj.typeConfig).includes(String(type))) {
             dataItem.premission = false
             return
@@ -1020,9 +1022,9 @@ async function connectPort() {
 
           if (dataItem.type == 'endi-sit') {
             dataItem.arr = endiSit(pointArr)
-          }else if(dataItem.type == 'endi-back'){
+          } else if (dataItem.type == 'endi-back') {
             dataItem.arr = endiBack(pointArr)
-          }else{
+          } else {
             dataItem.arr = pointArr
           }
 

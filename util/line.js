@@ -42,7 +42,7 @@ function jqbed(arr) {
     return wsPointData
 }
 
-function arrToRealLine(arr, arrX, arrY) {
+function arrToRealLine(arr, arrX, arrY, matrixLength) {
     const realX = [], realY = []
     arrX.forEach((a) => {
         if (Array.isArray(a)) {
@@ -83,7 +83,7 @@ function arrToRealLine(arr, arrX, arrY) {
         for (let j = 0; j < realX.length; j++) {
             const realXCoo = realY[i]
             const realYCoo = realX[j]
-            newArr.push(arr[realXCoo * 64 + realYCoo])
+            newArr.push(arr[realXCoo * matrixLength + realYCoo])
         }
     }
 
@@ -96,27 +96,96 @@ function arrToRealLine(arr, arrX, arrY) {
 //     return arrToRealLine(arr, arrX, arrY)
 // }
 
+
+// 1024版 恩迪
+function endiSit1024(arr) {
+    let arrX = [[0, 22]]
+    let arrY = [[11, 22], [10, 0]]
+
+    let newArr = arrToRealLine(arr, arrX, arrY, 32)
+
+    newArr = lineInterp(newArr, 23, 23, 2, 2)
+
+    // newArr = rotate90(newArr, 45, 45)
+
+    // console.log(newArr.length)
+    return newArr
+}
+
+
 function endiSit(arr) {
     let arrX = [[63, 19]]
     let arrY = [[20, 32], 0, [63, 56], [34, 55]]
 
-    let newArr = arrToRealLine(arr, arrX, arrY)
+    let newArr = arrToRealLine(arr, arrX, arrY, 64)
     // newArr = rotate90(newArr, 45, 45)
     return newArr
 
 }
 
+
+
 function endiBack(arr) {
     let arrX = [[14, 63]]
     let arrY = [[0, 63]]
-    return arrToRealLine(arr, arrX, arrY)
+    return arrToRealLine(arr, arrX, arrY, 64)
 }
 // endiSit()
+
+function lineInterp(smallMat, width, height, interp1, interp2) {
+
+    let bigMat = new Array((width * interp1) * (height * interp2)).fill(0)
+    const interpValue = 1
+    // return bigMat
+    for (let i = 0; i < height; i++) {
+        for (let j = 0; j < width; j++) {
+            const realValue = smallMat[i * width + j] * interpValue
+            const rowValue = smallMat[i * width + j + 1] * interpValue ? smallMat[i * width + j + 1] * interpValue : 0
+            const colValue = smallMat[(i + 1) * width + j] * interpValue ? smallMat[(i + 1) * width + j] * interpValue : 0
+            bigMat[(width * interp1) * i * interp2 + (j * interp1)
+            ] = smallMat[i * width + j] * interpValue
+            // for (let k = 0; k < interp1; k++) {
+            //   // for (let z = 0; z < interp2; z++) {
+            //   //   bigMat[(width * interp1) * (i * interp2 + k) + ((j * interp1) + z)
+            //   //   ] = smallMat[i * width + j] * interpValue
+            //   // }
+            // }
+
+            // for (let k = 0; k < interp2; k++) {
+            //   bigMat[(width * interp1) * (i * interp2 + k) + ((j * interp1))] = realValue + (colValue - realValue) * (k) / interp2
+            // }
+            for (let k = 0; k < interp1; k++) {
+                bigMat[(width * interp1) * (i * interp2) + ((j * interp1 + k))] = realValue + (rowValue - realValue) * (k) / interp1
+            }
+        }
+    }
+
+    // return bigMat
+
+    const newWidth = width * interp1
+
+    for (let i = 0; i < height; i++) {
+        for (let j = 0; j < newWidth; j++) {
+            const realValue = bigMat[i * interp2 * newWidth + j]
+            // const rowValue = bigMat[i * width + j + 1] * interpValue ? bigMat[i * width + j + 1] * interpValue : 0
+            // const colValue = bigMat[(i + 1) * width + j] * interpValue ? bigMat[(i + 1) * width + j] * interpValue : 0
+            const colValue = bigMat[((i + 1) * interp2) * newWidth + j] ? bigMat[(((i + 1) * interp2)) * newWidth + j] : 0
+            for (let k = 0; k < interp2; k++) {
+                bigMat[newWidth * (i * interp2 + k) + ((j))] = realValue + (colValue - realValue) * (k) / interp2
+            }
+        }
+    }
+
+   
+    bigMat = bigMat.map((a) => parseInt(a))
+    return bigMat
+}
 
 
 module.exports = {
     hand,
     jqbed,
     endiSit,
-    endiBack
+    endiBack,
+    endiSit1024
 }
