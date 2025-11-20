@@ -80,7 +80,7 @@ function dbload(db, param, file ,isPackaged) {
             }
 
             const press = data.reduce((a, b) => a + b, 0);
-            const area = data.filter((a) => a > 10).length;
+            const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
 
             newData[`${key}pressureArea`] = area

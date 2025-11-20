@@ -97,12 +97,67 @@ function arrToRealLine(arr, arrX, arrY, matrixLength) {
 // }
 
 
+function press(arr, width, height, value, prop, type = "row") {
+    let wsPointData = [...arr];
+
+    if (type == "row") {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[i * width + j];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                wsPointData[i * width + j] = parseInt(
+                    (wsPointData[i * width + j] /
+                        (value - colArr[i] <= 0 ? 1 : value - colArr[i])) *
+                    1000 * prop
+                );
+            }
+        }
+    } else {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[j * height + i];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+
+        // console.log(first)
+        console.log(colArr)
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                wsPointData[j * height + i] = parseInt(
+                    (wsPointData[j * height + i] /
+                        (value - colArr[i] <= 0 ? 1 : value - colArr[i])) *
+                    1000 * prop
+                );
+            }
+        }
+    }
+
+    //////
+
+    // wsPointData = wsPointData.map((a,index) => {return calculateY(a)})
+    return wsPointData;
+}
+
 // 1024版 恩迪
 function endiSit1024(arr) {
     let arrX = [[0, 22]]
     let arrY = [[11, 22], [10, 0]]
 
-    let newArr = arrToRealLine(arr, arrX, arrY, 32)
+    const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
+
+
+    let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
 
     newArr = lineInterp(newArr, 23, 23, 2, 2)
 
@@ -112,6 +167,22 @@ function endiSit1024(arr) {
     return newArr
 }
 
+function endiBack1024(arr) {
+    let arrX = [[0, 24]]
+    let arrY = [[0, 14], [31, 15]]
+
+    const pressArr = press([...arr], 32, 32, 700, 0.3, 'col')
+
+
+    let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
+
+    newArr = lineInterp(newArr, 25, 32, 2, 2)
+
+    // newArr = rotate90(newArr, 45, 45)
+
+    // console.log(newArr.length)
+    return newArr
+}
 
 function endiSit(arr) {
     let arrX = [[63, 19]]
@@ -176,7 +247,7 @@ function lineInterp(smallMat, width, height, interp1, interp2) {
         }
     }
 
-   
+
     bigMat = bigMat.map((a) => parseInt(a))
     return bigMat
 }
@@ -187,5 +258,6 @@ module.exports = {
     jqbed,
     endiSit,
     endiBack,
-    endiSit1024
+    endiSit1024,
+    endiBack1024
 }
