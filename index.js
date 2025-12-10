@@ -6,7 +6,7 @@ const { getKeyfromWinuuid } = require('./util/getServer')
 const { initDb, getCsvData } = require('./util/db')
 const http = require('http')
 const fs = require('fs')
-// const { startWorker, callPy } = require('./pyWorker')
+const { startWorker, callPy } = require('./pyWorker')
 const isPackaged = app.isPackaged
 
 function openWeb({ hostname, port, fn }) {
@@ -124,6 +124,7 @@ const createWindow = () => {
   const win = new BrowserWindow({
     // width: 800,
     // height: 600,
+    fullscreen: true,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
@@ -259,7 +260,7 @@ app.whenReady().then(async () => {
   // 开始本地api线程
   await startApiChild()
   // 开启python线程
-  // startWorker(); // 
+  startWorker(); // 
   createWindow()
 
   Menu.setApplicationMenu(null);

@@ -14,7 +14,7 @@ const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
 const { hand, jqbed, endiSit, endiBack } = require('../util/line');
-// const { callPy } = require('../pyWorker');
+const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
 const module2 = require('../util/aes_ecb')
@@ -93,7 +93,7 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
-
+var algorData, control_command
 // 选择数据库数据
 let historyDbArr;
 
@@ -382,7 +382,7 @@ app.post('/getContrastData', async (req, res) => {
   const data = { left: { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, }, right: { length, pressArr, areaArr, } }
 
   socketSendData(server, JSON.stringify({
-    contrastData: {left : JSON.parse(leftDbArr[0].data) , right : JSON.parse(rightDbArr[0].data)},
+    contrastData: { left: JSON.parse(leftDbArr[0].data), right: JSON.parse(rightDbArr[0].data) },
     // index: playIndex,
     // timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
   }))
@@ -537,6 +537,7 @@ function portWirte(port) {
   return new Promise((resolve, reject) => {
     // const command = 'AT\r\n';
     const command = Buffer.from('41542B4E414D453D45535033320d0a', 'hex')
+
     port.write(command, err => {
       if (err) {
         return console.error('err2:', err.message);
@@ -588,6 +589,22 @@ app.post('/getSysconfig', async (req, res) => {
   //   console.log(data)
   // csvArr = data
   res.json(new HttpResult(0, data, 'success'));
+})
+
+// 查找pyConfig
+app.get('/getPyConfig', async (req, res) => {
+
+  const obj = await callPy('getParam',)
+  res.json(new HttpResult(0, obj, 'success'));
+})
+
+app.post('/changePy', async (req, res) => {
+  const { path, value } = req.body
+  let object = {}
+  object[path] = JSON.parse(value)
+  console.log(object, 'object')
+  const obj = await callPy('setParam', { obj: object })
+  res.json(new HttpResult(0, obj, 'success'));
 })
 
 // 计算cop 
@@ -1126,6 +1143,40 @@ async function connectPort() {
             // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
+        } else if (pointArr.length == 144) {
+
+          const stamp = new Date().getTime()
+          dataItem.stamp = stamp
+          dataItem.type = 'carAir'
+          console.log(dataItem.premission)
+          // if (!dataItem.premission) {
+          //   dataItem.status = 'expired'
+          // } else {
+          dataItem.arr = pointArr
+          // }
+
+          algorData = await callPy('server', { sensor_data: pointArr })
+          if (algorData.control_command) {
+            control_command = algorData.control_command
+          }
+          // console.log(444)
+
+          if (sendDataLength < 20) {
+            sendDataLength++
+          }
+          if (oldTimeObj[dataItem.type]) {
+            dataItem.HZ = parseInt(1000 / (stamp - oldTimeObj[dataItem.type]))
+            if (!MaxHZ && sendDataLength == 20) {
+              MaxHZ = dataItem.HZ
+              HZ = MaxHZ
+              playtimer = setInterval(() => {
+                colAndSendData()
+              }, 1000 / HZ)
+              sendDataLength = 0
+            }
+          }
+
+          oldTimeObj[dataItem.type] = dataItem.stamp
         }
 
 
@@ -1341,3 +1392,53 @@ setInterval(() => {
   }
 
 }, 3000)
+
+
+setInterval(() => {
+
+  const portArr = Object.keys(parserArr).map((path) => {
+    return parserArr[path].port
+  })
+
+
+  // 关闭串口,并且清除本地缓存数据
+  portArr.forEach((port, index) => {
+    // console.log(port.isOpen)
+    if (port?.isOpen) {
+      console.log(control_command)
+      server.clients.forEach(function each(client) {
+        if (control_command && port?.isOpen) {
+          algorData.control_command = control_command
+
+          // const arr = [170, 85, 3, 153];
+
+          const hexStr = algorData.control_command
+            .map(v => v.toString(16).padStart(2, '0'))
+            .join('');
+
+          console.log(hexStr);
+
+          const command = Buffer.from(hexStr, 'hex')
+          console.log(command)
+          port.write(command, err => {
+            if (err) {
+              return console.error('err2:', err.message);
+            }
+            // console.log('send:', command.trim());
+            // resolve(command.trim())
+
+            console.log('send:', 11);
+            // resolve(11)
+          });
+
+
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ algorData }));
+          }
+        }
+      });
+    }
+  })
+
+
+}, 500)

@@ -7,16 +7,16 @@ const fs = require('fs');
 
 
 // console.log('userData from env:', process.workerData.isPackaged);
-let isPackaged = process.env.isPackaged
-isPackaged = isPackaged == 'true'
+let isPackaged = process.env.isPackaged == 'true'
+// isPackaged = isPackaged == 'true'
 // isPackaged = true
 console.log(process.resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(process.resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
 function pythonBin() {
   const isDev = !isPackaged;
   if (process.platform === 'win32') {
     return isDev
-      ? path.join(__dirname,  'python', 'venv', 'Scripts', 'python.exe')
-      : path.join(process.resourcesPath, 'python', 'venv', 'Scripts', 'python.exe');
+      ? path.join(__dirname,  'python', 'Python311', 'python.exe')
+      : path.join(process.resourcesPath, 'python', 'Python311', 'python.exe');
   }
   return isDev
     ? path.join(__dirname,  'python', 'venv', 'bin', 'python')
@@ -25,8 +25,8 @@ function pythonBin() {
 function serverPy() {
   const isDev = !isPackaged;
   return isDev
-    ? path.join(__dirname,  'python', 'app', 'Comprehensive_Indicators_multi_input.py')
-    : path.join(process.resourcesPath, 'python', 'app', 'Comprehensive_Indicators_multi_input.py');
+    ? path.join(__dirname,  'python', 'app', 'server.py')
+    : path.join(process.resourcesPath, 'python', 'app', 'server.py');
 }
 
 let child = null;
