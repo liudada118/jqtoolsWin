@@ -93,7 +93,8 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
-var algorData, control_command
+const ALGOR = 'algor', HANDLE = 'handle'
+var algorData, control_command, controlMode = ALGOR, feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 // 选择数据库数据
 let historyDbArr;
 
@@ -568,7 +569,7 @@ app.get('/sendMac', async (req, res) => {
 
       // });
 
-      task.push(portWirte(port))
+      // task.push(portWirte(port))
     }
     const results = await Promise.all(task);
     sendMacNum++
@@ -805,14 +806,14 @@ async function connectPort() {
       // });
 
       // const command = 'AT\r\n';
-      const command = Buffer.from('41542B4E414D453D45535033320d0a', 'hex')
-      port.write(command, err => {
-        if (err) {
-          return console.error('err2:', err.message);
-        }
-        console.log('send:', 22);
-        sendMacNum++
-      });
+      // const command = Buffer.from('41542B4E414D453D45535033320d0a', 'hex')
+      // port.write(command, err => {
+      //   if (err) {
+      //     return console.error('err2:', err.message);
+      //   }
+      //   console.log('send:', 22);
+      //   sendMacNum++
+      // });
 
       parserItem.port = port
       parser.on("data", async function (data) {
@@ -1177,6 +1178,50 @@ async function connectPort() {
           }
 
           oldTimeObj[dataItem.type] = dataItem.stamp
+        } else if (pointArr.length == 51) {
+          // 收到ecu发送数据
+          if (pointArr[50] == 1) {
+
+            // 手动模式
+            if (pointArr[49] == 1) {
+              controlMode = HANDLE
+
+              let max = 24, controlArr = []
+              for (let i = 0; i < max; i++) {
+                controlArr.push(pointArr[2 * i + 2])
+              }
+
+
+              server.clients.forEach(function each(client) {
+                if (control_command && port?.isOpen) {
+                  
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ handle : controlArr }));
+                  }
+                }
+              });
+
+            } 
+            // 自动模式
+            else {
+              controlMode = ALGOR
+
+              let max = 24, controlArr = []
+              for (let i = 0; i < max; i++) {
+                controlArr.push(pointArr[2 * i + 2])
+              }
+
+
+              server.clients.forEach(function each(client) {
+                if (control_command && port?.isOpen) {
+                  
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ algorFeed : controlArr }));
+                  }
+                }
+              });
+            }
+          }
         }
 
 
@@ -1432,7 +1477,7 @@ setInterval(() => {
           });
 
 
-          if (client.readyState === WebSocket.OPEN) {
+          if (client.readyState === WebSocket.OPEN && controlMode == ALGOR) {
             client.send(JSON.stringify({ algorData }));
           }
         }
