@@ -1157,6 +1157,7 @@ async function connectPort() {
           // }
 
           algorData = await callPy('server', { sensor_data: pointArr })
+
           if (algorData.control_command) {
             control_command = algorData.control_command
           }
@@ -1194,14 +1195,14 @@ async function connectPort() {
 
               server.clients.forEach(function each(client) {
                 if (control_command && port?.isOpen) {
-                  
+
                   if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({ handle : controlArr }));
+                    client.send(JSON.stringify({ handle: controlArr }));
                   }
                 }
               });
 
-            } 
+            }
             // 自动模式
             else {
               controlMode = ALGOR
@@ -1214,9 +1215,9 @@ async function connectPort() {
 
               server.clients.forEach(function each(client) {
                 if (control_command && port?.isOpen) {
-                  
+
                   if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({ algorFeed : controlArr }));
+                    client.send(JSON.stringify({ algorFeed: controlArr }));
                   }
                 }
               });
@@ -1450,31 +1451,35 @@ setInterval(() => {
   portArr.forEach((port, index) => {
     // console.log(port.isOpen)
     if (port?.isOpen) {
-      console.log(control_command)
+      console.log(control_command, 'control_command')
       server.clients.forEach(function each(client) {
-        if (control_command && port?.isOpen) {
-          algorData.control_command = control_command
+        if (port?.isOpen) {
+
+          if (algorData?.control_command) {
+            const hexStr = algorData.control_command
+              .map(v => v.toString(16).padStart(2, '0'))
+              .join('');
+
+            console.log(hexStr);
+
+            const command = Buffer.from(hexStr, 'hex')
+            console.log(command)
+            port.write(command, err => {
+              if (err) {
+                return console.error('err2:', err.message);
+              }
+              // console.log('send:', command.trim());
+              // resolve(command.trim())
+
+              console.log('send:', 11);
+              // resolve(11)
+            });
+          }
+
 
           // const arr = [170, 85, 3, 153];
 
-          const hexStr = algorData.control_command
-            .map(v => v.toString(16).padStart(2, '0'))
-            .join('');
 
-          console.log(hexStr);
-
-          const command = Buffer.from(hexStr, 'hex')
-          console.log(command)
-          port.write(command, err => {
-            if (err) {
-              return console.error('err2:', err.message);
-            }
-            // console.log('send:', command.trim());
-            // resolve(command.trim())
-
-            console.log('send:', 11);
-            // resolve(11)
-          });
 
 
           if (client.readyState === WebSocket.OPEN && controlMode == ALGOR) {

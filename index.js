@@ -128,11 +128,13 @@ const createWindow = () => {
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false
+      nodeIntegration: true
     },
     icon: path.join(__dirname, 'logo.ico')
 
   })
+
+  win.webContents.openDevTools()
 
   const hostname = "127.0.0.1";
   const port = 2999;
