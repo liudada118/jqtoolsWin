@@ -13,7 +13,7 @@ const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
-const { hand, jqbed, endiSit, endiBack } = require('../util/line');
+const { hand, jqbed, endiSit, endiBack, endiSit1024, endiBack1024 } = require('../util/line');
 // const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
@@ -382,7 +382,7 @@ app.post('/getContrastData', async (req, res) => {
   const data = { left: { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, }, right: { length, pressArr, areaArr, } }
 
   socketSendData(server, JSON.stringify({
-    contrastData: {left : JSON.parse(leftDbArr[0].data) , right : JSON.parse(rightDbArr[0].data)},
+    contrastData: { left: JSON.parse(leftDbArr[0].data), right: JSON.parse(rightDbArr[0].data) },
     // index: playIndex,
     // timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
   }))
@@ -903,6 +903,11 @@ async function connectPort() {
             matrix = jqbed(pointArr)
           } else if (dataItem.type == 'car-back') {
             matrix = jqbed(pointArr)
+          } else if (dataItem.type == 'endi-sit') {
+            matrix = endiSit1024(pointArr)
+            
+          } else if (dataItem.type == 'endi-back') {
+            matrix = endiBack1024(pointArr)
           } else {
             matrix = pointArr
           }

@@ -42,7 +42,7 @@ function jqbed(arr) {
     return wsPointData
 }
 
-function arrToRealLine(arr, arrX, arrY) {
+function arrToRealLine(arr, arrX, arrY, matrixLength) {
     const realX = [], realY = []
     arrX.forEach((a) => {
         if (Array.isArray(a)) {
@@ -79,16 +79,13 @@ function arrToRealLine(arr, arrX, arrY) {
     })
 
     let newArr = []
-
-    console.log(realY.length, realX.length, JSON.stringify(realY))
     for (let i = 0; i < realY.length; i++) {
         for (let j = 0; j < realX.length; j++) {
             const realXCoo = realY[i]
             const realYCoo = realX[j]
-            newArr.push(arr[realXCoo * 64 + realYCoo])
+            newArr.push(arr[realXCoo * matrixLength + realYCoo])
         }
     }
-
 
     return newArr
 }
@@ -204,15 +201,67 @@ function lineInterp(smallMat, width, height, interp1, interp2) {
     return bigMat
 }
 
+function press(arr, width, height, value, prop, type = "row") {
+    let wsPointData = [...arr];
+
+    if (type == "row") {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[i * width + j];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                wsPointData[i * width + j] = parseInt(
+                    (wsPointData[i * width + j] /
+                        (value - colArr[i] <= 0 ? 1 : value - colArr[i])) *
+                    1000 * prop
+                );
+            }
+        }
+    } else {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[j * height + i];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+
+        // console.log(first)
+        console.log(colArr)
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                wsPointData[j * height + i] = parseInt(
+                    (wsPointData[j * height + i] /
+                        (value - colArr[i] <= 0 ? 1 : value - colArr[i])) *
+                    1000 * prop
+                );
+            }
+        }
+    }
+
+    //////
+
+    // wsPointData = wsPointData.map((a,index) => {return calculateY(a)})
+    return wsPointData;
+}
+
 function endiSit1024(arr) {
     let arrX = [[0, 22]]
     let arrY = [[11, 22], [10, 0]]
 
-    const pressArr = arr//press([...arr], 32, 32, 700, 0.2, 'col')
+    const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
 
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
-
+    // console.log(JSON.stringify(newArr))
     newArr = lineInterp(newArr, 23, 23, 2, 2)
 
     // newArr = rotate90(newArr, 45, 45)
@@ -225,7 +274,7 @@ function endiBack1024(arr) {
     let arrX = [[0, 24]]
     let arrY = [[0, 14], [31, 15]]
 
-    const pressArr = arr//press([...arr], 32, 32, 700, 0.3, 'col')
+    const pressArr = press([...arr], 32, 32, 700, 0.3, 'col')
 
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
