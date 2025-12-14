@@ -235,7 +235,7 @@ function press(arr, width, height, value, prop, type = "row") {
         // //////okok
 
         // console.log(first)
-        console.log(colArr)
+      
         for (let i = 0; i < height; i++) {
             for (let j = 0; j < width; j++) {
                 wsPointData[j * height + i] = parseInt(
