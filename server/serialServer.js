@@ -1181,6 +1181,8 @@ async function connectPort() {
           oldTimeObj[dataItem.type] = dataItem.stamp
         } else if (pointArr.length == 51) {
           // 收到ecu发送数据
+          console.log('pointArr' , pointArr)
+          console.log('buffer' , buffer)
           if (pointArr[50] == 1) {
 
             // 手动模式
@@ -1451,7 +1453,6 @@ setInterval(() => {
   portArr.forEach((port, index) => {
     // console.log(port.isOpen)
     if (port?.isOpen) {
-      console.log(control_command, 'control_command')
       server.clients.forEach(function each(client) {
         if (port?.isOpen) {
 
@@ -1460,10 +1461,10 @@ setInterval(() => {
               .map(v => v.toString(16).padStart(2, '0'))
               .join('');
 
-            console.log(hexStr);
+            // console.log(hexStr);
 
             const command = Buffer.from(hexStr, 'hex')
-            console.log(command)
+            // console.log(command)
             port.write(command, err => {
               if (err) {
                 return console.error('err2:', err.message);
