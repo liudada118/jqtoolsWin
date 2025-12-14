@@ -160,7 +160,7 @@ function lineInterp(smallMat, width, height, interp1, interp2) {
     for (let i = 0; i < height; i++) {
         for (let j = 0; j < width; j++) {
             const realValue = smallMat[i * width + j] * interpValue
-            const rowValue = smallMat[i * width + j + 1] * interpValue ? smallMat[i * width + j + 1] * interpValue : 0
+            const rowValue = j==width-1 ? 0 : smallMat[i * width + j + 1] * interpValue ? smallMat[i * width + j + 1] * interpValue : 0
             const colValue = smallMat[(i + 1) * width + j] * interpValue ? smallMat[(i + 1) * width + j] * interpValue : 0
             bigMat[(width * interp1) * i * interp2 + (j * interp1)
             ] = smallMat[i * width + j] * interpValue

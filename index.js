@@ -124,7 +124,7 @@ const createWindow = () => {
   const win = new BrowserWindow({
     // width: 800,
     // height: 600,
-    fullscreen: true,
+    // fullscreen: true,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
@@ -137,7 +137,7 @@ const createWindow = () => {
   const hostname = "127.0.0.1";
   const port = 2999;
 
-
+  win.maximize()
   // win.loadURL('http://sensor.bodyta.com/4096')
 
   // win.loadURL('https://sensor.bodyta.com/jqtools2')
