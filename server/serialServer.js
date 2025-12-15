@@ -1163,17 +1163,17 @@ async function connectPort() {
           }
           // console.log(444)
 
-          if (sendDataLength < 30) {
+          if (sendDataLength < 1) {
             sendDataLength++
           }
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = parseInt(1000 / (stamp - oldTimeObj[dataItem.type]))
-            if (!MaxHZ && sendDataLength == 30) {
+            if (!MaxHZ && sendDataLength == 1) {
               MaxHZ = dataItem.HZ
               HZ = MaxHZ
               playtimer = setInterval(() => {
                 colAndSendData()
-              }, 13)
+              }, 87)
               sendDataLength = 0
             }
           }
