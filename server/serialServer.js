@@ -1163,17 +1163,17 @@ async function connectPort() {
           }
           // console.log(444)
 
-          if (sendDataLength < 20) {
+          if (sendDataLength < 30) {
             sendDataLength++
           }
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = parseInt(1000 / (stamp - oldTimeObj[dataItem.type]))
-            if (!MaxHZ && sendDataLength == 20) {
+            if (!MaxHZ && sendDataLength == 30) {
               MaxHZ = dataItem.HZ
               HZ = MaxHZ
               playtimer = setInterval(() => {
                 colAndSendData()
-              }, 1000 / HZ)
+              }, 13)
               sendDataLength = 0
             }
           }
@@ -1196,7 +1196,7 @@ async function connectPort() {
 
 
               server.clients.forEach(function each(client) {
-                if (control_command && port?.isOpen) {
+                if (port?.isOpen) {
 
                   if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({ handle: controlArr }));
@@ -1216,7 +1216,7 @@ async function connectPort() {
 
 
               server.clients.forEach(function each(client) {
-                if (control_command && port?.isOpen) {
+                if (port?.isOpen) {
 
                   if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({ algorFeed: controlArr }));
@@ -1464,7 +1464,7 @@ setInterval(() => {
             // console.log(hexStr);
 
             const command = Buffer.from(hexStr, 'hex')
-            // console.log(command)
+            console.log('sendCommand' ,command)
             port.write(command, err => {
               if (err) {
                 return console.error('err2:', err.message);
