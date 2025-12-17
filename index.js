@@ -124,7 +124,7 @@ const createWindow = () => {
   const win = new BrowserWindow({
     // width: 800,
     // height: 600,
-    // fullscreen: true,
+    fullscreen: true,
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
@@ -135,8 +135,8 @@ const createWindow = () => {
 
   })
   
-  win.maximize()
-  win.webContents.openDevTools()
+  // win.maximize()
+  // win.webContents.openDevTools()
 
   const hostname = "127.0.0.1";
   const port = 2999;

@@ -887,7 +887,7 @@ async function connectPort() {
             }
           }
         }
-        console.log(pointArr.length)
+        // console.log(pointArr.length)
         // 陀螺仪
         if (pointArr.length == 18) {
           const length = pointArr.length
@@ -1149,14 +1149,13 @@ async function connectPort() {
           const stamp = new Date().getTime()
           dataItem.stamp = stamp
           dataItem.type = 'carAir'
-          console.log(dataItem.premission)
           // if (!dataItem.premission) {
           //   dataItem.status = 'expired'
           // } else {
           dataItem.arr = pointArr
           // }
 
-          algorData = await callPy('server', { sensor_data: pointArr })
+
 
           if (algorData.control_command) {
             control_command = algorData.control_command
@@ -1179,10 +1178,13 @@ async function connectPort() {
           }
 
           oldTimeObj[dataItem.type] = dataItem.stamp
+          algorData = await callPy('server', { sensor_data: pointArr })
+          // console.log(algorData?.frame_count)
+
         } else if (pointArr.length == 51) {
           // 收到ecu发送数据
-          console.log('pointArr' , pointArr)
-          console.log('buffer' , buffer)
+          console.log('pointArr', pointArr)
+          console.log('buffer', buffer)
           if (pointArr[50] == 1) {
 
             // 手动模式
@@ -1464,7 +1466,7 @@ setInterval(() => {
             // console.log(hexStr);
 
             const command = Buffer.from(hexStr, 'hex')
-            console.log('sendCommand' ,command)
+            console.log('sendCommand', command)
             port.write(command, err => {
               if (err) {
                 return console.error('err2:', err.message);
@@ -1483,7 +1485,7 @@ setInterval(() => {
 
 
 
-          if (client.readyState === WebSocket.OPEN && controlMode == ALGOR) {
+          if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({ algorData }));
           }
         }
@@ -1493,3 +1495,11 @@ setInterval(() => {
 
 
 }, 500)
+
+
+// setInterval(async () => {
+//   console.log('first', 111)
+//   const pointArr = new Array(144).fill(50)
+//   algorData = await callPy('server', { sensor_data: pointArr })
+//   // console.log('frame_count:' , algorData?.frame_count)
+// }, 2)

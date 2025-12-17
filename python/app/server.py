@@ -2,13 +2,14 @@ import sys, json, traceback
 from integrated_system import IntegratedSeatSystem
 import numpy as np
 import os
-
+count = 1
 def server(sensor_data):
-
     newdata = np.array(sensor_data, dtype=np.uint8)
-    # print("111")
+    print(newdata)
     # return 111
     result = system.process_frame(newdata)
+    print(result)
+    
     return result
 
 def setParam(obj):
