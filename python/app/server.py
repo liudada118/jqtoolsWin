@@ -5,10 +5,8 @@ import os
 count = 1
 def server(sensor_data):
     newdata = np.array(sensor_data, dtype=np.uint8)
-    print(newdata)
     # return 111
     result = system.process_frame(newdata)
-    print(result)
     
     return result
 

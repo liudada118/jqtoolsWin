@@ -1157,9 +1157,7 @@ async function connectPort() {
 
 
 
-          if (algorData.control_command) {
-            control_command = algorData.control_command
-          }
+          
           // console.log(444)
 
           if (sendDataLength < 1) {
@@ -1179,6 +1177,9 @@ async function connectPort() {
 
           oldTimeObj[dataItem.type] = dataItem.stamp
           algorData = await callPy('server', { sensor_data: pointArr })
+          if (algorData.control_command) {
+            control_command = algorData.control_command
+          }
           // console.log(algorData?.frame_count)
 
         } else if (pointArr.length == 51) {
@@ -1458,7 +1459,7 @@ setInterval(() => {
       server.clients.forEach(function each(client) {
         if (port?.isOpen) {
 
-          if (algorData?.control_command) {
+          if (algorData?.control_command && controlMode == ALGOR) {
             const hexStr = algorData.control_command
               .map(v => v.toString(16).padStart(2, '0'))
               .join('');
