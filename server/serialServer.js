@@ -94,7 +94,7 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 const ALGOR = 'algor', HANDLE = 'handle'
-var algorData, control_command, controlMode = ALGOR, feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 // 选择数据库数据
 let historyDbArr;
 
@@ -1157,7 +1157,7 @@ async function connectPort() {
 
 
 
-          
+
           // console.log(444)
 
           if (sendDataLength < 1) {
@@ -1190,6 +1190,7 @@ async function connectPort() {
 
             // 手动模式
             if (pointArr[49] == 1) {
+
               controlMode = HANDLE
 
               let max = 24, controlArr = []
@@ -1210,7 +1211,14 @@ async function connectPort() {
             }
             // 自动模式
             else {
+
+
+
               controlMode = ALGOR
+
+              if (oldControlMode == HANDLE && controlMode == ALGOR) {
+                await callPy('resetMessage')
+              }
 
               let max = 24, controlArr = []
               for (let i = 0; i < max; i++) {
@@ -1227,6 +1235,8 @@ async function connectPort() {
                 }
               });
             }
+
+            oldControlMode = controlMode
           }
         }
 
@@ -1279,7 +1289,7 @@ function colAndSendData() {
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     // selectArr
-    if (Object.keys(selectArr).length) {
+    if (selectArr && Object.keys(selectArr).length) {
       for (let i = 0; i < Object.keys(selectArr).length; i++) {
         const key = Object.keys(selectArr)[i]
         obj[key].select = selectArr[key]
@@ -1445,7 +1455,7 @@ setInterval(() => {
 }, 3000)
 
 
-setInterval(() => {
+setInterval(async () => {
 
   const portArr = Object.keys(parserArr).map((path) => {
     return parserArr[path].port

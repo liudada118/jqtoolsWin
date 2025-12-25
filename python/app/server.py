@@ -21,11 +21,14 @@ def setParam(obj):
 def getParam():
     return system.config.get_all_with_comments()
 
+def resetMessage():
+    return system.reset_massage(clear_history=True)
+
 def ping():
     return {"pong": True}
 
 
-FUNCS = {"ping": ping, "server": server , "setParam" : setParam , "getParam" : getParam}
+FUNCS = {"ping": ping, "server": server , "setParam" : setParam , "getParam" : getParam, "resetMessage" : resetMessage}
 
 
 
