@@ -213,9 +213,9 @@ app.post('/startCol', async (req, res) => {
     const { fileName, select } = req.body
     selectArr = select
     const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
+    console.log(sensorArr, file)
+    const length = sensorArr.filter((a) => typeof file == 'string' &&  a.includes(file)).length
 
-    const length = sensorArr.filter((a) => a.includes(file)).length
-    console.log(sensorArr, file, length)
     if (length > 0) {
       colFlag = true
       colName = fileName
@@ -224,8 +224,8 @@ app.post('/startCol', async (req, res) => {
       res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
     }
 
-  } catch {
-
+  } catch (e) {
+    console.log(e)
   }
 
 })
@@ -869,7 +869,7 @@ async function connectPort() {
             }
           }
         }
-        console.log(pointArr.length)
+        // console.log(pointArr.length)
         // 陀螺仪
         if (pointArr.length == 18) {
           const length = pointArr.length
@@ -905,7 +905,7 @@ async function connectPort() {
             matrix = jqbed(pointArr)
           } else if (dataItem.type == 'endi-sit') {
             matrix = endiSit1024(pointArr)
-            
+
           } else if (dataItem.type == 'endi-back') {
             matrix = endiBack1024(pointArr)
           } else {

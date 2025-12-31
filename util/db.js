@@ -79,7 +79,22 @@ function dbload(db, param, file, isPackaged) {
             if (j == 0) {
               newData.time = timeStampTo_Date(rows[i][`timestamp`])
             }
+            const selectArr = [], selectObj = { width: 0, height: 0 }
+            if (rows[i][`select`]) {
 
+              const obj = JSON.parse(rows[i][`select`])[key]
+              // console.log(typeof obj , obj)
+              const { xStart, xEnd, yStart, yEnd, width, height } = obj
+              for (let i = yStart; i < yEnd; i++) {
+                for (let j = xStart; j < xEnd; j++) {
+                  selectArr.push(data[i * width + j])
+                }
+              }
+
+              selectObj.width = xEnd - xStart
+              selectObj.height = yEnd - yStart
+            }
+            // console.log(selectArr , 'selectArr')
             const press = data.reduce((a, b) => a + b, 0);
             const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
@@ -90,6 +105,8 @@ function dbload(db, param, file, isPackaged) {
             newData[`${key}max`] = max
             newData[`${key}aver`] = aver
             newData[`${key}realData`] = JSON.stringify(data)
+            newData[`${key}selectData`] = JSON.stringify(selectArr)
+            newData[`${key}selectW&H`] = JSON.stringify([selectObj.width, selectObj.height])
           }
 
 
@@ -114,12 +131,18 @@ function dbload(db, param, file, isPackaged) {
           if (j == 0) {
             handArr.push({ id: "time", title: "time" })
           }
+
+          // const str = "endi";
+          const res = key.replace(/endi/g, "car");
+          console.log(res); // car
           handArr.push(
-            { id: `${key}max`, title: `${key}max` },
-            { id: `${key}pressureArea`, title: `${key}area` },
-            { id: `${key}pressure`, title: `${key}pressure` },
-            { id: `${key}realData`, title: `${key}data` },
-            { id: `${key}aver`, title: `${key}aver` },
+            { id: `${key}max`, title: `${res}max` },
+            { id: `${key}pressureArea`, title: `${res}area` },
+            { id: `${key}pressure`, title: `${res}pressure` },
+            { id: `${key}realData`, title: `${res}data` },
+            { id: `${key}selectData`, title: `${res}selectData` },
+            { id: `${key}selectW&H`, title: `${res}selectW&H` },
+            { id: `${key}aver`, title: `${res}aver` },
           )
         }
 
@@ -128,8 +151,10 @@ function dbload(db, param, file, isPackaged) {
           csvPath = 'resources/data'
         }
 
+        const csvName = file == 'endi' ? 'car' : file
+
         const csvWriter1 = createCsvWriter({
-          path: `${csvPath}/${file}${str}.csv`,
+          path: `${csvPath}/${csvName}${str}.csv`,
           // path: `./data/back${str}.csv`, // 指定输出文件的路径和名称
           header: handArr,
         });
@@ -304,15 +329,15 @@ async function dbGetData({ db, params }) {
         // console.log(rows , 'rows',params)
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
         let pressValue = {}, areaValue = {}
-         for (let j = 0; j < keyArr.length; j++) {
-            const key = keyArr[j]
-            pressValue[key] = []
-            areaValue[key] = []
-          }
+        for (let j = 0; j < keyArr.length; j++) {
+          const key = keyArr[j]
+          pressValue[key] = []
+          areaValue[key] = []
+        }
         for (let i = 0; i < rows.length; i++) {
 
-          
-         
+
+
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
             if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
