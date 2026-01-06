@@ -17,7 +17,6 @@
     "crypto-js": "^4.2.0",
     "csv-parser": "^3.2.0",
     "csv-writer": "^1.6.0",
-    "dmg-license": "^1.0.11",
     "express": "^5.1.0",
     "serialport": "^13.0.0",
     "sqlite3": "5.1.6",
@@ -26,6 +25,11 @@
   },
   "build": {
     "asar": true,
+    "files" : [
+      "!**/build/**",
+      "!**/python/**"
+    ] ,
+    
     "win": {
       "icon" : "./logo" ,
       "target": [

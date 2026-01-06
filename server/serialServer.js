@@ -1182,63 +1182,65 @@ async function connectPort() {
           }
           // console.log(algorData?.frame_count)
 
-        } else if (pointArr.length == 51) {
-          // 收到ecu发送数据
-          console.log('pointArr', pointArr)
-          console.log('buffer', buffer)
-          if (pointArr[50] == 1) {
-
-            // 手动模式
-            if (pointArr[49] == 1) {
-
-              controlMode = HANDLE
-
-              let max = 24, controlArr = []
-              for (let i = 0; i < max; i++) {
-                controlArr.push(pointArr[2 * i + 2])
-              }
-
-
-              server.clients.forEach(function each(client) {
-                if (port?.isOpen) {
-
-                  if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({ handle: controlArr }));
-                  }
-                }
-              });
-
-            }
-            // 自动模式
-            else {
-
-
-
-              controlMode = ALGOR
-
-              if (oldControlMode == HANDLE && controlMode == ALGOR) {
-                await callPy('resetMessage')
-              }
-
-              let max = 24, controlArr = []
-              for (let i = 0; i < max; i++) {
-                controlArr.push(pointArr[2 * i + 2])
-              }
-
-
-              server.clients.forEach(function each(client) {
-                if (port?.isOpen) {
-
-                  if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({ algorFeed: controlArr }));
-                  }
-                }
-              });
-            }
-
-            oldControlMode = controlMode
-          }
         }
+
+        // else if (pointArr.length == 51) {
+        //   // 收到ecu发送数据
+        //   console.log('pointArr', pointArr)
+        //   console.log('buffer', buffer)
+        //   if (pointArr[50] == 1) {
+
+        //     // 手动模式
+        //     if (pointArr[49] == 1) {
+
+        //       controlMode = HANDLE
+
+        //       let max = 24, controlArr = []
+        //       for (let i = 0; i < max; i++) {
+        //         controlArr.push(pointArr[2 * i + 2])
+        //       }
+
+
+        //       server.clients.forEach(function each(client) {
+        //         if (port?.isOpen) {
+
+        //           if (client.readyState === WebSocket.OPEN) {
+        //             client.send(JSON.stringify({ handle: controlArr }));
+        //           }
+        //         }
+        //       });
+
+        //     }
+        //     // 自动模式
+        //     else {
+
+
+
+        //       controlMode = ALGOR
+
+        //       if (oldControlMode == HANDLE && controlMode == ALGOR) {
+        //         await callPy('resetMessage')
+        //       }
+
+        //       let max = 24, controlArr = []
+        //       for (let i = 0; i < max; i++) {
+        //         controlArr.push(pointArr[2 * i + 2])
+        //       }
+
+
+        //       server.clients.forEach(function each(client) {
+        //         if (port?.isOpen) {
+
+        //           if (client.readyState === WebSocket.OPEN) {
+        //             client.send(JSON.stringify({ algorFeed: controlArr }));
+        //           }
+        //         }
+        //       });
+        //     }
+
+        //     oldControlMode = controlMode
+        //   }
+        // }
 
 
         else if (![18, 1024, 130].includes(pointArr.length)) {
@@ -1476,18 +1478,30 @@ setInterval(async () => {
 
             // console.log(hexStr);
 
-            const command = Buffer.from(hexStr, 'hex')
-            console.log('sendCommand', command)
-            port.write(command, err => {
-              if (err) {
-                return console.error('err2:', err.message);
-              }
-              // console.log('send:', command.trim());
-              // resolve(command.trim())
 
-              console.log('send:', 11);
-              // resolve(11)
-            });
+            // 不发送指令
+            // const command = Buffer.from(hexStr, 'hex')
+            // console.log('sendCommand', command)
+            // port.write(command, err => {
+            //   if (err) {
+            //     return console.error('err2:', err.message);
+            //   }
+            //   // console.log('send:', command.trim());
+            //   // resolve(command.trim())
+
+            //   console.log('send:', 11);
+            //   // resolve(11)
+            // });
+
+            let max = 24, controlArr = []
+            for (let i = 0; i < max; i++) {
+              controlArr.push(algorData.control_command[2 * i + 2])
+            }
+
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ algorFeed: controlArr }));
+            }
+
           }
 
 
