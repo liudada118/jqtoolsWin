@@ -210,7 +210,7 @@ app.post('/startCol', async (req, res) => {
 
     const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
 
-    const length = sensorArr.filter((a) => a.includes(file)).length
+    const length = sensorArr.filter((a) => a?.includes(file)).length
     console.log(sensorArr, file, length)
     if (length > 0) {
       colFlag = true
@@ -220,8 +220,9 @@ app.post('/startCol', async (req, res) => {
       res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
     }
 
-  } catch {
-
+  } catch(err) {
+    console.log(err)
+    res.json(new HttpResult(1, {}, '开始采集失败'));
   }
 
 })
@@ -800,12 +801,12 @@ async function connectPort() {
             }
 
 
-            if (Object.keys(macInfo).length == ports.length) {
+            // if (Object.keys(macInfo).length == ports.length) {
               // console.log(macInfo)
               // return macInfo
 
               socketSendData(server, JSON.stringify({ macInfo }))
-            }
+            // }
           }
         }
         // console.log(pointArr.length)
