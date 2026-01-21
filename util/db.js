@@ -99,7 +99,7 @@ function dbload(db, param, file, isPackaged) {
             const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
             const aver = (press / area).toFixed(1)
-
+            if (file.includes('endi')) newData.sec = (i / 12).toFixed(2)
             newData[`${key}pressureArea`] = area
             newData[`${key}pressure`] = press
             newData[`${key}max`] = max
@@ -129,6 +129,7 @@ function dbload(db, param, file, isPackaged) {
         for (let j = 0; j < keyArr.length; j++) {
           const key = keyArr[j]
           if (j == 0) {
+            if (file.includes('endi')) handArr.push({ id: "sec", title: "sec" })
             handArr.push({ id: "time", title: "time" })
           }
 

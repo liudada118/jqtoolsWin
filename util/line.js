@@ -255,7 +255,8 @@ function press(arr, width, height, value, prop, type = "row") {
 
 function endiSit1024(arr) {
     let arrX = [[0, 22]]
-    let arrY = [[11, 22], [10, 0]]
+    // let arrY = [[11, 22], [10, 0]]
+    let arrY = [[0, 10] , [22, 11]]
 
     const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
 
@@ -272,7 +273,9 @@ function endiSit1024(arr) {
 
 function endiBack1024(arr) {
     let arrX = [[0, 24]]
-    let arrY = [[0, 14], [31, 15]]
+    // let arrY = [[0, 14], [31, 15]]
+   
+    let arrY = [[15, 31], [14, 0]]
 
     const pressArr = press([...arr], 32, 32, 700, 0.3, 'col')
 
