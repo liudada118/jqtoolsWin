@@ -175,7 +175,7 @@ app.get('/getSystem', async (req, res) => {
 
   const config = fs.readFileSync('./config.txt', 'utf-8',)
   const result = JSON.parse(decryptStr(config))
-  result.value = file
+  result.value = 'foot'
 
   // const result = {
   //   value: "bed",
@@ -1041,7 +1041,8 @@ async function connectPort() {
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
           // if (!dataItem.premission) return
-          // dataItem.type = 'sit'
+          dataItem.premission = true
+          dataItem.type = 'foot'
           if (!dataItem.premission) {
             dataItem.status = 'expired'
           } else {

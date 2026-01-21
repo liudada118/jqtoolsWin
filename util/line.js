@@ -155,10 +155,22 @@ function endiBack(arr) {
 }
 // endiSit()
 
+function backYToX(y) {
+  if (y >= 123) return 20; // 平台饱和段
+  return Math.exp((y - 28.9905) / 31.3511);
+}
+
+function sitYToX(y) {
+  if (y >= 121) return 20; // 饱和平台
+  return Math.exp((y - 47.47) / 24.52) - 0.052;
+}
+
 
 module.exports = {
     hand,
     jqbed,
     endiSit,
-    endiBack
+    endiBack,
+    backYToX,
+    sitYToX
 }

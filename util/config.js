@@ -1,7 +1,7 @@
 
 const baudRate921600Arr = []
 const baudRate1000000Arr = ['hand' , 'bed']
-const baudRate3000000Arr = ['bigHand' , 'endi']
+const baudRate3000000Arr = ['bigHand' , 'endi' , 'foot']
 
 const baudRateObj = {}
 baudRate921600Arr.forEach((file) => {

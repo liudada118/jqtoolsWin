@@ -4,6 +4,7 @@ const createCsvWriter = require("csv-writer").createObjectCsvWriter;
 const fs = require('fs');
 const { timeStampTo_Date } = require("./time");
 const constantObj = require("./config");
+const { sitYToX, backYToX } = require("./line");
 
 /**
  * 输入当前系统名  返回可执行数据库
@@ -83,13 +84,27 @@ function dbload(db, param, file, isPackaged) {
             const press = data.reduce((a, b) => a + b, 0);
             const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
+            const min = Math.min(...data.filter((a) => a > 0));
             const aver = (press / area).toFixed(1)
 
             newData[`${key}pressureArea`] = area
-            newData[`${key}pressure`] = press
+            // newData[`${key}pressure`] = press
             newData[`${key}max`] = max
+            newData[`${key}min`] = min
             newData[`${key}aver`] = aver
             newData[`${key}realData`] = JSON.stringify(data)
+
+            if (key == 'car-back') {
+              newData[`${key}max`] = backYToX(max)
+              newData[`${key}min`] = backYToX(min)
+              newData[`${key}aver`] = backYToX(aver)
+            }
+
+            if(key == 'car-sit'){
+              newData[`${key}max`] = sitYToX(max)
+              newData[`${key}min`] = sitYToX(min)
+              newData[`${key}aver`] = sitYToX(aver)
+            }
           }
 
 
@@ -116,10 +131,12 @@ function dbload(db, param, file, isPackaged) {
           }
           handArr.push(
             { id: `${key}max`, title: `${key}max` },
-            { id: `${key}pressureArea`, title: `${key}area` },
-            { id: `${key}pressure`, title: `${key}pressure` },
-            { id: `${key}realData`, title: `${key}data` },
+            { id: `${key}min`, title: `${key}min` },
             { id: `${key}aver`, title: `${key}aver` },
+            { id: `${key}pressureArea`, title: `${key}area` },
+            // { id: `${key}pressure`, title: `${key}pressure` },
+            { id: `${key}realData`, title: `${key}data` },
+            
           )
         }
 
@@ -304,15 +321,15 @@ async function dbGetData({ db, params }) {
         // console.log(rows , 'rows',params)
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
         let pressValue = {}, areaValue = {}
-         for (let j = 0; j < keyArr.length; j++) {
-            const key = keyArr[j]
-            pressValue[key] = []
-            areaValue[key] = []
-          }
+        for (let j = 0; j < keyArr.length; j++) {
+          const key = keyArr[j]
+          pressValue[key] = []
+          areaValue[key] = []
+        }
         for (let i = 0; i < rows.length; i++) {
 
-          
-         
+
+
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
             if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
