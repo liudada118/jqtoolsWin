@@ -160,7 +160,7 @@ function lineInterp(smallMat, width, height, interp1, interp2) {
     for (let i = 0; i < height; i++) {
         for (let j = 0; j < width; j++) {
             const realValue = smallMat[i * width + j] * interpValue
-            const rowValue = j==width-1 ? 0 : smallMat[i * width + j + 1] * interpValue ? smallMat[i * width + j + 1] * interpValue : 0
+            const rowValue = j == width - 1 ? 0 : smallMat[i * width + j + 1] * interpValue ? smallMat[i * width + j + 1] * interpValue : 0
             const colValue = smallMat[(i + 1) * width + j] * interpValue ? smallMat[(i + 1) * width + j] * interpValue : 0
             bigMat[(width * interp1) * i * interp2 + (j * interp1)
             ] = smallMat[i * width + j] * interpValue
@@ -235,7 +235,7 @@ function press(arr, width, height, value, prop, type = "row") {
         // //////okok
 
         // console.log(first)
-      
+
         for (let i = 0; i < height; i++) {
             for (let j = 0; j < width; j++) {
                 wsPointData[j * height + i] = parseInt(
@@ -254,11 +254,13 @@ function press(arr, width, height, value, prop, type = "row") {
 }
 
 function endiSit1024(arr) {
-    let arrX = [[0, 22]]
+    let arrX = [[22, 0]]
     // let arrY = [[11, 22], [10, 0]]
-    let arrY = [[0, 10] , [22, 11]]
+    let arrY = [[0, 10], [22, 11]]
 
-    const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
+    // const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
+
+    const pressArr = pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 })
 
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
@@ -274,11 +276,11 @@ function endiSit1024(arr) {
 function endiBack1024(arr) {
     let arrX = [[0, 24]]
     // let arrY = [[0, 14], [31, 15]]
-   
+
     let arrY = [[15, 31], [14, 0]]
 
-    const pressArr = press([...arr], 32, 32, 700, 0.3, 'col')
 
+    const pressArr = pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 }) //press([...arr], 32, 32, 700, 0.3, 'col')
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
 
@@ -288,6 +290,62 @@ function endiBack1024(arr) {
 
     // console.log(newArr.length)
     return newArr
+}
+
+function pressNew1220({ arr, width, height, type = "row", value }) {
+    let wsPointData = [...arr];
+
+    if (type == "row") {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[i * width + j];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+
+                let den = wsPointData[i * width + j] + value - colArr[i]
+                if (den <= 0) {
+                    den = 1
+                }
+
+                wsPointData[i * width + j] = parseInt(
+                    wsPointData[i * width + j] * value / den
+                );
+            }
+        }
+    } else {
+        let colArr = [];
+        for (let i = 0; i < height; i++) {
+            let total = 0;
+            for (let j = 0; j < width; j++) {
+                total += wsPointData[j * height + i];
+            }
+            colArr.push(total);
+        }
+        // //////okok
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                let den = wsPointData[j * height + i] + value - colArr[i]
+                if (den <= 0) {
+                    den = 1
+                }
+
+                wsPointData[j * height + i] = parseInt(
+                    (wsPointData[j * height + i] * value / den) / 2
+                );
+            }
+        }
+    }
+
+    //////
+
+    // wsPointData = wsPointData.map((a,index) => {return calculateY(a)})
+    return wsPointData;
 }
 
 module.exports = {

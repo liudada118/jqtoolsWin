@@ -80,19 +80,23 @@ function dbload(db, param, file, isPackaged) {
               newData.time = timeStampTo_Date(rows[i][`timestamp`])
             }
             const selectArr = [], selectObj = { width: 0, height: 0 }
+
             if (rows[i][`select`]) {
 
               const obj = JSON.parse(rows[i][`select`])[key]
               // console.log(typeof obj , obj)
-              const { xStart, xEnd, yStart, yEnd, width, height } = obj
-              for (let i = yStart; i < yEnd; i++) {
-                for (let j = xStart; j < xEnd; j++) {
-                  selectArr.push(data[i * width + j])
+              if (typeof obj == 'object') {
+                const { xStart, xEnd, yStart, yEnd, width, height } = obj
+                for (let i = yStart; i < yEnd; i++) {
+                  for (let j = xStart; j < xEnd; j++) {
+                    selectArr.push(data[i * width + j])
+                  }
                 }
+
+                selectObj.width = xEnd - xStart
+                selectObj.height = yEnd - yStart
               }
 
-              selectObj.width = xEnd - xStart
-              selectObj.height = yEnd - yStart
             }
             // console.log(selectArr , 'selectArr')
             const press = data.reduce((a, b) => a + b, 0);
