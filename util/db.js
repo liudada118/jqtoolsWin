@@ -320,11 +320,12 @@ async function dbGetData({ db, params }) {
           area = [];
         // console.log(rows , 'rows',params)
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
-        let pressValue = {}, areaValue = {}
+        let pressValue = {}, areaValue = {} , dataValue = {}
         for (let j = 0; j < keyArr.length; j++) {
           const key = keyArr[j]
           pressValue[key] = []
           areaValue[key] = []
+          dataValue[key] = []
         }
         for (let i = 0; i < rows.length; i++) {
 
@@ -333,8 +334,9 @@ async function dbGetData({ db, params }) {
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
             if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
-            console.log(JSON.parse(rows[i][`data`])[key])
+            
             const data = JSON.parse(rows[i][`data`])[key].arr
+            dataValue[key].push(data)
             pressValue[key].push(data.reduce((a, b) => a + b, 0))
             areaValue[key].push(data.filter((a) => a > 0).length)
           }
@@ -346,6 +348,7 @@ async function dbGetData({ db, params }) {
           length,
           pressArr: pressValue,
           areaArr: areaValue,
+          dataArr : dataValue,
           rows: rows
         })
 

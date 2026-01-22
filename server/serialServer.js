@@ -18,6 +18,7 @@ const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
 const module2 = require('../util/aes_ecb')
+const multer = require('multer')
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -25,6 +26,19 @@ console.log('userData from env:', typeof process.env.isPackaged);
 let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
+
+const uploadDir = path.join(__dirname, '../img')
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const safeName = file.originalname || 'upload.bin'
+    cb(null, `${Date.now()}-${safeName}`)
+  },
+})
+const upload = multer({ storage })
 
 const ORIGIN = 'https://sensor.bodyta.com';
 
@@ -97,6 +111,7 @@ const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 // 选择数据库数据
 let historyDbArr;
+let lastFootPointArr = []
 
 
 //对比数据
@@ -143,6 +158,31 @@ app.get('/', (req, res) => {
 // 绑定密钥
 app.post('/bindKey', (req, res) => {
   console.log(req.body.key)
+  try {
+
+    const { key } = req.body;
+
+    res.json(new HttpResult(0, {}, '绑定成功'));
+  } catch {
+    res.json(new HttpResult(1, {}, '绑定失败'));
+  }
+
+})
+
+app.post('/uploadCanvas', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      res.json(new HttpResult(1, {}, 'missing file'));
+      return
+    }
+    res.json(new HttpResult(0, { file: req.file, body: req.body }, 'success'));
+  } catch {
+    res.json(new HttpResult(1, {}, 'upload failed'));
+  }
+})
+
+app.post('/uploadCanvas_old', (req, res) => {
+  console.log(req)
   try {
 
     const { key } = req.body;
@@ -353,15 +393,24 @@ app.post('/getDbHistory', async (req, res) => {
 
   const params = [time];
 
-  const { length, pressArr, areaArr, rows } = await dbGetData({ db: currentDb, params })
+  const { length, pressArr, areaArr, rows,dataArr } = await dbGetData({ db: currentDb, params })
 
-  const data = { length, pressArr, areaArr, }
+  const data = { length, pressArr, areaArr,dataArr }
 
   historyDbArr = rows
   colMaxHZ = 1000 / (historyDbArr[1].timestamp - historyDbArr[0].timestamp)
   colplayHZ = colMaxHZ
   historyFlag = true
   playIndex = 0
+
+  if(dataArr['foot']){
+    console.log(typeof dataArr['foot'])
+    const copData = await callPy("replay_server" , {sensor_data : dataArr['foot']})
+    copData.length = length
+    console.log(copData)
+    res.json(new HttpResult(0, copData, 'success'));
+    return
+  }
 
   res.json(new HttpResult(0, data, 'success'));
 })
@@ -435,7 +484,7 @@ app.post('/getDbHistoryPlay', async (req, res) => {
       if (historyPlayFlag && historyDbArr) {
 
         socketSendData(server, JSON.stringify({
-          sitData: JSON.parse(historyDbArr[playIndex].data),
+          sitDataPlay: JSON.parse(historyDbArr[playIndex].data),
           index: playIndex,
           timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
         }))
@@ -1050,9 +1099,16 @@ async function connectPort() {
               dataItem.arr = endiSit(pointArr)
             } else if (dataItem.type == 'endi-back') {
               dataItem.arr = endiBack(pointArr)
+            } else if (dataItem.type == 'foot') {
+              dataItem.arr = pointArr
+              if (lastFootPointArr.length) {
+                dataItem.cop = await callPy('realtime_server', { sensor_data: pointArr, data_prev: lastFootPointArr })
+              }
+
             } else {
               dataItem.arr = pointArr
             }
+            lastFootPointArr = pointArr
           }
           // console.log(444)
           const stamp = new Date().getTime()

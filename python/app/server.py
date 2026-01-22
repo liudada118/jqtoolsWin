@@ -1,34 +1,28 @@
 import sys, json, traceback
-from integrated_system import IntegratedSeatSystem
 import numpy as np
 import os
-count = 1
-def server(sensor_data):
-    newdata = np.array(sensor_data, dtype=np.uint8)
-    # return 111
-    result = system.process_frame(newdata)
+import real_rime_and_replay_cop_speed  
+
+def realtime_server(sensor_data , data_prev ,):
     
+    result = real_rime_and_replay_cop_speed.process_frame_realtime(sensor_data , data_prev)
     return result
 
-def setParam(obj):
-    print(obj , '111')
-    # system.set_param(key, value)
-    for key, value in obj.items():
-        # print(key, value)
-        system.set_param(key, value)
-    print('set success')
 
-def getParam():
-    return system.config.get_all_with_comments()
-
-def resetMessage():
-    return system.reset_massage(clear_history=True)
+def replay_server(sensor_data):
+    
+    # return 111
+    print('111')
+    # return sensor_data
+    result = real_rime_and_replay_cop_speed.process_playback_batch(sensor_data)
+    # print(result)
+    return result
 
 def ping():
     return {"pong": True}
 
 
-FUNCS = {"ping": ping, "server": server , "setParam" : setParam , "getParam" : getParam, "resetMessage" : resetMessage}
+FUNCS = {"ping": ping, "realtime_server": realtime_server , "replay_server" : replay_server}
 
 
 
@@ -59,5 +53,4 @@ if __name__ == "__main__":
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATH = os.path.join(BASE_DIR, "sensor_config.yaml")
 
-    system = IntegratedSeatSystem(CONFIG_PATH)
     main()
