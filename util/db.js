@@ -4,6 +4,7 @@ const createCsvWriter = require("csv-writer").createObjectCsvWriter;
 const fs = require('fs');
 const { timeStampTo_Date } = require("./time");
 const constantObj = require("./config");
+const { backYToX, sitYToX } = require("./line");
 
 /**
  * 输入当前系统名  返回可执行数据库
@@ -70,8 +71,9 @@ function dbload(db, param, file, isPackaged) {
           const newData = {}
 
           for (let j = 0; j < keyArr.length; j++) {
-            const key = keyArr[j]
 
+            const key = keyArr[j]
+            console.log(key)
             if (!JSON.parse(rows[i][`data`])[key]) continue
             const data = JSON.parse(rows[i][`data`])[key].arr
             if (!data) continue
@@ -99,18 +101,48 @@ function dbload(db, param, file, isPackaged) {
 
             }
             // console.log(selectArr , 'selectArr')
-            const press = data.reduce((a, b) => a + b, 0);
-            const area = data.filter((a) => a > 0).length;
-            const max = Math.max(...data);
-            const aver = (press / area).toFixed(1)
+            // const press = data.reduce((a, b) => a + b, 0);
+            // const area = data.filter((a) => a > 0).length;
+            // const max = Math.max(...data);
+            // const min = Math.min(...data.filter((a) => a > 0));
+            // const aver = (press / area).toFixed(1)
+
+            const { press, area, max, min, aver } = colArrData(data)
+
+            const { press: selectPress, area: selectArea, max: selectMax, min: selectMin, aver: selectAver } = colArrData(selectArr)
+
             if (file.includes('endi')) newData.sec = (i / 12).toFixed(2)
             newData[`${key}pressureArea`] = area
             newData[`${key}pressure`] = press
             newData[`${key}max`] = max
+            newData[`${key}min`] = min
             newData[`${key}aver`] = aver
+
+            newData[`${key}selectMax`] = selectMax
+            newData[`${key}selectMin`] = selectMin
+            newData[`${key}selectAver`] = selectAver
+
             newData[`${key}realData`] = JSON.stringify(data)
             newData[`${key}selectData`] = JSON.stringify(selectArr)
             newData[`${key}selectW&H`] = JSON.stringify([selectObj.width, selectObj.height])
+
+            if (key == 'endi-back') {
+              newData[`${key}max`] = backYToX(max)
+              newData[`${key}min`] = backYToX(min)
+              newData[`${key}aver`] = backYToX(aver)
+              newData[`${key}selectMax`] = backYToX(selectMax)
+              newData[`${key}selectMin`] = backYToX(selectMin)
+              newData[`${key}selectAver`] = backYToX(selectAver)
+            }
+
+            if (key == 'endi-sit') {
+              newData[`${key}max`] = sitYToX(max)
+              newData[`${key}min`] = sitYToX(min)
+              newData[`${key}aver`] = sitYToX(aver)
+              newData[`${key}selectMax`] = sitYToX(selectMax)
+              newData[`${key}selectMin`] = sitYToX(selectMin)
+              newData[`${key}selectAver`] = sitYToX(selectAver)
+            }
           }
 
 
@@ -142,12 +174,17 @@ function dbload(db, param, file, isPackaged) {
           console.log(res); // car
           handArr.push(
             { id: `${key}max`, title: `${res}max` },
+            { id: `${key}min`, title: `${res}min` },
+            { id: `${key}aver`, title: `${res}aver` },
             { id: `${key}pressureArea`, title: `${res}area` },
-            { id: `${key}pressure`, title: `${res}pressure` },
+            // { id: `${key}pressure`, title: `${res}pressure` },
             { id: `${key}realData`, title: `${res}data` },
             { id: `${key}selectData`, title: `${res}selectData` },
+            { id: `${key}selectMax`, title: `${res}selectMax` },
+            { id: `${key}selectMin`, title: `${res}selectMin` },
+            { id: `${key}selectAver`, title: `${res}selectAver` },
             { id: `${key}selectW&H`, title: `${res}selectW&H` },
-            { id: `${key}aver`, title: `${res}aver` },
+            // { id: `${key}aver`, title: `${res}aver` },
           )
         }
 
@@ -413,6 +450,30 @@ async function changeDbDataName({ db, params }) {
     }
     console.log(`更新完成，共修改了 ${this.changes} 行`);
   });
+}
+
+function colArrData(arr) {
+  if(!arr.length){
+    return {press : 0,
+    area : 0,
+    max : 0,
+    min : 0,
+    aver : 0}
+  }
+  const data = [...arr]
+  const press = data.reduce((a, b) => a + b, 0);
+  const area = data.filter((a) => a > 0).length;
+  const max = Math.max(...data);
+  const min = Math.min(...data.filter((a) => a > 0));
+  const aver = (press / area).toFixed(1)
+
+  return {
+    press,
+    area,
+    max,
+    min,
+    aver
+  }
 }
 
 module.exports = {

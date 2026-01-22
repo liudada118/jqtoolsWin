@@ -267,10 +267,26 @@ function endiSit1024(arr) {
     // console.log(JSON.stringify(newArr))
     newArr = lineInterp(newArr, 23, 23, 2, 2)
 
+
+
+    const yArr = []
+    for (let i = 0; i < 46; i++) {
+        yArr.push(45 - i)
+    }
+
+    const res = []
+    for (let i = 0; i < 46; i++) {
+        for (let j = 0; j < 46; j++) {
+            const width = yArr[i]
+            res.push(newArr[width * 46 + 45 - j])
+        }
+    }
+ 
+
     // newArr = rotate90(newArr, 45, 45)
 
     // console.log(newArr.length)
-    return newArr
+    return res
 }
 
 function endiBack1024(arr) {
@@ -286,10 +302,25 @@ function endiBack1024(arr) {
 
     newArr = lineInterp(newArr, 25, 32, 2, 2)
 
+    const yArr = []
+    for (let i = 0; i < 64; i++) {
+        yArr.push(63 - i)
+    }
+
+    const res = []
+    for (let i = 0; i < 64; i++) {
+        for (let j = 0; j < 50; j++) {
+            const width = yArr[i]
+            res.push(newArr[width * 50 + 49 - j])
+        }
+    }
+    
+
+
     // newArr = rotate90(newArr, 45, 45)
 
     // console.log(newArr.length)
-    return newArr
+    return res
 }
 
 function pressNew1220({ arr, width, height, type = "row", value }) {
@@ -348,11 +379,25 @@ function pressNew1220({ arr, width, height, type = "row", value }) {
     return wsPointData;
 }
 
+function backYToX(y) {
+    if (y <= 0) return 0;
+    if (y >= 123) return 20; // 平台饱和段
+    return Math.exp((y - 28.9905) / 31.3511).toFixed(2);
+}
+
+function sitYToX(y) {
+    if (y <= 0) return 0;
+    if (y >= 121) return 20; // 饱和平台
+    return (Math.exp((y - 47.47) / 24.52) - 0.052).toFixed(2);
+}
+
 module.exports = {
     hand,
     jqbed,
     endiSit,
     endiBack,
     endiSit1024,
-    endiBack1024
+    endiBack1024,
+    backYToX,
+    sitYToX
 }
