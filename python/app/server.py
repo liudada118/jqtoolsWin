@@ -1,7 +1,8 @@
 import sys, json, traceback
 import numpy as np
 import os
-import real_rime_and_replay_cop_speed  
+import real_rime_and_replay_cop_speed2 as real_rime_and_replay_cop_speed 
+
 
 def realtime_server(sensor_data , data_prev ,):
     
@@ -10,12 +11,9 @@ def realtime_server(sensor_data , data_prev ,):
 
 
 def replay_server(sensor_data):
-    
-    # return 111
-    print('111')
-    # return sensor_data
-    result = real_rime_and_replay_cop_speed.process_playback_batch(sensor_data)
-    # print(result)
+
+    result = real_rime_and_replay_cop_speed.process_playback_batch(sensor_data , fps=20.0)
+
     return result
 
 def ping():

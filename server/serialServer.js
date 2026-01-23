@@ -404,10 +404,9 @@ app.post('/getDbHistory', async (req, res) => {
   playIndex = 0
 
   if(dataArr['foot']){
-    console.log(typeof dataArr['foot'])
+   
     const copData = await callPy("replay_server" , {sensor_data : dataArr['foot']})
     copData.length = length
-    console.log(copData)
     res.json(new HttpResult(0, copData, 'success'));
     return
   }
