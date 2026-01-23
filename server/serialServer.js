@@ -26,6 +26,9 @@ console.log('userData from env:', typeof process.env.isPackaged);
 let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
+const pdfDir = isPackaged
+  ? path.join(process.resourcesPath, 'pdf')
+  : path.join(__dirname, '..', 'pdf')
 
 const uploadDir = path.join(__dirname, '../img')
 if (!fs.existsSync(uploadDir)) {
@@ -125,6 +128,35 @@ console.log(__dirname, dbPath, '__dirname')
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
+})
+
+// GET /pdf/<filename> -> send pdf file
+app.get('/pdf/:name', (req, res) => {
+  try {
+    const rawName = req.params.name || ''
+    const decodedName = decodeURIComponent(rawName)
+    const safeName = decodedName.replace(/[\\/]/g, '')
+    if (!safeName || safeName !== decodedName) {
+      res.status(400).send('Invalid file name')
+      return
+    }
+    const filePath = path.join(pdfDir, safeName)
+    const resolvedPath = path.resolve(filePath)
+    const resolvedBase = path.resolve(pdfDir) + path.sep
+    if (!resolvedPath.startsWith(resolvedBase)) {
+      res.status(403).send('Forbidden')
+      return
+    }
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', 'inline')
+    res.sendFile(resolvedPath, (err) => {
+      if (err) {
+        res.status(err.statusCode || 404).send('Not Found')
+      }
+    })
+  } catch (e) {
+    res.status(500).send('Server Error')
+  }
 })
 
 // async function demo(matrix) {
@@ -393,9 +425,9 @@ app.post('/getDbHistory', async (req, res) => {
 
   const params = [time];
 
-  const { length, pressArr, areaArr, rows,dataArr } = await dbGetData({ db: currentDb, params })
+  const { length, pressArr, areaArr, rows, dataArr } = await dbGetData({ db: currentDb, params })
 
-  const data = { length, pressArr, areaArr,dataArr }
+  const data = { length, pressArr, areaArr, dataArr }
 
   historyDbArr = rows
   colMaxHZ = 1000 / (historyDbArr[1].timestamp - historyDbArr[0].timestamp)
@@ -403,15 +435,33 @@ app.post('/getDbHistory', async (req, res) => {
   historyFlag = true
   playIndex = 0
 
-  if(dataArr['foot']){
-   
-    const copData = await callPy("replay_server" , {sensor_data : dataArr['foot']})
+  if (dataArr['foot']) {
+    // const peak_frame = await callPy("get_peak_frame", { sensor_data: dataArr['foot'] })
+    // console.log(peak_frame)
+    const copData = await callPy("replay_server", { sensor_data: dataArr['foot'] })
     copData.length = length
     res.json(new HttpResult(0, copData, 'success'));
     return
   }
 
   res.json(new HttpResult(0, data, 'success'));
+})
+
+app.post('/getDbHeatmap', async (req, res) => {
+  const { time } = req.body
+
+  const selectQuery = "select * from matrix WHERE date=?";
+
+  const params = [time];
+
+  const { dataArr } = await dbGetData({ db: currentDb, params })
+
+  if (dataArr['foot']) {
+    const peak_frame = await callPy("get_peak_frame", { sensor_data: dataArr['foot'] })
+    res.json(new HttpResult(0, peak_frame, 'success'));
+  }
+
+  res.json(new HttpResult(0, {}, 'error'));
 })
 
 app.post('/getContrastData', async (req, res) => {
@@ -1511,57 +1561,57 @@ setInterval(() => {
 }, 3000)
 
 
-setInterval(async () => {
+// setInterval(async () => {
 
-  const portArr = Object.keys(parserArr).map((path) => {
-    return parserArr[path].port
-  })
-
-
-  // 关闭串口,并且清除本地缓存数据
-  portArr.forEach((port, index) => {
-    // console.log(port.isOpen)
-    if (port?.isOpen) {
-      server.clients.forEach(function each(client) {
-        if (port?.isOpen) {
-
-          if (algorData?.control_command && controlMode == ALGOR) {
-            const hexStr = algorData.control_command
-              .map(v => v.toString(16).padStart(2, '0'))
-              .join('');
-
-            // console.log(hexStr);
-
-            const command = Buffer.from(hexStr, 'hex')
-            console.log('sendCommand', command)
-            port.write(command, err => {
-              if (err) {
-                return console.error('err2:', err.message);
-              }
-              // console.log('send:', command.trim());
-              // resolve(command.trim())
-
-              console.log('send:', 11);
-              // resolve(11)
-            });
-          }
+//   const portArr = Object.keys(parserArr).map((path) => {
+//     return parserArr[path].port
+//   })
 
 
-          // const arr = [170, 85, 3, 153];
+//   // 关闭串口,并且清除本地缓存数据
+//   portArr.forEach((port, index) => {
+//     // console.log(port.isOpen)
+//     if (port?.isOpen) {
+//       server.clients.forEach(function each(client) {
+//         if (port?.isOpen) {
+
+//           if (algorData?.control_command && controlMode == ALGOR) {
+//             const hexStr = algorData.control_command
+//               .map(v => v.toString(16).padStart(2, '0'))
+//               .join('');
+
+//             // console.log(hexStr);
+
+//             const command = Buffer.from(hexStr, 'hex')
+//             console.log('sendCommand', command)
+//             port.write(command, err => {
+//               if (err) {
+//                 return console.error('err2:', err.message);
+//               }
+//               // console.log('send:', command.trim());
+//               // resolve(command.trim())
+
+//               console.log('send:', 11);
+//               // resolve(11)
+//             });
+//           }
+
+
+//           // const arr = [170, 85, 3, 153];
 
 
 
 
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ algorData }));
-          }
-        }
-      });
-    }
-  })
+//           if (client.readyState === WebSocket.OPEN) {
+//             client.send(JSON.stringify({ algorData }));
+//           }
+//         }
+//       });
+//     }
+//   })
 
 
-}, 500)
+// }, 500)
 
 
 // setInterval(async () => {

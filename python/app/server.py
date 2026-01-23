@@ -2,6 +2,7 @@ import sys, json, traceback
 import numpy as np
 import os
 import real_rime_and_replay_cop_speed2 as real_rime_and_replay_cop_speed 
+from Comprehensive_Indicators_4096_modify_input2 import extract_peak_frame , generate_foot_pressure_report
 
 
 def realtime_server(sensor_data , data_prev ,):
@@ -16,11 +17,19 @@ def replay_server(sensor_data):
 
     return result
 
+def get_peak_frame(sensor_data):
+    result = extract_peak_frame(sensor_data)
+    return result
+
+def generate_foot_pressure_report(sensor_data , pdf_name):
+    result = generate_foot_pressure_report(sensor_data , pdf_name)
+    return result
+
 def ping():
     return {"pong": True}
 
 
-FUNCS = {"ping": ping, "realtime_server": realtime_server , "replay_server" : replay_server}
+FUNCS = {"ping": ping, "realtime_server": realtime_server , "replay_server" : replay_server , "get_peak_frame": get_peak_frame , "generate_foot_pressure_report": generate_foot_pressure_report}
 
 
 
