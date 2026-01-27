@@ -117,6 +117,7 @@ let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+let lastRealtimeLogTs = 0
 // 选择数据库数据
 let historyDbArr;
 let lastFootPointArr = [], pdfArrData = []
@@ -1219,19 +1220,19 @@ async function connectPort() {
 
           // }
 
-          if (!dataItem.arrList) {
-            dataItem.arrList = []
-          } else {
-            if (dataItem.arrList.length < 3) {
-              dataItem.arrList.push(pointArr)
-            } else {
-              dataItem.arrList.shift()
-              dataItem.arrList.push(pointArr)
-            }
+          // if (!dataItem.arrList) {
+          //   dataItem.arrList = []
+          // } else {
+          //   if (dataItem.arrList.length < 3) {
+          //     dataItem.arrList.push(pointArr)
+          //   } else {
+          //     dataItem.arrList.shift()
+          //     dataItem.arrList.push(pointArr)
+          //   }
 
-            // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
-            // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
-          }
+          //   // dataItem.cop = await callPy('cal_cop_fromData', { data_array: dataItem.arrList })
+          //   // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
+          // }
 
         } else if (pointArr.length == 4097) {
           // if (!dataItem.premission) return
@@ -1539,6 +1540,28 @@ function sendData() {
     // }
     socketSendData(server, JSON.stringify({ sitData: obj }))
   }
+
+  const now = Date.now()
+  if (now - lastRealtimeLogTs >= 1000) {
+    lastRealtimeLogTs = now
+    const typeArr = Object.keys(obj || {})
+    typeArr.forEach((type) => {
+      let latestStamp = null
+      Object.keys(dataMap).forEach((key) => {
+        const item = dataMap[key]
+        if (item && item.type === type && typeof item.stamp === 'number') {
+          if (latestStamp === null || item.stamp > latestStamp) {
+            latestStamp = item.stamp
+          }
+        }
+      })
+      const objStamp = obj[type] && typeof obj[type].stamp === 'number' ? obj[type].stamp : null
+      const ageObj = objStamp === null ? 'n/a' : now - objStamp
+      const ageMap = latestStamp === null ? 'n/a' : now - latestStamp
+      console.log(`[realtime] type=${type} now=${now} objAge=${ageObj}ms dataMapAge=${ageMap}ms`)
+    })
+  }
+
   return obj
 }
 
