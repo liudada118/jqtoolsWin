@@ -110,7 +110,7 @@ function writeLine(line) {
   });
 }
 
-function callPy(fn, args, { timeoutMs = 10000 } = {}) {
+function callPy(fn, args, { timeoutMs = 30000 } = {}) {
   if (!child) startWorker();
   const id = nextId++;
   return new Promise(async (resolve, reject) => {

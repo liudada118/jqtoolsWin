@@ -27,8 +27,8 @@ let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
 const pdfDir = isPackaged
-  ? path.join(process.resourcesPath, 'pdf')
-  : path.join(__dirname, '..', 'pdf')
+  ? path.join(process.resourcesPath, 'OneStep')
+  : path.join(__dirname, '..', 'OneStep')
 
 const uploadDir = path.join(__dirname, '../img')
 if (!fs.existsSync(uploadDir)) {
@@ -37,8 +37,9 @@ if (!fs.existsSync(uploadDir)) {
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
-    const safeName = file.originalname || 'upload.bin'
-    cb(null, `${Date.now()}-${safeName}`)
+    const ext = path.extname(file.originalname || '')
+    const tempName = `${Date.now()}-${Math.floor(Math.random() * 1e9)}${ext}`
+    cb(null, tempName)
   },
 })
 const upload = multer({ storage })
@@ -73,7 +74,9 @@ app.use(express.json());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-let dbPath = __dirname + '/../db'
+let dbPath = path.join(__dirname, '../db')
+let pdfPath = path.join(__dirname, "../OneStep");
+let imgPath = path.join(__dirname, '../img')
 
 console.log(isPackaged, appPath, 'app.isPackaged')
 
@@ -92,6 +95,8 @@ if (isPackaged) {
 
     dbPath = 'resources' + '/db'
     csvPath = 'resources' + '/data'
+    pdfPath = 'resources' + "/OneStep";
+    imgPath = 'resources' + '/img'
     nameTxt = 'resources' + "/config.txt";
 
     console.log(dbPath, path.join(appPath, 'Resources/db',))
@@ -114,7 +119,7 @@ const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 // 选择数据库数据
 let historyDbArr;
-let lastFootPointArr = []
+let lastFootPointArr = [], pdfArrData = []
 
 
 //对比数据
@@ -130,8 +135,8 @@ app.get('/', (req, res) => {
   res.send('Hello World!')
 })
 
-// GET /pdf/<filename> -> send pdf file
-app.get('/pdf/:name', (req, res) => {
+// GET /OneStep/<filename> -> send pdf file
+app.get('/OneStep/:name', (req, res) => {
   try {
     const rawName = req.params.name || ''
     const decodedName = decodeURIComponent(rawName)
@@ -201,13 +206,38 @@ app.post('/bindKey', (req, res) => {
 
 })
 
-app.post('/uploadCanvas', upload.single('file'), (req, res) => {
+app.post('/uploadCanvas', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       res.json(new HttpResult(1, {}, 'missing file'));
       return
     }
-    res.json(new HttpResult(0, { file: req.file, body: req.body }, 'success'));
+    const requestedName =
+      (typeof req.body.filename === 'string' && req.body.filename.trim()) ||
+      (typeof req.body.fileName === 'string' && req.body.fileName.trim()) ||
+      (typeof req.body.name === 'string' && req.body.name.trim()) ||
+      (typeof req.query.filename === 'string' && req.query.filename.trim()) ||
+      (typeof req.headers['x-filename'] === 'string' && req.headers['x-filename'].trim()) ||
+      ''
+    const sanitizedRequested = requestedName.replace(/[\\/]/g, '').replace(/[^\w.\-]/g, '_')
+    if (!sanitizedRequested) {
+      fs.unlinkSync(req.file.path)
+      res.json(new HttpResult(1, {}, 'missing filename'));
+      return
+    }
+    const newPath = path.join(uploadDir, sanitizedRequested)
+    fs.renameSync(req.file.path, `${newPath}.png`)
+    req.file.filename = sanitizedRequested
+    req.file.path = newPath
+    req.file.destination = uploadDir
+    const absolutePath = path.resolve(req.file.path)
+    const name = `${pdfPath}/${req.file.filename}`
+    console.log(pdfArrData[0], name, `${imgPath}/${req.file.filename}.png`)
+    const pdf = await callPy('generate_foot_pressure_report1', {
+      sensor_data: pdfArrData, pdf_name: name,
+      heatmap_png_path: `${imgPath}/${req.file.filename.split('.')[0]}.png`
+    })
+    res.json(new HttpResult(0, { file: req.file, body: req.body, absolutePath }, 'success'));
   } catch {
     res.json(new HttpResult(1, {}, 'upload failed'));
   }
@@ -457,6 +487,7 @@ app.post('/getDbHeatmap', async (req, res) => {
   const { dataArr } = await dbGetData({ db: currentDb, params })
 
   if (dataArr['foot']) {
+    pdfArrData = dataArr['foot']
     const peak_frame = await callPy("get_peak_frame", { sensor_data: dataArr['foot'] })
     res.json(new HttpResult(0, peak_frame, 'success'));
   }
@@ -504,6 +535,7 @@ app.post('/cancalDbPlay', async (req, res) => {
   historyDbArr = null
 
   if (colTimer) {
+    console.log('clean' , colTimer)
     clearInterval(colTimer)
   }
 
@@ -540,6 +572,7 @@ app.post('/getDbHistoryPlay', async (req, res) => {
         if (playIndex < historyDbArr.length - 1) {
           playIndex++
         } else {
+          console.log(colTimer)
           historyPlayFlag = false
           socketSendData(server, JSON.stringify({ playEnd: false }))
           clearInterval(colTimer)
@@ -1161,13 +1194,16 @@ async function connectPort() {
           }
           // console.log(444)
           const stamp = new Date().getTime()
-          if (sendDataLength < 20) {
+          
+          if (sendDataLength < 30) {
             sendDataLength++
           }
           if (oldTimeObj[dataItem.type]) {
             dataItem.HZ = stamp - oldTimeObj[dataItem.type]
-            if (!MaxHZ && sendDataLength == 20) {
+            // console.log(dataItem.HZ , 'hz')
+            if (!MaxHZ && sendDataLength == 30) {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
+              console.log(MaxHZ)
               HZ = MaxHZ
               playtimer = setInterval(() => {
                 colAndSendData()
@@ -1176,6 +1212,7 @@ async function connectPort() {
             }
           }
           dataItem.stamp = stamp
+          
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
           // } else {
@@ -1392,6 +1429,7 @@ async function stopPort() {
 }
 
 function colAndSendData() {
+  // console.log(historyFlag)
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     // selectArr

@@ -2527,7 +2527,8 @@ def extract_peak_frame_matrix(processed_data, rotate_data=False):
 
 
 
-def generate_foot_pressure_report(data_array, name):
+def generate_foot_pressure_report(data_array, name, heatmap_png_path=r"D:\jqtoolsWin1\img\1769421362176-canvas.png"):
+    print("111")
     """
     总入口（仅两个参数）：
       - data_array: list[list[float]]，形如 [N,4096]
@@ -2548,7 +2549,7 @@ def generate_foot_pressure_report(data_array, name):
 
     # root_dir='D:/pdf/'
     pdf_path = name + '.pdf'
-
+    
     # 1) 预处理（用既定默认参数，不对外暴露）
     processed_data = preprocess_origin_data(
         data_array,
@@ -2590,7 +2591,7 @@ def generate_foot_pressure_report(data_array, name):
         show_plots=False,
         save_pdf_path=pdf_path,
         rotate_data=False,
-        heatmap_png_path=r"C:\Users\xpr12\Desktop\test_web_heatmap.png"
+        heatmap_png_path=heatmap_png_path
     )
     return results
 # #使用示例

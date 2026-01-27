@@ -1,4 +1,4 @@
-def process_frame_realtime(data_current, data_prev=None, fps=77.0):
+def process_frame_realtime(data_current, data_prev=None, fps=20):
     """
     实时处理函数
     Args:
@@ -137,7 +137,7 @@ def process_frame_realtime(data_current, data_prev=None, fps=77.0):
 
 
 
-def process_playback_batch(matrix_2d, fps=77.0):
+def process_playback_batch(matrix_2d, fps=20):
     """
     回放函数：传入二维数组，根据固定FPS计算速度
     Args:

@@ -21,15 +21,18 @@ def get_peak_frame(sensor_data):
     result = extract_peak_frame(sensor_data)
     return result
 
-def generate_foot_pressure_report(sensor_data , pdf_name):
-    result = generate_foot_pressure_report(sensor_data , pdf_name)
+def generate_foot_pressure_report1(sensor_data , pdf_name , heatmap_png_path):
+    print(pdf_name)
+    # return "111"
+    result = generate_foot_pressure_report(sensor_data , pdf_name , heatmap_png_path)
+    # print(result)
     return result
 
 def ping():
     return {"pong": True}
 
 
-FUNCS = {"ping": ping, "realtime_server": realtime_server , "replay_server" : replay_server , "get_peak_frame": get_peak_frame , "generate_foot_pressure_report": generate_foot_pressure_report}
+FUNCS = {"ping": ping, "realtime_server": realtime_server , "replay_server" : replay_server , "get_peak_frame": get_peak_frame , "generate_foot_pressure_report1": generate_foot_pressure_report1}
 
 
 

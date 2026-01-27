@@ -9,3 +9,5 @@
 /dist*
 /python/venv
 /python/Python311
+/img
+/pdf
