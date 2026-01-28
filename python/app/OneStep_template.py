@@ -207,16 +207,28 @@ def page1(c, W, H, margin, data_json):
     c.roundRect(left_x, left_bottom, left_w, left_h, 6, stroke=0, fill=1)
 
     # 基本信息
+    user_info = data_json.get("user_info", {})
+    user_name = user_info.get("name") if user_info.get("name") else "Guest"
+    user_gender = user_info.get("gender") if user_info.get("gender") else "-"
+    user_age = user_info.get("age") if user_info.get("age") is not None else "-"
+    user_id = user_info.get("id") if user_info.get("id") else "-"
+
     c.setFillColor(black)
     c.setFont(FONT_NAME, 10)
     info_x = left_x + 6 * mm
     info_y = left_top - 10 * mm
-    labels = ["姓名: Guest", "性别: -", "年龄: -", "编号: - "]
-    c.drawString(info_x, info_y, labels[0])
-    c.drawString(info_x + 60 * mm, info_y, labels[1])
+
+    # 格式化显示
+    label_name = f"姓名: {user_name}"
+    label_gender = f"性别: {user_gender}"
+    label_age = f"年龄: {user_age}"
+    label_id = f"编号: {user_id}"
+
+    c.drawString(info_x, info_y, label_name)
+    c.drawString(info_x + 60 * mm, info_y, label_gender)
     info_y -= 8 * mm
-    c.drawString(info_x, info_y, labels[2])
-    c.drawString(info_x + 60 * mm, info_y, labels[3])
+    c.drawString(info_x, info_y, label_age)
+    c.drawString(info_x + 60 * mm, info_y, label_id)
 
     # 热力图区域
     heatmap_y = info_y - 15 * mm
@@ -230,7 +242,7 @@ def page1(c, W, H, margin, data_json):
     # 绘制热力图
     hm_path = imgs.get("heatmap_external") or imgs.get("heatmap_internal")
     draw_image_in_rect(c, hm_path, heatmap_x + 6 * mm, heatmap_box_y + 2 * mm, heatmap_width - 4 * mm,
-                       heatmap_rect_h - 4 * mm, rotate_mirror=True, scale=1.5)
+                       heatmap_rect_h - 4 * mm, rotate_mirror=True, scale=1.275)#1.5
     partition_path = imgs.get("arch_regions")
     partition_height = 50 * mm
     partition_y = heatmap_box_y - partition_height - 4 * mm
@@ -239,7 +251,7 @@ def page1(c, W, H, margin, data_json):
 
     draw_image_in_rect(c, partition_path,
                        heatmap_x, partition_y + 20 * mm,
-                       heatmap_width - 4 * mm, partition_height - 6 * mm, scale=1.4)
+                       heatmap_width - 4 * mm, partition_height - 6 * mm, scale=1.19)#1.4
 
     # --- 右侧 12 单元指标 ---
     right_x = left_x + left_w + 3 * mm

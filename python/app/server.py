@@ -1,8 +1,9 @@
 import sys, json, traceback
 import numpy as np
 import os
-import real_rime_and_replay_cop_speed2 as real_rime_and_replay_cop_speed 
-from Comprehensive_Indicators_4096_modify_input2 import extract_peak_frame , generate_foot_pressure_report
+from real_rime_and_replay_cop_speed2 import process_frame_realtime , process_playback_batch
+import real_time_and_replay_cop_speed_2 as real_rime_and_replay_cop_speed
+from Comprehensive_Indicators_4096_modify_input3 import extract_peak_frame , generate_foot_pressure_report
 
 
 def realtime_server(sensor_data , data_prev ,):
@@ -21,10 +22,10 @@ def get_peak_frame(sensor_data):
     result = extract_peak_frame(sensor_data)
     return result
 
-def generate_foot_pressure_report1(sensor_data , pdf_name , heatmap_png_path):
-    print(pdf_name)
+def generate_foot_pressure_report1(sensor_data , pdf_name , heatmap_png_path ,user_name, user_age, user_gender, user_id):
+    print(pdf_name,user_name, user_age, user_gender, user_id)
     # return "111"
-    result = generate_foot_pressure_report(sensor_data , pdf_name , heatmap_png_path)
+    result = generate_foot_pressure_report(sensor_data , pdf_name , heatmap_png_path ,user_name, user_age, user_gender, user_id)
     # print(result)
     return result
 
@@ -43,6 +44,10 @@ def handle(req):
     args = req.get("args") or {}
     return {"ok": True, "data": FUNCS[fn](**args)}
 def main():
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
     # 持续读：一行一条请求
     for line in sys.stdin:
         line = line.strip()

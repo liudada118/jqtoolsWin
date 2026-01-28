@@ -51,7 +51,13 @@ function startWorker() {
 
   child = spawn(py, ['-u', sv], {
     stdio: ['pipe','pipe','pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONNOUSERSITE: '1' },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTHONNOUSERSITE: '1',
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
+    },
     windowsHide: true
   });
   starting = false;

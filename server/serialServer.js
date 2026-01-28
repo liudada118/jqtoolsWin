@@ -44,6 +44,50 @@ const storage = multer.diskStorage({
 })
 const upload = multer({ storage })
 
+function sanitizeFilename(name) {
+  if (typeof name !== 'string') return ''
+  let safe = name.trim()
+  // disallow path traversal
+  safe = safe.replace(/[\\/]/g, '')
+  // remove control chars and Windows reserved chars: <>:"/\\|?*
+  safe = safe.replace(/[\x00-\x1F<>:"|?*]/g, '')
+  // trim trailing dots/spaces (Windows)
+  safe = safe.replace(/[.\s]+$/g, '')
+  return safe
+}
+
+function fixMojibake(value) {
+  if (typeof value !== 'string') return value
+  try {
+    const buf = Buffer.from(value, 'latin1')
+    const utf = buf.toString('utf8')
+    // If the roundtrip matches, it's likely latin1-decoded UTF-8 and should be fixed
+    if (Buffer.from(utf, 'utf8').equals(buf)) {
+      return utf
+    }
+  } catch {}
+  return value
+}
+
+function decodeMaybeUri(value) {
+  if (typeof value !== 'string') return value
+  let result = value
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(result)
+      if (decoded === result) break
+      result = decoded
+    } catch {
+      break
+    }
+  }
+  return result
+}
+
+function decodeField(value) {
+  return decodeMaybeUri(fixMojibake(value))
+}
+
 const ORIGIN = 'https://sensor.bodyta.com';
 
 // 1) 所有实际请求自动带上 CORS 头
@@ -118,9 +162,10 @@ let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 let lastRealtimeLogTs = 0
+let colPersonName = ''
 // 选择数据库数据
 let historyDbArr;
-let lastFootPointArr = [], pdfArrData = []
+let lastFootPointArr = [], pdfArrData = [], pdfReportName = '', pdfReport = '', pdfReportSex = ''
 
 
 //对比数据
@@ -129,6 +174,7 @@ let leftDbArr, rightDbArr;
 
 const { db } = initDb(file, dbPath)
 currentDb = db
+ensureMatrixNameColumn(currentDb)
 
 console.log(__dirname, dbPath, '__dirname')
 
@@ -213,30 +259,41 @@ app.post('/uploadCanvas', upload.single('file'), async (req, res) => {
       res.json(new HttpResult(1, {}, 'missing file'));
       return
     }
-    const requestedName =
-      (typeof req.body.filename === 'string' && req.body.filename.trim()) ||
-      (typeof req.body.fileName === 'string' && req.body.fileName.trim()) ||
-      (typeof req.body.name === 'string' && req.body.name.trim()) ||
-      (typeof req.query.filename === 'string' && req.query.filename.trim()) ||
-      (typeof req.headers['x-filename'] === 'string' && req.headers['x-filename'].trim()) ||
+    if (typeof req.body.filename === 'string') req.body.filename = decodeField(req.body.filename)
+    if (typeof req.body.collectName === 'string') req.body.collectName = decodeField(req.body.collectName)
+    if (typeof req.body.date === 'string') req.body.date = decodeField(req.body.date)
+    console.log('[uploadCanvas]', {
+      collectName: req.body.collectName,
+      age: req.body.age,
+      gender: req.body.gender,
+    })
+    const requestedDate =
+      (typeof req.body.date === 'string' && req.body.date.trim()) ||
+      (typeof req.query.date === 'string' && req.query.date.trim()) ||
       ''
-    const sanitizedRequested = requestedName.replace(/[\\/]/g, '').replace(/[^\w.\-]/g, '_')
+    const sanitizedRequested = sanitizeFilename(requestedDate)
     if (!sanitizedRequested) {
       fs.unlinkSync(req.file.path)
-      res.json(new HttpResult(1, {}, 'missing filename'));
+      res.json(new HttpResult(1, {}, 'missing date'));
       return
     }
-    const newPath = path.join(uploadDir, sanitizedRequested)
-    fs.renameSync(req.file.path, `${newPath}.png`)
-    req.file.filename = sanitizedRequested
+    const finalName = `${sanitizedRequested}.png`
+    const newPath = path.join(uploadDir, finalName)
+    fs.renameSync(req.file.path, newPath)
+    req.file.filename = finalName
     req.file.path = newPath
     req.file.destination = uploadDir
     const absolutePath = path.resolve(req.file.path)
-    const name = `${pdfPath}/${req.file.filename}`
+    const name = `${pdfPath}/${sanitizedRequested}`
     console.log(pdfArrData[0], name, `${imgPath}/${req.file.filename}.png`)
     const pdf = await callPy('generate_foot_pressure_report1', {
-      sensor_data: pdfArrData, pdf_name: name,
-      heatmap_png_path: `${imgPath}/${req.file.filename.split('.')[0]}.png`
+      sensor_data: pdfArrData,
+      pdf_name: name,
+      heatmap_png_path: `${imgPath}/${sanitizedRequested}.png`,
+      user_name: req.body.collectName,
+      user_age: req.body.age,
+      user_gender: req.body.gender,
+      user_id: req.body.userId || 9527,
     })
     res.json(new HttpResult(0, { file: req.file, body: req.body, absolutePath }, 'success'));
   } catch {
@@ -266,6 +323,7 @@ app.post('/selectSystem', (req, res) => {
   file = req.query.file;
   const { db } = initDb(file, dbPath)
   currentDb = db
+  ensureMatrixNameColumn(currentDb)
   if (blue.includes(file)) {
     baudRate = 921600
   } else {
@@ -288,6 +346,7 @@ app.get('/getSystem', async (req, res) => {
 
   const { db } = initDb(file, dbPath)
   currentDb = db
+  ensureMatrixNameColumn(currentDb)
 
   res.json(new HttpResult(0, result, '获取设备列表成功'));
 })
@@ -314,15 +373,22 @@ app.get('/connPort', async (req, res) => {
 // 开始采集
 app.post('/startCol', async (req, res) => {
   try {
-    const { fileName, select } = req.body
+    const { fileName, select, name, collectName, date } = req.body
     selectArr = select
+    if (typeof req.body.fileName === 'string') req.body.fileName = decodeField(req.body.fileName)
+    if (typeof req.body.name === 'string') req.body.name = decodeField(req.body.name)
+    if (typeof req.body.collectName === 'string') req.body.collectName = decodeField(req.body.collectName)
+    if (typeof req.body.date === 'string') req.body.date = decodeField(req.body.date)
+    if (typeof req.body.colName === 'string') req.body.colName = decodeField(req.body.colName)
+
     const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
 
     const length = sensorArr.filter((a) => a.includes(file)).length
     console.log(sensorArr, file, length)
     if (length > 0) {
       colFlag = true
-      colName = fileName
+      colName = (req.body.date || req.body.colName || '')
+      colPersonName = req.body.fileName || req.body.name || req.body.collectName || ''
       res.json(new HttpResult(0, port, '开始采集'));
     } else {
       res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
@@ -347,7 +413,7 @@ app.get('/getColHistory', async (req, res) => {
   //   "select DISTINCT date,timestamp, `select` from matrix ORDER BY timestamp DESC LIMIT ?,?";
 
   const selectQuery = `
-  SELECT m.date, m.timestamp, m.\`select\`
+  SELECT m.date, m.timestamp, m.name, m.\`select\`
   FROM matrix m
   INNER JOIN (
     SELECT date, MAX(timestamp) AS max_ts
@@ -536,7 +602,7 @@ app.post('/cancalDbPlay', async (req, res) => {
   historyDbArr = null
 
   if (colTimer) {
-    console.log('clean' , colTimer)
+    console.log('clean', colTimer)
     clearInterval(colTimer)
   }
 
@@ -625,6 +691,7 @@ app.post('/changeSystemType', async (req, res) => {
   baudRate = constantObj.baudRateObj[system] ? constantObj.baudRateObj[system] : 1000000
   const { db } = initDb(file, dbPath)
   currentDb = db
+  ensureMatrixNameColumn(currentDb)
   console.log(baudRate)
   // stopPort()
   socketSendData(server, JSON.stringify({ sitData: {} }))
@@ -1195,7 +1262,7 @@ async function connectPort() {
           }
           // console.log(444)
           const stamp = new Date().getTime()
-          
+
           if (sendDataLength < 30) {
             sendDataLength++
           }
@@ -1213,7 +1280,7 @@ async function connectPort() {
             }
           }
           dataItem.stamp = stamp
-          
+
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
           // } else {
@@ -1541,28 +1608,43 @@ function sendData() {
     socketSendData(server, JSON.stringify({ sitData: obj }))
   }
 
-  const now = Date.now()
-  if (now - lastRealtimeLogTs >= 1000) {
-    lastRealtimeLogTs = now
-    const typeArr = Object.keys(obj || {})
-    typeArr.forEach((type) => {
-      let latestStamp = null
-      Object.keys(dataMap).forEach((key) => {
-        const item = dataMap[key]
-        if (item && item.type === type && typeof item.stamp === 'number') {
-          if (latestStamp === null || item.stamp > latestStamp) {
-            latestStamp = item.stamp
-          }
-        }
-      })
-      const objStamp = obj[type] && typeof obj[type].stamp === 'number' ? obj[type].stamp : null
-      const ageObj = objStamp === null ? 'n/a' : now - objStamp
-      const ageMap = latestStamp === null ? 'n/a' : now - latestStamp
-      console.log(`[realtime] type=${type} now=${now} objAge=${ageObj}ms dataMapAge=${ageMap}ms`)
-    })
-  }
+  // const now = Date.now()
+  // if (now - lastRealtimeLogTs >= 1000) {
+  //   lastRealtimeLogTs = now
+  //   const typeArr = Object.keys(obj || {})
+  //   typeArr.forEach((type) => {
+  //     let latestStamp = null
+  //     Object.keys(dataMap).forEach((key) => {
+  //       const item = dataMap[key]
+  //       if (item && item.type === type && typeof item.stamp === 'number') {
+  //         if (latestStamp === null || item.stamp > latestStamp) {
+  //           latestStamp = item.stamp
+  //         }
+  //       }
+  //     })
+  //     const objStamp = obj[type] && typeof obj[type].stamp === 'number' ? obj[type].stamp : null
+  //     const ageObj = objStamp === null ? 'n/a' : now - objStamp
+  //     const ageMap = latestStamp === null ? 'n/a' : now - latestStamp
+  //     console.log(`[realtime] type=${type} now=${now} objAge=${ageObj}ms dataMapAge=${ageMap}ms`)
+  //   })
+  // }
 
   return obj
+}
+
+function ensureMatrixNameColumn(db) {
+  db.all("PRAGMA table_info(matrix)", (err, rows) => {
+    if (err) {
+      console.error('PRAGMA table_info failed:', err)
+      return
+    }
+    const hasName = rows.some((r) => r.name === 'name')
+    if (!hasName) {
+      db.run('ALTER TABLE matrix ADD COLUMN name TEXT', (e) => {
+        if (e) console.error('ALTER TABLE add name failed:', e)
+      })
+    }
+  })
 }
 
 /**
@@ -1581,11 +1663,11 @@ function storageData(data) {
   }
 
   const insertQuery =
-    "INSERT INTO matrix (data, timestamp,date ,`select`) VALUES (?, ?,? ,?)";
+    "INSERT INTO matrix (data, timestamp,date ,`select`, name) VALUES (?, ?,? ,?, ?)";
 
   currentDb.run(
     insertQuery,
-    [JSON.stringify(newData), timestamp, colName, JSON.stringify(selectArr)],
+    [JSON.stringify(newData), timestamp, colName, JSON.stringify(selectArr), colPersonName],
     function (err) {
       if (err) {
         console.error(err);

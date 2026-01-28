@@ -318,7 +318,8 @@ async function dbGetData({ db, params }) {
         historyArr = [0, length];
         let press = [],
           area = [];
-        // console.log(rows , 'rows',params)
+        console.log(rows , 'rows',params)
+        
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
         let pressValue = {}, areaValue = {} , dataValue = {}
         for (let j = 0; j < keyArr.length; j++) {
