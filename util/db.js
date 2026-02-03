@@ -35,6 +35,7 @@ function genDb(file, filePath) {
   if (fs.existsSync(file)) {
 
     const db = new sqlite3.Database(file);
+    ensureRemarksTable(db);
     console.log('true')
     return db
 
@@ -42,8 +43,22 @@ function genDb(file, filePath) {
     console.log(file, filePath, 'err')
     let data = fs.readFileSync(`${filePath}/init.db`);
     fs.writeFileSync(file, data);
-    return db = new sqlite3.Database(file);
+    const db = new sqlite3.Database(file);
+    ensureRemarksTable(db);
+    return db;
   }
+}
+
+function ensureRemarksTable(db) {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS remarks (
+      date TEXT PRIMARY KEY,
+      alias TEXT,
+      remark TEXT,
+      select_json TEXT,
+      updated_at INTEGER
+    )`
+  );
 }
 
 function isAllDigits(str) {
@@ -334,18 +349,33 @@ async function deleteDbData({ db, params }) {
   console.log(createTableQuery)
   const promises = params.map((param) => dbDelete(db, param))
   const results = await Promise.all(promises);
+  await Promise.all(params.map((param) => deleteRemarkByDate({ db, params: [param] })));
   console.log(results, promises, 'result')
   return results
 }
 
 async function changeDbName({ db, params }) {
   const changeQuery = `UPDATE matrix SET "date" = ? WHERE "date" = ?`;
-  db.run(changeQuery, params, function (err) {
-    if (err) {
-      console.error('更新失败:', err.message);
-    } else {
-      console.log(`更新成功，修改了 ${this.changes} 行`);
-    }
+  const changeRemarkQuery = `UPDATE remarks SET "date" = ? WHERE "date" = ?`;
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(changeQuery, params, function (err) {
+        if (err) {
+          console.error('更新失败:', err.message);
+          reject(err);
+          return;
+        }
+        console.log(`更新成功，修改了 ${this.changes} 行`);
+      });
+      db.run(changeRemarkQuery, params, function (err) {
+        if (err) {
+          console.error('更新失败:', err.message);
+          reject(err);
+          return;
+        }
+        resolve({ success: true });
+      });
+    });
   });
 }
 
@@ -444,11 +474,87 @@ async function getCsvData(file) {
 
 async function changeDbDataName({ db, params }) {
   const sql = `UPDATE matrix SET "date" = ? WHERE "date" = ?`;
-  db.run(sql, params, function (err) {
-    if (err) {
-      return console.error('更新失败:', err.message);
-    }
-    console.log(`更新完成，共修改了 ${this.changes} 行`);
+  const sqlRemark = `UPDATE remarks SET "date" = ? WHERE "date" = ?`;
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(sql, params, function (err) {
+        if (err) {
+          console.error('更新失败:', err.message);
+          reject(err);
+          return;
+        }
+        console.log(`更新完成，共修改了 ${this.changes} 行`);
+      });
+      db.run(sqlRemark, params, function (err) {
+        if (err) {
+          console.error('更新失败:', err.message);
+          reject(err);
+          return;
+        }
+        resolve({ success: true });
+      });
+    });
+  });
+}
+
+function normalizeSelectJson(select) {
+  if (select === undefined) return null;
+  if (select === null) return null;
+  if (typeof select === 'string') return select;
+  try {
+    return JSON.stringify(select);
+  } catch {
+    return String(select);
+  }
+}
+
+async function upsertRemark({ db, params }) {
+  const { date, alias, remark, select } = params || {};
+  const selectJson = normalizeSelectJson(select);
+  const sql = `
+    INSERT INTO remarks (date, alias, remark, select_json, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      alias = COALESCE(excluded.alias, remarks.alias),
+      remark = COALESCE(excluded.remark, remarks.remark),
+      select_json = COALESCE(excluded.select_json, remarks.select_json),
+      updated_at = excluded.updated_at
+  `;
+  const now = Date.now();
+  return new Promise((resolve, reject) => {
+    db.run(sql, [date, alias ?? null, remark ?? null, selectJson, now], function (err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({ date, alias, remark, select: selectJson, updated_at: now });
+    });
+  });
+}
+
+async function getRemark({ db, params }) {
+  const sql = `SELECT date, alias, remark, select_json as select, updated_at FROM remarks WHERE date = ?`;
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(row || null);
+    });
+  });
+}
+
+async function deleteRemarkByDate({ db, params }) {
+  const sql = `DELETE FROM remarks WHERE date = ?`;
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({ success: true });
+    });
   });
 }
 
@@ -483,5 +589,8 @@ module.exports = {
   dbGetData,
   getCsvData,
   changeDbDataName,
-  changeDbName
+  changeDbName,
+  upsertRemark,
+  getRemark,
+  deleteRemarkByDate
 }

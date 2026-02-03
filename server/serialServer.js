@@ -12,7 +12,7 @@ const { getPort } = require('../util/serialport')
 const { blue, splitArr } = require('../util/config');
 const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
-const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
+const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName, upsertRemark, getRemark } = require('../util/db');
 const { hand, jqbed, endiSit, endiBack, endiSit1024, endiBack1024 } = require('../util/line');
 // const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
@@ -243,7 +243,12 @@ app.get('/getColHistory', async (req, res) => {
   //   "select DISTINCT date,timestamp, `select` from matrix ORDER BY timestamp DESC LIMIT ?,?";
 
   const selectQuery = `
-  SELECT m.date, m.timestamp, m.\`select\`
+  SELECT 
+    m.date,
+    m.timestamp,
+    COALESCE(r.select_json, m.\`select\`) AS \`select\`,
+    r.alias,
+    r.remark
   FROM matrix m
   INNER JOIN (
     SELECT date, MAX(timestamp) AS max_ts
@@ -251,6 +256,8 @@ app.get('/getColHistory', async (req, res) => {
     GROUP BY date
   ) t
   ON m.date = t.date  AND m.timestamp = t.max_ts
+  LEFT JOIN remarks r
+  ON r.date = m.date
   ORDER BY m.timestamp DESC
   LIMIT ?, ?
 `;
@@ -396,6 +403,38 @@ app.post('/changeDbDataName', async (req, res) => {
   const { oldName, newName } = req.body
 
   changeDbDataName({ db: currentDb, params: [oldName, newName] })
+})
+
+// 备注/别名/框选保存
+app.post('/upsertRemark', async (req, res) => {
+  try {
+    const { date, alias, remark, select } = req.body || {}
+    if (!date) {
+      res.json(new HttpResult(1, {}, 'date required'));
+      return;
+    }
+    const data = await upsertRemark({ db: currentDb, params: { date, alias, remark, select } })
+    res.json(new HttpResult(0, data, 'success'));
+  } catch (err) {
+    console.error(err);
+    res.json(new HttpResult(1, {}, 'error'));
+  }
+})
+
+// 获取单条备注
+app.post('/getRemark', async (req, res) => {
+  try {
+    const { date } = req.body || {}
+    if (!date) {
+      res.json(new HttpResult(1, {}, 'date required'));
+      return;
+    }
+    const data = await getRemark({ db: currentDb, params: [date] })
+    res.json(new HttpResult(0, data, 'success'));
+  } catch (err) {
+    console.error(err);
+    res.json(new HttpResult(1, {}, 'error'));
+  }
 })
 
 // 取消播放
