@@ -93,6 +93,7 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
+let historySelectCache = null
 
 // 选择数据库数据
 let historyDbArr;
@@ -180,7 +181,8 @@ app.get('/getSystem', async (req, res) => {
   //   value: "bed",
   //   typeArr: ["bed", "hand", 'foot', 'bigHand']
   // }
-  baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+  // baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+  baudRate = 3000000
 
   const { db } = initDb(file, dbPath)
   currentDb = db
@@ -212,13 +214,14 @@ app.post('/startCol', async (req, res) => {
   try {
     const { fileName, select } = req.body
     selectArr = select
-    const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
+    historySelectCache = null
+      const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
     console.log(sensorArr, file)
     const length = sensorArr.filter((a) => typeof file == 'string' &&  a.includes(file)).length
 
     if (length > 0) {
       colFlag = true
-      colName = fileName
+      colName = String(fileName)
       res.json(new HttpResult(0, port, '开始采集'));
     } else {
       res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
@@ -312,13 +315,14 @@ app.get('/getColHistory', async (req, res) => {
 // 下载成csv
 app.post('/downlaod', async (req, res) => {
   try {
-    const { fileArr } = req.body
-    if (!fileArr.length) {
-      res.json(new HttpResult(555, '请选择先数据', 'error'));
+    const { fileArr, selectJson } = req.body || {}
+    if (!fileArr || !fileArr.length) {
+      res.json(new HttpResult(555, '??????', 'error'));
     }
     const params = fileArr;
-    const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged })
-    res.json(new HttpResult(0, data, '下载'));
+    const selectOverride = selectJson && typeof selectJson === 'object' ? selectJson : historySelectCache
+    const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged, selectJson: selectOverride })
+    res.json(new HttpResult(0, data, '??'));
   } catch {
 
   }
@@ -355,6 +359,9 @@ app.post('/changeDbName', async (req, res) => {
 app.post('/getDbHistory', async (req, res) => {
   const { time } = req.body
 
+  historySelectCache = null
+
+
   const selectQuery = "select * from matrix WHERE date=?";
 
   const params = [time];
@@ -370,6 +377,81 @@ app.post('/getDbHistory', async (req, res) => {
   playIndex = 0
 
   res.json(new HttpResult(0, data, 'success'));
+})
+
+// 历史回放：根据传入的框选 selectJson 计算所有帧的 areaArr/pressArr
+app.post('/getDbHistorySelect', async (req, res) => {
+  try {
+    const { selectJson } = req.body || {}
+    if (!selectJson || typeof selectJson !== 'object') {
+      res.json(new HttpResult(1, {}, 'selectJson required'));
+      return;
+    }
+
+    historySelectCache = selectJson
+
+    if (!historyDbArr || !historyDbArr.length) {
+      res.json(new HttpResult(1, {}, 'history not loaded'));
+      return;
+    }
+
+    const rows = historyDbArr
+    if (!rows.length) {
+      res.json(new HttpResult(0, { length: 0, pressArr: {}, areaArr: {} }, 'success'));
+      return;
+    }
+
+    const keyArr = Object.keys(JSON.parse(rows[0].data || '{}'))
+    const pressArr = {}
+    const areaArr = {}
+    keyArr.forEach((key) => {
+      pressArr[key] = []
+      areaArr[key] = []
+    })
+
+    for (let i = 0; i < rows.length; i++) {
+      const dataObj = JSON.parse(rows[i].data || '{}')
+      for (let j = 0; j < keyArr.length; j++) {
+        const key = keyArr[j]
+        const item = dataObj[key]
+        const arr = item && item.arr ? item.arr : []
+        const sel = selectJson[key]
+        if (!sel || typeof sel !== 'object') {
+          pressArr[key].push(0)
+          areaArr[key].push(0)
+          continue;
+        }
+        const { xStart, xEnd, yStart, yEnd, width, height } = sel
+        if (
+          [xStart, xEnd, yStart, yEnd, width, height].some(
+            (v) => typeof v !== 'number'
+          )
+        ) {
+          pressArr[key].push(0)
+          areaArr[key].push(0)
+          continue;
+        }
+
+        let press = 0
+        let area = 0
+        for (let y = yStart; y < yEnd; y++) {
+          for (let x = xStart; x < xEnd; x++) {
+            const idx = y * width + x
+            const v = arr[idx] || 0
+            press += v
+            if (v > 0) area++
+          }
+        }
+        pressArr[key].push(press)
+        areaArr[key].push(area)
+      }
+    }
+
+    res.json(new HttpResult(0, { length: rows.length, pressArr, areaArr }, 'success'));
+  } catch (err) {
+    console.error(err);
+    res.json(new HttpResult(1, {}, 'error'));
+  }
 })
 
 app.post('/getContrastData', async (req, res) => {
@@ -408,11 +490,12 @@ app.post('/changeDbDataName', async (req, res) => {
 // 备注/别名/框选保存
 app.post('/upsertRemark', async (req, res) => {
   try {
-    const { date, alias, remark, select } = req.body || {}
+    let { date, alias, remark, select } = req.body || {}
     if (!date) {
       res.json(new HttpResult(1, {}, 'date required'));
       return;
     }
+    date = String(date)
     const data = await upsertRemark({ db: currentDb, params: { date, alias, remark, select } })
     res.json(new HttpResult(0, data, 'success'));
   } catch (err) {
@@ -473,7 +556,7 @@ app.post('/getDbHistoryPlay', async (req, res) => {
       if (historyPlayFlag && historyDbArr) {
 
         socketSendData(server, JSON.stringify({
-          sitData: JSON.parse(historyDbArr[playIndex].data),
+          sitDataPlay: JSON.parse(historyDbArr[playIndex].data),
           index: playIndex,
           timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
         }))
@@ -506,7 +589,7 @@ app.post('/changeDbplaySpeed', async (req, res) => {
       if (historyPlayFlag) {
 
         socketSendData(server, JSON.stringify({
-          sitData: JSON.parse(historyDbArr[playIndex].data),
+          sitDataPlay: JSON.parse(historyDbArr[playIndex].data),
           index: playIndex,
           timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
         }))
@@ -556,7 +639,7 @@ app.post('/getDbHistoryIndex', async (req, res) => {
 
   playIndex = index
   socketSendData(server, JSON.stringify({
-    sitData: JSON.parse(historyDbArr[playIndex].data),
+    sitDataPlay: JSON.parse(historyDbArr[playIndex].data),
     index: playIndex,
     timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
   }))
@@ -1221,12 +1304,12 @@ function colAndSendData() {
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     // selectArr
-    if (Object.keys(selectArr).length) {
-      for (let i = 0; i < Object.keys(selectArr).length; i++) {
-        const key = Object.keys(selectArr)[i]
-        obj[key].select = selectArr[key]
-      }
-    }
+    // if (Object.keys(selectArr).length) {
+    //   for (let i = 0; i < Object.keys(selectArr).length; i++) {
+    //     const key = Object.keys(selectArr)[i]
+    //     obj[key].select = selectArr[key]
+    //   }
+    // }
 
     if (colFlag) {
       storageData(obj)

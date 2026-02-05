@@ -260,7 +260,7 @@ function endiSit1024(arr) {
 
     // const pressArr = press([...arr], 32, 32, 700, 0.2, 'col')
 
-    const pressArr = arr//pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 })
+    const pressArr = pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 })
 
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
@@ -296,7 +296,7 @@ function endiBack1024(arr) {
     let arrY = [[15, 31], [14, 0]]
 
 
-    const pressArr = arr//pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 }) //press([...arr], 32, 32, 700, 0.3, 'col')
+    const pressArr = pressNew1220({ arr: arr, width: 32, height: 32, type: 'col', value: 683 }) //press([...arr], 32, 32, 700, 0.3, 'col')
 
     let newArr = arrToRealLine(pressArr, arrX, arrY, 32)
 

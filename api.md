@@ -94,6 +94,7 @@
 - 路径：`/downlaod`
 - 请求体：
   - `fileArr` string[]
+  - `selectJson` object??????????????????? `historySelectCache`?
 - 说明：导出数据（路径拼写为 `downlaod`）
 - 响应：导出结果
 
@@ -102,6 +103,7 @@
 - 路径：`/delete`
 - 请求体：
   - `fileArr` string[]
+  - `selectJson` object??????????????????? `historySelectCache`?
 - 响应：删除结果
 
 ### 12) 修改记录名（按日期）
@@ -118,6 +120,14 @@
 - 请求体：
   - `time` string
 - 响应：`{ length, pressArr, areaArr }`
+
+### 13.1) 历史回放框选统计
+- 方法：POST`r
+- 路径：/getDbHistorySelect`r
+- 说明：基于缓存 historyDbArr 计算所有帧的框选 pressArr/areaArr（需先调用 /getDbHistory）
+- 请求体：
+  - selectJson object（与实时框选结构一致，按 sensor key）
+- 响应：{ length, pressArr, areaArr }`r
 
 ### 14) 获取对比数据
 - 方法：`POST`
@@ -217,6 +227,7 @@
 常见推送：
 - `{ data: obj }` 实时数据
 - `{ sitData: obj }` 高频数据
+- `{ sitDataPlay: obj, index, timestamp }` 回放数据
 - `{ macInfo: {...} }` 设备信息
 - `{ playEnd: boolean }` 回放结束标记
 
@@ -698,3 +709,5 @@ components:
         msg:
           type: string
 ```
+
+

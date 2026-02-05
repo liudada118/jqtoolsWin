@@ -134,6 +134,8 @@ paths:
                   type: array
                   items:
                     type: string
+                selectJson:
+                  type: object
       responses:
         '200':
           description: Result
@@ -198,6 +200,27 @@ paths:
               properties:
                 time:
                   type: string
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpResult'
+  /getDbHistorySelect:
+    post:
+      summary: Get history selected area/press from cached historyDbArr
+      description: Requires calling /getDbHistory first to populate cache. selectJson is cached until /getDbHistory or /startCol clears it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [selectJson]
+              properties:
+                selectJson:
+                  type: object
       responses:
         '200':
           description: Result
@@ -445,3 +468,4 @@ components:
           nullable: true
         msg:
           type: string
+

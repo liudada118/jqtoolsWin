@@ -66,10 +66,10 @@ function isAllDigits(str) {
 }
 
 
-function dbload(db, param, file, isPackaged) {
+function dbload(db, param, file, isPackaged, selectJson) {
   const selectQuery = "select * from matrix WHERE date=?";
   return new Promise((resolve, reject) => {
-    db.all(selectQuery, param, (err, rows) => {
+    db.all(selectQuery, param, async (err, rows) => {
       if (err) {
         console.error(err);
       } else {
@@ -81,6 +81,15 @@ function dbload(db, param, file, isPackaged) {
         let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
 
         // 定义数据
+        let selectOverride = selectJson;
+        if (typeof selectOverride === 'string') {
+          try {
+            selectOverride = JSON.parse(selectOverride);
+          } catch {
+            selectOverride = null;
+          }
+        }
+
         for (var i = 0, j = 0; i < rows.length; i++, j++) {
 
           const newData = {}
@@ -98,22 +107,22 @@ function dbload(db, param, file, isPackaged) {
             }
             const selectArr = [], selectObj = { width: 0, height: 0 }
 
-            if (rows[i][`select`]) {
-
-              const obj = JSON.parse(rows[i][`select`])[key]
-              // console.log(typeof obj , obj)
-              if (typeof obj == 'object') {
-                const { xStart, xEnd, yStart, yEnd, width, height } = obj
-                for (let i = yStart; i < yEnd; i++) {
-                  for (let j = xStart; j < xEnd; j++) {
-                    selectArr.push(data[i * width + j])
-                  }
+            let obj = null;
+            if (selectOverride && typeof selectOverride === 'object') {
+              obj = selectOverride[key];
+            } else if (rows[i][`select`]) {
+              obj = JSON.parse(rows[i][`select`])[key];
+            }
+            if (typeof obj == 'object') {
+              const { xStart, xEnd, yStart, yEnd, width, height } = obj
+              for (let i = yStart; i < yEnd; i++) {
+                for (let j = xStart; j < xEnd; j++) {
+                  selectArr.push(data[i * width + j])
                 }
-
-                selectObj.width = xEnd - xStart
-                selectObj.height = yEnd - yStart
               }
 
+              selectObj.width = xEnd - xStart
+              selectObj.height = yEnd - yStart
             }
             // console.log(selectArr , 'selectArr')
             // const press = data.reduce((a, b) => a + b, 0);
@@ -203,6 +212,8 @@ function dbload(db, param, file, isPackaged) {
           )
         }
 
+        handArr.push({ id: "remark", title: "remark" })
+
         let csvPath = __dirname + "/../data";
         if (isPackaged) {
           csvPath = 'resources/data'
@@ -215,6 +226,12 @@ function dbload(db, param, file, isPackaged) {
           // path: `./data/back${str}.csv`, // 指定输出文件的路径和名称
           header: handArr,
         });
+
+        const remarkRow = await getRemark({ db, params: [param] })
+        const remarkText = remarkRow?.remark ?? ''
+        if (remarkText) {
+          csvWriteBackData.push({ remark: remarkText })
+        }
 
         csvWriter1
           .writeRecords(csvWriteBackData)
@@ -236,7 +253,7 @@ function dbload(db, param, file, isPackaged) {
   })
 }
 
-async function dbLoadCsv({ db, params, file, isPackaged }) {
+async function dbLoadCsv({ db, params, file, isPackaged, selectJson }) {
   const selectQuery = "select * from matrix WHERE date=?";
   // params.forEach((param) => {
   //   db.all(selectQuery, param, (err, rows) => {
@@ -318,7 +335,7 @@ async function dbLoadCsv({ db, params, file, isPackaged }) {
   //     }
   //   });
   // })
-  const promises = params.map((param) => dbload(db, param, file, isPackaged))
+  const promises = params.map((param) => dbload(db, param, file, isPackaged, selectJson))
   const results = await Promise.all(promises);
   console.log(results, promises, 'result')
   return results
@@ -533,7 +550,7 @@ async function upsertRemark({ db, params }) {
 }
 
 async function getRemark({ db, params }) {
-  const sql = `SELECT date, alias, remark, select_json as select, updated_at FROM remarks WHERE date = ?`;
+  const sql = `SELECT date, alias, remark, select_json as "select", updated_at FROM remarks WHERE date = ?`;
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) {
