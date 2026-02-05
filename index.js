@@ -9,42 +9,164 @@ const fs = require('fs')
 const { startWorker, callPy } = require('./pyWorker')
 const isPackaged = app.isPackaged
 
-function openWeb({ hostname, port, fn }) {
-  const server = http.createServer((req, res) => {
-    if (req.url === "/") {
-      // 读取打包后的 index.html 文件
+const devWebRoot = path.join(__dirname, 'client', 'dist')
+const prodWebRoot = path.join(__dirname, '..', 'build')
+const webRoot = isPackaged ? prodWebRoot : devWebRoot
+const defaultDevPort = process.env.VITE_DEV_PORT || '5555'
+let devServerUrl = process.env.VITE_DEV_SERVER_URL || `http://localhost:${defaultDevPort}`
+let viteProcess = null
 
-      const filePath = isPackaged ? path.join(__dirname, '..', "build", "index.html") : path.join(__dirname, "build", "index.html");
+function startViteDevServer() {
+  if (viteProcess) return Promise.resolve()
 
-      console.log(filePath)
+  const clientDir = path.join(__dirname, 'client')
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const viteArgs = ['run', 'dev', '--', '--port', defaultDevPort]
+  const attempts = [
+    () => spawn(npmCmd, viteArgs, { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'] }),
+    () => spawn(`${npmCmd} ${viteArgs.join(' ')}`, { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'], shell: true })
+  ]
 
-      fs.readFile(filePath, (err, data) => {
-        if (err) {
-          res.statusCode = 500;
-          res.setHeader("Content-Type", "text/plain");
-          res.end("Internal Server Error");
-        } else {
-          // 设置响应头和内容，发送网页文件
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "text/html");
-          res.end(data);
-        }
-      });
-    } else {
-      // 处理其他请求（如样式表、脚本、图片等）
-      const filePath = isPackaged ? path.join(__dirname, '..', "build", req.url) : path.join(__dirname, "build", req.url);
-      fs.readFile(filePath, (err, data) => {
-        if (err) {
-          res.statusCode = 404;
-          res.setHeader("Content-Type", "text/plain");
-          res.end("Not Found");
-        } else {
-          res.statusCode = 200;
-          res.setHeader("Content-Type", getContentType(filePath));
-          res.end(data);
-        }
-      });
+  return new Promise((resolve) => {
+    let settled = false
+    let attemptIndex = 0
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
     }
+
+    const startAttempt = () => {
+      let child
+      try {
+        child = attempts[attemptIndex]()
+      } catch (err) {
+        console.log('[vite] spawn throw:', err.message)
+        if (attemptIndex + 1 < attempts.length) {
+          attemptIndex += 1
+          startAttempt()
+          return
+        }
+        finish()
+        return
+      }
+
+      viteProcess = child
+      let timer = null
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer)
+        child?.stdout?.off('data', onData)
+        child?.stderr?.off('data', onData)
+        child?.off('error', onError)
+        child?.off('exit', onExit)
+      }
+
+      const ready = () => {
+        cleanup()
+        finish()
+      }
+
+      const onData = (chunk) => {
+        const text = chunk.toString()
+        const localMatch =
+          text.match(/https?:\/\/localhost:\d+/i) ||
+          text.match(/https?:\/\/127\.0\.0\.1:\d+/i) ||
+          text.match(/https?:\/\/\[::1\]:\d+/i)
+        const anyMatch = text.match(/https?:\/\/[^\s]+/i)
+        if (localMatch) {
+          devServerUrl = localMatch[0]
+          ready()
+          return
+        }
+        if (anyMatch && text.includes('Local')) {
+          devServerUrl = anyMatch[0]
+          ready()
+          return
+        }
+        if (text.includes('ready in')) {
+          ready()
+        }
+      }
+
+      const onError = (err) => {
+        cleanup()
+        console.log('[vite] start error:', err.message)
+        if (attemptIndex + 1 < attempts.length) {
+          attemptIndex += 1
+          startAttempt()
+          return
+        }
+        viteProcess = null
+        finish()
+      }
+
+      const onExit = (code, signal) => {
+        cleanup()
+        if (!settled) {
+          console.log(`[vite] exited: code=${code} signal=${signal}`)
+        }
+        if (code !== 0 && attemptIndex + 1 < attempts.length) {
+          attemptIndex += 1
+          startAttempt()
+          return
+        }
+        if (code !== 0) {
+          viteProcess = null
+        }
+        finish()
+      }
+
+      timer = setTimeout(ready, 15000)
+
+      child.stdout?.on('data', onData)
+      child.stderr?.on('data', onData)
+      child.on('error', onError)
+      child.on('exit', onExit)
+    }
+
+    startAttempt()
+  })
+}
+
+function openWeb({ hostname, port, fn, webRoot }) {
+  const server = http.createServer((req, res) => {
+    const rawUrl = req.url || '/'
+    const pathname = rawUrl.split('?')[0] || '/'
+    const isRoot = pathname === '/'
+    const targetPath = isRoot ? 'index.html' : pathname
+    const filePath = path.join(webRoot, targetPath)
+
+    fs.readFile(filePath, (err, data) => {
+      if (!err) {
+        res.statusCode = 200
+        res.setHeader('Content-Type', getContentType(filePath))
+        res.end(data)
+        return
+      }
+
+      // SPA fallback: return index.html for non-asset routes
+      if (path.extname(pathname) === '') {
+        const indexPath = path.join(webRoot, 'index.html')
+        fs.readFile(indexPath, (indexErr, indexData) => {
+          if (indexErr) {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'text/plain')
+            res.end('Internal Server Error')
+            return
+          }
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'text/html')
+          res.end(indexData)
+        })
+        return
+      }
+
+      res.statusCode = 404
+      res.setHeader('Content-Type', 'text/plain')
+      res.end('Not Found')
+    })
   });
 
   server.listen(port, hostname, () => {
@@ -64,24 +186,28 @@ function openWeb({ hostname, port, fn }) {
   function getContentType(filePath) {
     const extname = path.extname(filePath);
     switch (extname) {
-      case ".html":
-        return "text/html";
-      case ".css":
-        return "text/css";
-      case ".js":
-        return "text/javascript";
-      case ".png":
-        return "image/png";
-      case ".jpg":
-        return "image/jpg";
+      case '.html':
+        return 'text/html';
+      case '.css':
+        return 'text/css';
+      case '.js':
+        return 'text/javascript';
+      case '.json':
+        return 'application/json';
+      case '.svg':
+        return 'image/svg+xml';
+      case '.png':
+        return 'image/png';
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.woff2':
+        return 'font/woff2';
       default:
-        return "text/plain";
+        return 'text/plain';
     }
   }
 }
-
-
-
 function startApiChild() {
   return new Promise((resolve, reject) => {
     const child = fork(path.join(__dirname, './server/serialServer.js'), {
@@ -120,7 +246,7 @@ function startApiChild() {
 //   }
 // })
 
-const createWindow = () => {
+const createWindow = async () => {
   const win = new BrowserWindow({
     // width: 800,
     // height: 600,
@@ -136,7 +262,9 @@ const createWindow = () => {
   })
   
   // win.maximize()
-  // win.webContents.openDevTools()
+  if (!isPackaged) {
+    win.webContents.openDevTools({ mode: 'detach' })
+  }
 
   const hostname = "127.0.0.1";
   const port = 2999;
@@ -150,7 +278,17 @@ const createWindow = () => {
     win.loadURL(`http://${hostname}:${port}`)
   }
 
-  openWeb({ hostname, port, fn })
+  if (!isPackaged) {
+    await startViteDevServer()
+    win.loadURL(devServerUrl)
+    return
+  }
+
+  if (!fs.existsSync(path.join(webRoot, 'index.html'))) {
+    console.log(`[web] index.html not found: ${webRoot}`)
+  }
+
+  openWeb({ hostname, port, fn, webRoot })
 }
 
 
@@ -265,7 +403,7 @@ app.whenReady().then(async () => {
   await startApiChild()
   // 开启python线程
   startWorker(); // 
-  createWindow()
+  await createWindow()
 
   Menu.setApplicationMenu(null);
 
@@ -314,6 +452,13 @@ app.whenReady().then(async () => {
   // } catch (e) {
   //   console.log(e)
   // }
+})
+
+app.on('before-quit', () => {
+  if (viteProcess) {
+    viteProcess.kill()
+    viteProcess = null
+  }
 })
 
 

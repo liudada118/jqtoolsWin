@@ -118,6 +118,41 @@ app.use(express.json());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// serial.txt cache
+const serialPath = (() => {
+  if (isPackaged) {
+    const base = appPath ? path.dirname(appPath) : (process.resourcesPath || __dirname)
+    return path.join(base, 'serial.txt')
+  }
+  return path.join(__dirname, '../serial.txt')
+})()
+
+function readSerialCache() {
+  try {
+    if (!fs.existsSync(serialPath)) return null
+    const raw = fs.readFileSync(serialPath, 'utf-8').trim()
+    if (!raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return { key: raw }
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeSerialCache(payload) {
+  const data = {
+    key: payload.key || '',
+    orgName: payload.orgName || '',
+    updatedAt: new Date().toISOString(),
+  }
+  fs.writeFileSync(serialPath, JSON.stringify(data, null, 2), 'utf-8')
+  return data
+}
+
+
 let dbPath = path.join(__dirname, '../db')
 let pdfPath = path.join(__dirname, "../OneStep");
 let imgPath = path.join(__dirname, '../img')
@@ -251,6 +286,30 @@ app.post('/bindKey', (req, res) => {
     res.json(new HttpResult(1, {}, '绑定失败'));
   }
 
+})
+
+// serial.txt cache APIs
+app.get('/serialCache', (req, res) => {
+  const data = readSerialCache()
+  if (data && data.key && data.orgName) {
+    res.json(new HttpResult(0, { hasCache: true, ...data }, 'success'))
+    return
+  }
+  res.json(new HttpResult(0, { hasCache: false }, 'empty'))
+})
+
+app.post('/serialCache', (req, res) => {
+  try {
+    const { key, orgName } = req.body || {}
+    if (!key || !orgName) {
+      res.json(new HttpResult(1, {}, 'missing key or orgName'))
+      return
+    }
+    const saved = writeSerialCache({ key, orgName })
+    res.json(new HttpResult(0, saved, 'success'))
+  } catch (err) {
+    res.json(new HttpResult(1, {}, 'save failed'))
+  }
 })
 
 app.post('/uploadCanvas', upload.single('file'), async (req, res) => {
@@ -963,7 +1022,7 @@ async function connectPort() {
   macInfo = {}
   let ports = await SerialPort.list()
   ports = getPort(ports)
-  // console.log(ports, 'ports')
+  console.log(ports, 'ports')
   // 创建并连接数据通道并且设置回调
   for (let i = 0; i < ports.length; i++) {
 
@@ -973,6 +1032,8 @@ async function connectPort() {
 
 
     const { path } = portInfo
+    const manufacturer = (portInfo.manufacturer || '').toLowerCase()
+    const portBaudRate = manufacturer.includes('wch.cn') ? 921600 : baudRate
     // parserArr[path]
     const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
     const dataItem = dataMap[path] = dataMap[path] ? dataMap[path] : {}
@@ -984,7 +1045,7 @@ async function connectPort() {
     // if()
 
     if (!(parserItem.port && parserItem.port.isOpen)) {
-      const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate })
+      const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate: portBaudRate })
 
       // linkIngPort.push(port)
 
@@ -1232,8 +1293,10 @@ async function connectPort() {
         else if (pointArr.length == 146) {
           const length = pointArr.length
           const arr = pointArr.splice(length - 16, length)
+          console.log(pointArr[0] , pointArr[1])
           pointArr.splice(0, 2)
           // 下一帧赋值  时间戳赋值 四元数赋值
+          
           dataItem.next = pointArr
           const stamp = new Date().getTime()
           dataItem.stamp = stamp

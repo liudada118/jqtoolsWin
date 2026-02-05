@@ -1,196 +1,219 @@
-**Overview**
-- HTTP (Serial Server): `http://localhost:19245`
-- HTTP (Backend): `http://localhost:3000`
-- WebSocket: `ws://localhost:19999`
+﻿# API 接口说明（中文）
 
-**Conventions**
-- `HttpResult` response shape: `{ code: number, message: string, data: any }`
-- Most endpoints expect `Content-Type: application/json` unless noted.
-- Some endpoints currently do not send a response in code (marked below).
+## 总览
+- HTTP（串口服务）：`http://localhost:19245`
+- HTTP（Backend）：`http://localhost:3000`
+- WebSocket：`ws://localhost:19999`
 
-**Serial Server APIs (Port 19245)**
+## 约定
+- 通用返回：`HttpResult` => `{ code: number, message: string, data: any }`
+- 除非特别说明，请求体为 `application/json`
+- 部分接口在代码中没有显式 `res` 返回（已标注）
+
+---
+
+# 一、串口服务 API（端口 19245）
+
 `GET /`
-Description: Health check.
-Response: Plain text `Hello World!`.
+- 说明：健康检查
+- 返回：`Hello World!`
 
 `GET /OneStep/:name`
-Description: Preview/download a PDF report from the `OneStep` directory.
-Path params: `name` (file name, no path separators).
-Response: `application/pdf`.
-Notes: Returns 400 on invalid name, 403 on path traversal, 404 if not found.
+- 说明：预览/下载 `OneStep` 目录下的 PDF
+- 路径参数：`name`（文件名，禁止路径分隔符）
+- 返回：`application/pdf`
+- 备注：非法文件名 400；越权 403；不存在 404
 
 `POST /bindKey`
-Description: Bind device key (placeholder).
-Body: `{ "key": string }`.
-Response: `HttpResult`, code 0/1.
+- 说明：绑定设备密钥（占位）
+- Body：`{ "key": string }`
+- 返回：`HttpResult`（code 0/1）
+
+`GET /serialCache`
+- 说明：读取 `serial.txt` 缓存的密钥与机构名
+- 返回：`HttpResult`，`data` 形如 `{ hasCache: boolean, key?, orgName?, updatedAt? }`
+
+`POST /serialCache`
+- 说明：保存密钥与机构名到 `serial.txt`
+- Body：`{ "key": string, "orgName": string }`
+- 返回：`HttpResult`（保存后的对象）
 
 `POST /uploadCanvas`
-Description: Upload heatmap image and generate PDF report.
-Content-Type: `multipart/form-data`.
-Form fields: `file` (required), `date` (required), `collectName`, `age`, `gender`, `userId`, `filename`.
-Response: `HttpResult` with data `{ file, body, absolutePath }`.
-Notes: Requires `date`. Also relies on `pdfArrData` populated by `POST /getDbHeatmap`.
+- 说明：上传热力图并生成 PDF 报告
+- Content-Type：`multipart/form-data`
+- 表单字段：`file`（必填）、`date`（必填）、`collectName`、`age`、`gender`、`userId`、`filename`
+- 返回：`HttpResult`，`data` 为 `{ file, body, absolutePath }`
+- 备注：依赖 `POST /getDbHeatmap` 写入的 `pdfArrData`
 
 `POST /uploadCanvas_old`
-Description: Legacy placeholder.
-Body: `{ "key": string }`.
-Response: `HttpResult`, code 0/1.
+- 说明：历史占位接口
+- Body：`{ "key": string }`
+- 返回：`HttpResult`（code 0/1）
 
 `POST /selectSystem`
-Description: Select system type and re-init DB.
-Query: `file` (system type).
-Response: No response in current code.
+- 说明：选择系统类型并初始化 DB
+- Query：`file`
+- 返回：**当前代码未返回响应**
 
 `GET /getSystem`
-Description: Get system config and current system type.
-Response: `HttpResult` with decrypted config object.
-Notes: Server forces `result.value = 'foot'` before returning.
+- 说明：获取系统配置/当前系统类型
+- 返回：`HttpResult`（解密后的配置对象）
+- 备注：代码中会强制 `result.value = 'foot'`
 
 `GET /getPort`
-Description: List available serial ports.
-Response: `HttpResult` with port list.
+- 说明：获取串口列表
+- 返回：`HttpResult`
 
 `GET /connPort`
-Description: Connect all detected ports and start parsing.
-Response: `HttpResult` with port list.
+- 说明：一键连接串口并开始解析
+- 返回：`HttpResult`（端口列表）
 
 `POST /startCol`
-Description: Start data collection.
-Body: `{ fileName, name, collectName, date, colName, select }`.
-Response: `HttpResult` code 0 or error message.
-Notes: Requires matching sensors already connected; otherwise returns error string. `select` is stored for DB.
+- 说明：开始采集
+- Body：`{ fileName, name, collectName, date, colName, select }`
+- 返回：`HttpResult`（成功或错误）
+- 备注：没有匹配传感器时返回错误提示
 
 `GET /endCol`
-Description: Stop data collection.
-Response: `HttpResult`.
+- 说明：停止采集
+- 返回：`HttpResult`
 
 `GET /getColHistory`
-Description: List latest collection history (distinct by date).
-Response: `HttpResult` with array of `{ date, timestamp, name, select }`.
-Notes: Also pushes WebSocket message `{ sitData: {} }`.
+- 说明：获取采集历史（按 date 最新）
+- 返回：`HttpResult`，`data` 为 `{ date, timestamp, name, select }[]`
+- 备注：会推送 WebSocket `{ sitData: {} }`
 
 `POST /downlaod`
-Description: Export selected entries to CSV (typo in path kept as-is).
-Body: `{ fileArr: string[] }`.
-Response: `HttpResult` with CSV data.
-Notes: Returns code 555 if `fileArr` is empty.
+- 说明：导出 CSV（接口名拼写保留）
+- Body：`{ fileArr: string[] }`
+- 返回：`HttpResult`
+- 备注：`fileArr` 为空时 code=555
 
 `POST /delete`
-Description: Delete entries by date.
-Body: `{ fileArr: string[] }`.
-Response: `HttpResult`.
+- 说明：删除指定条目
+- Body：`{ fileArr: string[] }`
+- 返回：`HttpResult`
 
 `POST /changeDbName`
-Description: Rename a date key.
-Body: `{ oldDate, newDate }`.
-Response: `HttpResult`.
+- 说明：重命名日期
+- Body：`{ oldDate, newDate }`
+- 返回：`HttpResult`
 
 `POST /getDbHistory`
-Description: Load all data for a date.
-Body: `{ time }`.
-Response: `HttpResult`.
-Data (non-foot): `{ length, pressArr, areaArr, dataArr }`.
-Data (foot): Python `replay_server` result with `length`.
+- 说明：获取某日期的全部数据
+- Body：`{ time }`
+- 返回：`HttpResult`
+- 备注：foot 数据会调用 Python `replay_server`
 
 `POST /getDbHeatmap`
-Description: Get peak frame for foot data and cache for report.
-Body: `{ time }`.
-Response: `HttpResult` with `peak_frame` on success.
-Notes: Sets global `pdfArrData` for `/uploadCanvas`.
+- 说明：获取 foot 峰值帧并缓存给 PDF
+- Body：`{ time }`
+- 返回：`HttpResult`（成功返回 `peak_frame`）
+- 备注：会写入全局 `pdfArrData`
 
 `POST /getContrastData`
-Description: Compare two dates.
-Body: `{ left, right }`.
-Response: `HttpResult` with `{ left: { length, pressArr, areaArr }, right: { length, pressArr, areaArr } }`.
-Notes: Sends WebSocket `{ contrastData: { left, right } }` for first frame.
+- 说明：对比两次采集
+- Body：`{ left, right }`
+- 返回：`HttpResult`（左右数据摘要）
+- 备注：推送 WebSocket `{ contrastData: { left, right } }`
 
 `POST /changeDbDataName`
-Description: Rename a record name in DB.
-Body: `{ oldName, newName }`.
-Response: No response in current code.
+- 说明：重命名记录名称
+- Body：`{ oldName, newName }`
+- 返回：**当前代码未返回响应**
 
 `POST /cancalDbPlay`
-Description: Cancel playback (typo in path kept as-is).
-Response: `HttpResult`.
+- 说明：取消回放（接口名拼写保留）
+- 返回：`HttpResult`
 
 `POST /getDbHistoryPlay`
-Description: Start playback of history data.
-Response: `HttpResult` or error if no history selected.
-Notes: Sends WebSocket `{ playEnd: true }`, then `{ sitDataPlay, index, timestamp }`, then `{ playEnd: false }`.
+- 说明：开始历史回放
+- 返回：`HttpResult` 或错误
+- 备注：推送 `{ playEnd: true }`，回放帧 `{ sitDataPlay, index, timestamp }`，结束 `{ playEnd: false }`
 
 `POST /changeDbplaySpeed`
-Description: Change playback speed.
-Body: `{ speed }`.
-Response: `HttpResult`.
-Notes: If playing, server restarts timer and sends `{ sitData, index, timestamp }` via WebSocket.
+- 说明：修改回放速度
+- Body：`{ speed }`
+- 返回：`HttpResult`
+- 备注：播放中会改 timer 并推送 `{ sitData, index, timestamp }`
 
 `POST /changeSystemType`
-Description: Change system type and re-init DB.
-Body: `{ system }`.
-Response: `HttpResult` with `{ optimalObj, maxObj }` for that system.
+- 说明：切换系统类型
+- Body：`{ system }`
+- 返回：`HttpResult`（`{ optimalObj, maxObj }`）
 
 `POST /getDbHistoryStop`
-Description: Pause playback.
-Response: `HttpResult`.
+- 说明：暂停回放
+- 返回：`HttpResult`
 
 `POST /getDbHistoryIndex`
-Description: Jump to a specific index in current history data.
-Body: `{ index }`.
-Response: `HttpResult` with row data.
-Notes: Sends WebSocket `{ sitData, index, timestamp }`.
+- 说明：跳转回放索引
+- Body：`{ index }`
+- 返回：`HttpResult`
+- 备注：推送 `{ sitData, index, timestamp }`
 
 `POST /getCsvData`
-Description: Read CSV data from a file path.
-Body: `{ fileName }`.
-Response: `HttpResult` with CSV data.
+- 说明：读取 CSV 文件
+- Body：`{ fileName }`
+- 返回：`HttpResult`
 
 `GET /sendMac`
-Description: Send MAC query to connected ports.
-Response: `HttpResult`.
-Notes: Returns ���������Ӵ��ڡ� if no ports connected.
+- 说明：发送 MAC 查询
+- 返回：`HttpResult`
+- 备注：未连接串口时返回“请先连接串口”
 
 `POST /getSysconfig`
-Description: Encrypt a config object.
-Body: `{ config: object }`.
-Response: `HttpResult` with encrypted string in `data`.
+- 说明：加密配置对象
+- Body：`{ config: object }`
+- 返回：`HttpResult`（加密字符串）
 
 `GET /getPyConfig`
-Description: Read Python config via `callPy('getParam')`.
-Response: `HttpResult`.
+- 说明：读取 Python 配置
+- 返回：`HttpResult`
 
 `POST /changePy`
-Description: Update Python config.
-Body: `{ path: string, value: string }` (value is JSON string).
-Response: `HttpResult`.
+- 说明：更新 Python 配置
+- Body：`{ path: string, value: string }`（value 为 JSON 字符串）
+- 返回：`HttpResult`
 
-**Backend APIs (Port 3000)**
+---
+
+# 二、Backend API（端口 3000）
+
 `GET /`
-Description: Health check.
-Response: Plain text `Hello World!`.
+- 说明：健康检查
+- 返回：`Hello World!`
 
 `GET /getKey`
-Description: Query device key.
-Query: `uuid`.
-Response: `HttpResult` with `data: "data"` (placeholder).
+- 说明：查询设备密钥
+- Query：`uuid`
+- 返回：`HttpResult`（占位）
 
 `POST /bindKey`
-Description: Bind device key (placeholder).
-Response: No response in current code.
+- 说明：绑定设备密钥（占位）
+- 返回：**当前代码未返回响应**
 
-**WebSocket (Port 19999)**
-Description: Server only pushes JSON messages. Client messages are ignored.
-Possible message shapes:
-- `{}` initial empty message on connect.
-- `{ data: <object> }` real-time parsed data (bluetooth path).
-- `{ sitData: <object> }` real-time parsed data (high HZ path) or history index playback.
-- `{ sitDataPlay: <array>, index, timestamp }` history playback frames.
-- `{ playEnd: true|false }` playback start/end marker.
-- `{ macInfo: { [portPath]: { uniqueId, version } } }` after MAC query.
-- `{ contrastData: { left: <array>, right: <array> } }` contrast preview.
-- `{ handle: <array> }` manual control feed.
-- `{ algorFeed: <array> }` algorithm control feed.
+---
 
-**Examples**
+# 三、WebSocket（端口 19999）
+
+服务端只推送消息，客户端发消息会被忽略。
+
+常见消息结构：
+- `{}` 初次连接的空包
+- `{ data: <object> }` 实时数据（蓝牙分包路径）
+- `{ sitData: <object> }` 实时数据（高频路径）或历史索引回放
+- `{ sitDataPlay: <array>, index, timestamp }` 历史回放帧
+- `{ playEnd: true|false }` 回放开始/结束标记
+- `{ macInfo: { [portPath]: { uniqueId, version } } }` MAC 信息
+- `{ contrastData: { left: <array>, right: <array> } }` 对比首帧
+- `{ handle: <array> }` 手动控制指令
+- `{ algorFeed: <array> }` 算法控制指令
+
+---
+
+# 示例
+
 ```bash
 curl http://localhost:19245/getSystem
 ```
@@ -205,7 +228,7 @@ curl -X POST http://localhost:19245/getDbHistory \
 curl -X POST http://localhost:19245/uploadCanvas \
   -F "file=@heatmap.png" \
   -F "date=2024-01-01" \
-  -F "collectName=����" \
+  -F "collectName=张三" \
   -F "age=30" \
   -F "gender=male"
 ```
