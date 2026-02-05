@@ -113,7 +113,7 @@ function dbload(db, param, file, isPackaged, selectJson) {
             } else if (rows[i][`select`]) {
               obj = JSON.parse(rows[i][`select`])[key];
             }
-            if (typeof obj == 'object') {
+            if (obj && typeof obj == 'object') {
               const { xStart, xEnd, yStart, yEnd, width, height } = obj
               for (let i = yStart; i < yEnd; i++) {
                 for (let j = xStart; j < xEnd; j++) {
@@ -220,9 +220,10 @@ function dbload(db, param, file, isPackaged, selectJson) {
         }
 
         const csvName = file == 'endi' ? 'car' : file
+        const csvFilePath = `${csvPath}/${csvName}${str}.csv`
 
         const csvWriter1 = createCsvWriter({
-          path: `${csvPath}/${csvName}${str}.csv`,
+          path: csvFilePath,
           // path: `./data/back${str}.csv`, // 指定输出文件的路径和名称
           header: handArr,
         });
@@ -236,6 +237,19 @@ function dbload(db, param, file, isPackaged, selectJson) {
         csvWriter1
           .writeRecords(csvWriteBackData)
           .then(() => {
+            const content = fs.readFileSync(csvFilePath)
+            const hasBom =
+              content.length >= 3 &&
+              content[0] === 0xef &&
+              content[1] === 0xbb &&
+              content[2] === 0xbf
+            if (!hasBom) {
+              // Prepend UTF-8 BOM so Excel opens Chinese correctly.
+              fs.writeFileSync(
+                csvFilePath,
+                Buffer.concat([Buffer.from('\ufeff'), content])
+              )
+            }
             console.log("导出csv成功！");
             let obj = {}
             obj[param] = 'sussess'

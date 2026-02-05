@@ -19,6 +19,21 @@ const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
 const module2 = require('../util/aes_ecb')
 
+const pointConfig = {
+  endi: {
+    back: {
+      pointLength: 64,
+      pointWidthDistance: 13,
+      pointHeightDistance: 10,
+    },
+    sit: {
+      pointLength: 46,
+      pointWidthDistance: 10,
+      pointHeightDistance: 10,
+    },
+  }
+}
+
 
 console.log('userData from env:', typeof process.env.isPackaged);
 
@@ -181,8 +196,8 @@ app.get('/getSystem', async (req, res) => {
   //   value: "bed",
   //   typeArr: ["bed", "hand", 'foot', 'bigHand']
   // }
-  // baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
-  baudRate = 3000000
+  baudRate = constantObj.baudRateObj[result.value] ? constantObj.baudRateObj[result.value] : 1000000
+  // baudRate = 3000000
 
   const { db } = initDb(file, dbPath)
   currentDb = db
