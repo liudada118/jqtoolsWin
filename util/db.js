@@ -190,7 +190,7 @@ function dbload(db, param, file, isPackaged, selectJson) {
             if (pointInfo) {
               const averValue = Number(newData[`${key}aver`]) || 0
               newData[`${key}point`] = pointValue
-              newData[`${key}pressTotal`] = (averValue * pointArea * pointValue) / 100
+              newData[`${key}pressTotal`] = (averValue * pointArea * pointValue) / 1000
             }
           }
 
