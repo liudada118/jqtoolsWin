@@ -2,12 +2,21 @@ import React, { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
-export function HandModel({ isRecording = false, pressureValue = 0, isLeftHand = true }) {
+export function HandModel({
+  isRecording = false,
+  pressureValue = 0,
+  isLeftHand = true,
+  heatmapCanvas = null,
+  heatmapVersion = 0
+}) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const rendererRef = useRef(null)
   const animationRef = useRef(null)
   const handGroupRef = useRef(null)
+  const heatmapTextureRef = useRef(null)
+  const modelRef = useRef(null)
+  const baseScaleRef = useRef(1)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -75,12 +84,30 @@ export function HandModel({ isRecording = false, pressureValue = 0, isLeftHand =
 
         const maxDim = Math.max(size.x, size.y, size.z) || 1
         const scale = 2.6 / maxDim
+        baseScaleRef.current = scale
         model.scale.setScalar(scale)
-        if (!isLeftHand) {
-          model.scale.x *= -1
-        }
+        modelRef.current = model
 
         handGroup.add(model)
+
+        if (heatmapCanvas) {
+          const texture = new THREE.CanvasTexture(heatmapCanvas)
+          texture.needsUpdate = true
+          heatmapTextureRef.current = texture
+          handGroup.traverse((child) => {
+            if (child.isMesh && child.name !== 'pressureIndicator') {
+              if (Array.isArray(child.material)) {
+                child.material.forEach((mat) => {
+                  mat.map = texture
+                  mat.needsUpdate = true
+                })
+              } else {
+                child.material.map = texture
+                child.material.needsUpdate = true
+              }
+            }
+          })
+        }
       },
       undefined,
       (err) => {
@@ -154,7 +181,7 @@ export function HandModel({ isRecording = false, pressureValue = 0, isLeftHand =
         })
       }
     }
-  }, [isLeftHand])
+  }, [])
 
   // Update pressure indicator
   useEffect(() => {
@@ -174,6 +201,38 @@ export function HandModel({ isRecording = false, pressureValue = 0, isLeftHand =
       }
     }
   }, [pressureValue, isRecording])
+
+  useEffect(() => {
+    if (!heatmapCanvas || !handGroupRef.current) return
+    if (!heatmapTextureRef.current) {
+      heatmapTextureRef.current = new THREE.CanvasTexture(heatmapCanvas)
+    } else {
+      heatmapTextureRef.current.image = heatmapCanvas
+    }
+    heatmapTextureRef.current.needsUpdate = true
+    const texture = heatmapTextureRef.current
+    handGroupRef.current.traverse((child) => {
+      if (child.isMesh && child.name !== 'pressureIndicator') {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => {
+            mat.map = texture
+            mat.needsUpdate = true
+          })
+        } else {
+          child.material.map = texture
+          child.material.needsUpdate = true
+        }
+      }
+    })
+  }, [heatmapCanvas, heatmapVersion])
+
+  useEffect(() => {
+    const model = modelRef.current
+    if (!model) return
+    const baseScale = baseScaleRef.current || 1
+    const sign = isLeftHand ? 1 : -1
+    model.scale.set(baseScale * sign, baseScale, baseScale)
+  }, [isLeftHand])
 
   return (
     <div 

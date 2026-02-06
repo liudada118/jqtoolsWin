@@ -7,6 +7,8 @@ import { PressureChart, NormalDistributionChart } from '@/components/charts/Pres
 import { HandModel } from '@/components/three/HandModel'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
+import { useSensorSocket } from '@/contexts/SensorSocketContext'
+import { HeatmapCanvas } from '@/pages/assessment/heatmap'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -25,6 +27,94 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 })
 
 const GRIP_PROGRESS_KEY = 'jqtools.gripProgress'
+
+const handLArr = [
+  1, 2, 3, 6, 7, 8, 11, 12, 13, 16, 17, 18, 21, 22, 23, 26, 27, 28,
+  31, 32, 33, 36, 37, 38, 41, 42, 43, 46, 47, 48, 51, 52, 53, 56, 57,
+  58, 61, 62, 63, 66, 67, 68, 71, 72, 73, 76, 77, 78, 81, 82, 83,
+  86, 87, 88, 91, 92, 93, 96, 97, 98, 101, 102, 103, 106, 107, 108,
+  111, 112, 113, 116, 117, 118, 121, 122, 123, 126, 127, 128, 131,
+  132, 133, 136, 137, 138, 141, 142, 143, 146, 147, 148
+]
+
+function handL(arr) {
+  let adcArr = handLArr.slice().map((a) => a - 1)
+
+  const finger1 = adcArr.splice(0, 12)
+  const finger2 = adcArr.splice(0, 12)
+  const finger3 = adcArr.splice(0, 12)
+  const finger4 = adcArr.splice(0, 12)
+  const finger5 = adcArr.splice(0, 12)
+  const fingerArr = [finger1, finger2, finger3, finger4, finger5]
+
+  const res = new Array(147).fill(0)
+  for (let i = 0; i < 4; i++) {
+    for (let k = 0; k < 5; k++) {
+      for (let j = 0; j < 3; j++) {
+        res[i * 15 + k * 3 + j] = arr[fingerArr[k][i * 3 + j]]
+      }
+    }
+  }
+
+  const fingerMiddleHand = adcArr.splice(0, 5)
+  for (let i = 0; i < 5; i++) {
+    res[15 * 4 + 1 + i * 3] = arr[fingerMiddleHand[i]]
+  }
+
+  const handArr = adcArr.splice(0, 72)
+  for (let i = 0; i < handArr.length; i++) {
+    res[15 * 5 + i] = arr[handArr[i]]
+  }
+
+  const res1 = []
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 15; j++) {
+      res1.push(res[i * 15 + 14 - j])
+    }
+  }
+  for (let i = 75 + 12 - 1; i >= 75; i--) {
+    res1.push(res[i])
+  }
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 15; j++) {
+      res1.push(res[75 + 12 + i * 15 + 14 - j])
+    }
+  }
+
+  // return new Array(147).fill(100)
+  return res1
+}
+
+function handSkinChange(res) {
+  const handPointArr = [[6, 2], [6, 3], [6, 4], [3, 8], [3, 9], [3, 10], [3, 14], [3, 15], [3, 16], [3, 20], [3, 21], [3, 22], [10, 26], [10, 27], [10, 28], [7, 2], [7, 3], [7, 4], [4, 8], [4, 9], [4, 10], [4, 14], [4, 15], [4, 16], [4, 20], [4, 21], [4, 22], [11, 26], [11, 27], [11, 28], [8, 2], [8, 3], [8, 4], [5, 8], [5, 9], [5, 10], [5, 14], [5, 15], [5, 16], [5, 20], [5, 21], [5, 22], [12, 26], [12, 27], [12, 28], [9, 2], [9, 3], [9, 4], [6, 8], [6, 9], [6, 10], [6, 14], [6, 15], [6, 16], [6, 20], [6, 21], [6, 22], [13, 26], [13, 27], [13, 28], [13, 2], [13, 3], [13, 4], [13, 8], [13, 9], [13, 10], [13, 14], [13, 15], [13, 16], [13, 20], [13, 21], [13, 22], [17, 25], [17, 26], [17, 27], [17, 6], [17, 7], [17, 8], [17, 9], [17, 10], [17, 11], [17, 12], [17, 13], [17, 14], [17, 15], [17, 16], [17, 17], [19, 6], [19, 7], [19, 8], [19, 9], [19, 10], [19, 11], [19, 12], [19, 13], [19, 14], [19, 15], [19, 16], [19, 17], [19, 18], [19, 19], [19, 20], [21, 6], [21, 7], [21, 8], [21, 9], [21, 10], [21, 11], [21, 12], [21, 13], [21, 14], [21, 15], [21, 16], [21, 17], [21, 18], [21, 19], [21, 20], [23, 6], [23, 7], [23, 8], [23, 9], [23, 10], [23, 11], [23, 12], [23, 13], [23, 14], [23, 15], [23, 16], [23, 17], [23, 18], [23, 19], [23, 20], [25, 6], [25, 7], [25, 8], [25, 9], [25, 10], [25, 11], [25, 12], [25, 13], [25, 14], [25, 15], [25, 16], [25, 17], [25, 18], [25, 19], [25, 20]]
+  for (let i = 4 * 15; i < 5 * 15; i++) {
+    res[i] = res[i] / 3
+  }
+
+  const res1 = []
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 15; j++) {
+      res1.push(res[i * 15 + 14 - j])
+    }
+  }
+  for (let i = 75 + 12 - 1; i >= 75; i--) {
+    res1.push(res[i])
+  }
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 15; j++) {
+      res1.push(res[75 + 12 + i * 15 + 14 - j])
+    }
+  }
+
+  const newZeroArr = new Array(1024).fill(0)
+  handPointArr.forEach((a, index) => {
+    newZeroArr[(31 - a[0]) * 32 + a[1]] = res1[index]
+    if (index >= 75) {
+      newZeroArr[(31 - (a[0] + 1)) * 32 + a[1]] = res1[index]
+    }
+  })
+  return newZeroArr
+}
 
 
 // 步骤状态组件
@@ -73,6 +163,7 @@ export default function GripAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -91,12 +182,27 @@ export default function GripAssessment() {
   const [videoPlaying, setVideoPlaying] = useState(false)
   const timerRef = useRef(null)
   const videoRef = useRef(null)
+  const lastWsTsRef = useRef(0)
+  const bodyCanvasRef = useRef(null)
+  const [heatmapCanvas, setHeatmapCanvas] = useState(null)
+  const [heatmapVersion, setHeatmapVersion] = useState(0)
 
   const steps = [
     { id: 'left', label: '左手' },
     { id: 'right', label: '右手' },
     { id: 'complete', label: '完成' }
   ]
+
+  useEffect(() => {
+    if (!bodyCanvasRef.current) {
+      bodyCanvasRef.current = new HeatmapCanvas(30, 30, 1, 1, 'hand', {
+        min: 0,
+        max: 500,
+        size: 40
+      })
+      setHeatmapCanvas(bodyCanvasRef.current.canvas)
+    }
+  }, [])
 
   useEffect(() => {
     if (mode === 'report') return
@@ -127,6 +233,84 @@ export default function GripAssessment() {
       localStorage.setItem(GRIP_PROGRESS_KEY, JSON.stringify(payload))
     } catch {}
   }, [mode, currentStep, currentHand, status, reportMode])
+
+  useEffect(() => {
+    if (lastJson) {
+      // console.log('[ws] GripAssessment message:', lastJson)
+    }
+  }, [lastJson])
+
+  useEffect(() => {
+    if (mode === 'report') return
+    const now = Date.now()
+    if (now - lastWsTsRef.current < 50) return
+
+    const sitData = lastJson && lastJson.sitData
+    if (!sitData) return
+
+    const hl = sitData.HL && Array.isArray(sitData.HL.arr) ? sitData.HL.arr : null
+    const hr = sitData.HR && Array.isArray(sitData.HR.arr) ? sitData.HR.arr : null
+
+    const upscale16To32 = (arr) => {
+      if (!arr || arr.length !== 256) return arr
+      const out = new Array(1024)
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 16; j++) {
+          const v = arr[i * 16 + j]
+          const r = i * 2
+          const c = j * 2
+          const base = r * 32 + c
+          out[base] = v
+          out[base + 1] = v
+          out[base + 32] = v
+          out[base + 33] = v
+        }
+      }
+      return out
+    }
+
+    const toPressure = (arr) => {
+      if (!arr || arr.length === 0) return 0
+      let sum = 0
+      for (let i = 0; i < arr.length; i++) sum += Number(arr[i]) || 0
+      return Math.round(sum / arr.length)
+    }
+
+    if (status === 'recording') {
+      if (hl) {
+        const value = toPressure(hl)
+        setLeftHandData(prev => {
+          const next = [...prev, { time: prev.length, value }]
+          return next.length > 200 ? next.slice(-200) : next
+        })
+        if (currentHand === 'left') setCurrentPressure(value)
+      }
+
+      if (hr) {
+        const value = toPressure(hr)
+        setRightHandData(prev => {
+          const next = [...prev, { time: prev.length, value }]
+          return next.length > 200 ? next.slice(-200) : next
+        })
+        if (currentHand === 'right') setCurrentPressure(value)
+      }
+    }
+
+    if (bodyCanvasRef.current) {
+      if (currentHand === 'left' && hl && hl.length === 256) {
+        // const arr = new Array(256).fill(100)
+        const mapped = handSkinChange(handL(hl))
+        bodyCanvasRef.current.changeHeatmap(mapped, 1, 1, 0)
+        setHeatmapVersion(v => v + 1)
+      } else if (currentHand === 'right' && hr) {
+        const arr1024 = upscale16To32(hr)
+        bodyCanvasRef.current.changeHeatmap(arr1024, 1, 1, 0)
+        setHeatmapVersion(v => v + 1)
+      }
+    }
+
+    lastWsTsRef.current = now
+  }, [mode, status, lastJson, currentHand])
 
   // Start recording
   const startRecording = () => {
@@ -435,6 +619,8 @@ export default function GripAssessment() {
                   isRecording={status === 'recording'} 
                   pressureValue={currentPressure}
                   isLeftHand={currentHand === 'left'}
+                  heatmapCanvas={heatmapCanvas}
+                  heatmapVersion={heatmapVersion}
                 />
                 
                 {/* Processing Overlay */}

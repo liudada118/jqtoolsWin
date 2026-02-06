@@ -16,15 +16,52 @@ const defaultDevPort = process.env.VITE_DEV_PORT || '5555'
 let devServerUrl = process.env.VITE_DEV_SERVER_URL || `http://localhost:${defaultDevPort}`
 let viteProcess = null
 
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function checkDevServerOnce(url, timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
+      res.resume()
+      resolve(true)
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(timeoutMs, () => {
+      req.destroy()
+      resolve(false)
+    })
+  })
+}
+
+async function waitForDevServer(url, timeoutMs = 20000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await checkDevServerOnce(url, 1000)
+    if (ok) return true
+    // eslint-disable-next-line no-await-in-loop
+    await wait(500)
+  }
+  return false
+}
+
 function startViteDevServer() {
   if (viteProcess) return Promise.resolve()
 
   const clientDir = path.join(__dirname, 'client')
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
   const viteArgs = ['run', 'dev', '--', '--port', defaultDevPort]
+  const viteBin = path.join(
+    clientDir,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'vite.cmd' : 'vite'
+  )
   const attempts = [
     () => spawn(npmCmd, viteArgs, { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'] }),
-    () => spawn(`${npmCmd} ${viteArgs.join(' ')}`, { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'], shell: true })
+    () => spawn(`${npmCmd} ${viteArgs.join(' ')}`, { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'], shell: true }),
+    () => fs.existsSync(viteBin)
+      ? spawn(viteBin, ['--port', defaultDevPort], { cwd: clientDir, stdio: ['ignore', 'pipe', 'pipe'] })
+      : null
   ]
 
   return new Promise((resolve) => {
@@ -41,6 +78,7 @@ function startViteDevServer() {
       let child
       try {
         child = attempts[attemptIndex]()
+        if (!child) throw new Error('vite spawn skipped')
       } catch (err) {
         console.log('[vite] spawn throw:', err.message)
         if (attemptIndex + 1 < attempts.length) {
@@ -70,6 +108,9 @@ function startViteDevServer() {
 
       const onData = (chunk) => {
         const text = chunk.toString()
+        if (text && text.trim()) {
+          process.stdout.write(`[vite] ${text}`)
+        }
         const localMatch =
           text.match(/https?:\/\/localhost:\d+/i) ||
           text.match(/https?:\/\/127\.0\.0\.1:\d+/i) ||
@@ -280,6 +321,25 @@ const createWindow = async () => {
 
   if (!isPackaged) {
     await startViteDevServer()
+    const ok = await waitForDevServer(devServerUrl, 20000)
+    if (!ok) {
+      const safeUrl = devServerUrl
+      const msg = encodeURIComponent(
+        `Vite dev server not reachable: ${safeUrl}\n\n` +
+        `Please run: npm run dev -- --port ${defaultDevPort} (in ./client) and keep it running.`
+      )
+      win.loadURL(`data:text/plain;charset=utf-8,${msg}`)
+
+      const retryTimer = setInterval(async () => {
+        const alive = await checkDevServerOnce(devServerUrl, 1000)
+        if (alive) {
+          clearInterval(retryTimer)
+          win.loadURL(devServerUrl)
+        }
+      }, 2000)
+      win.on('closed', () => clearInterval(retryTimer))
+      return
+    }
     win.loadURL(devServerUrl)
     return
   }

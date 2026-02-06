@@ -65,7 +65,7 @@ function fixMojibake(value) {
     if (Buffer.from(utf, 'utf8').equals(buf)) {
       return utf
     }
-  } catch {}
+  } catch { }
   return value
 }
 
@@ -969,8 +969,18 @@ function parseData(parserArr, objs, type) {
     const data = objs[key]
     if (obj.port.isOpen) {
       let blueArr = []
+      console.log(data.type)
+      if (data.type && (data.type == 'HL' || data.type == 'HR')) {
 
-      if (type == 'blue') {
+        const { order } = constantObj
+        const lastData = data[order[1]]
+        const nextData = data[order[2]]
+
+        if (lastData && lastData.length && nextData && nextData.length) {
+          blueArr = [...lastData, ...nextData]
+        }
+      }
+      else if (type == 'blue') {
         const { order } = constantObj
         const lastData = data[order[1]]
         const nextData = data[order[2]]
@@ -1293,12 +1303,37 @@ async function connectPort() {
         else if (pointArr.length == 146) {
           const length = pointArr.length
           const arr = pointArr.splice(length - 16, length)
-          console.log(pointArr[0] , pointArr[1])
+          console.log(pointArr[0], pointArr[1])
+          
+          // dataItem.type = pointArr[1] == 1 ? 'leftHand' : 'rightHand'
           pointArr.splice(0, 2)
           // 下一帧赋值  时间戳赋值 四元数赋值
-          
-          dataItem.next = pointArr
+
           const stamp = new Date().getTime()
+
+          if (sendDataLength < 30) {
+            sendDataLength++
+          }
+          if (oldTimeObj[dataItem.type]) {
+            dataItem.HZ = stamp - oldTimeObj[dataItem.type]
+            // console.log(dataItem.HZ , 'hz')
+            if (!MaxHZ && sendDataLength == 30) {
+              MaxHZ = Math.floor(1000 / dataItem.HZ)
+              console.log(MaxHZ)
+              HZ = MaxHZ
+              playtimer = setInterval(() => {
+                colAndSendData()
+              }, 1000 / HZ)
+              sendDataLength = 0
+            }
+          }
+          dataItem.stamp = stamp
+
+          // if (!oldTimeObj[dataItem.type]) {
+          oldTimeObj[dataItem.type] = dataItem.stamp
+
+          dataItem.next = pointArr
+          // const stamp = new Date().getTime()
           dataItem.stamp = stamp
           dataItem.rotate = bytes4ToInt10(arr)
         } else if (pointArr.length == 4096) {
@@ -1561,6 +1596,7 @@ async function stopPort() {
 
 function colAndSendData() {
   // console.log(historyFlag)
+
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     // selectArr
@@ -1668,6 +1704,7 @@ function sendData() {
     //     data: arr
     //   }
     // }
+    // console.log(obj)
     socketSendData(server, JSON.stringify({ sitData: obj }))
   }
 
