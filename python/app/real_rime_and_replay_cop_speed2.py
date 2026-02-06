@@ -367,6 +367,6 @@ def load_footdata_and_process(csv_path="foot1769080175320.0.csv", fps=77.0):
     return process_playback_batch(matrix_2d, fps=fps)
 
 
-# print(load_footdata_and_process(csv_path="stand.csv")["left"]["cop_speed"])
+# print(load_footdata_and_process(csv_path="/Users/imac/Documents/GitHub/jqtoolsWin/python/app/stand.csv"))
 
 # print(load_footdata_and_process()["left"]["cop_speed"])

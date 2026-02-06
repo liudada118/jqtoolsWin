@@ -101,7 +101,7 @@ function startWorker() {
   });
 
   // 握手：确认常驻 OK（会发送一条请求）
-  callPy('ping', {}, { timeoutMs: 5000 })
+  callPy('ping', {}, { timeoutMs: 30000 })
     .then(() => console.log('[PY] ready'))
     .catch(e => console.error('[PY] handshake failed:', e.message));
 }
