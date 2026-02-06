@@ -65,10 +65,12 @@ export default function SitStandAssessment() {
   const latestSeatSeqRef = useRef(0)
   const lastUiSeqRef = useRef(0)
   const [seatRealtimeData, setSeatRealtimeData] = useState(null)
+  const [seatData2d, setSeatData2d] = useState(null)
   const latestFootRef = useRef(null)
   const latestFootSeqRef = useRef(0)
   const lastFootUiSeqRef = useRef(0)
   const [footpadData, setFootpadData] = useState(null)
+  const [footpadData2d, setFootpadData2d] = useState(null)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -112,13 +114,17 @@ export default function SitStandAssessment() {
       const seq = latestSeatSeqRef.current
       if (seq && seq != lastUiSeqRef.current) {
         lastUiSeqRef.current = seq
-        setSeatRealtimeData(latestSeatRef.current)
+        const seatFlat = latestSeatRef.current
+        setSeatRealtimeData(seatFlat)
+        setSeatData2d(reshapeTo32(seatFlat))
       }
 
       const footSeq = latestFootSeqRef.current
       if (footSeq && footSeq != lastFootUiSeqRef.current) {
         lastFootUiSeqRef.current = footSeq
-        setFootpadData(latestFootRef.current)
+        const footFlat = latestFootRef.current
+        setFootpadData(footFlat)
+        setFootpadData2d(reshapeTo64(footFlat))
       }
     })
     return () => unsubscribe?.()
@@ -298,7 +304,8 @@ export default function SitStandAssessment() {
                     depthScale={0.25}
                     smoothness={0.5}
                     realtimeData={seatRealtimeData}
-                    footpadData={footpadData}
+                    seatData={seatData2d}
+                    footpadData={footpadData2d || footpadData}
                   />
                 </div>
                 
