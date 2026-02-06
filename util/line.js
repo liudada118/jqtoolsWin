@@ -380,15 +380,27 @@ function pressNew1220({ arr, width, height, type = "row", value }) {
 }
 
 function backYToX(y) {
-    if (y <= 0) return 0;
-    if (y >= 123) return 20; // 平台饱和段
-    return Math.exp((y - 28.9905) / 31.3511).toFixed(2);
+     if (!Number.isFinite(y)) return 0;
+
+    // 饱和平台
+    if (y >= 108) return 25;
+
+    // 下限保护，看你需不需要，可以改阈值
+    if (y <= 6) return 0;
+
+    return Math.exp((y - 25.6628) / 25.26) - 0.362;
 }
 
 function sitYToX(y) {
+   if (!Number.isFinite(y)) return 0;
+
+    // 饱和平台
+    if (y >= 90) return 25;
+
+    // 下限保护（可以按你实际业务调）
     if (y <= 0) return 0;
-    if (y >= 121) return 20; // 饱和平台
-    return (Math.exp((y - 47.47) / 24.52) - 0.052).toFixed(2);
+
+    return Math.exp((y - 38.2932) / 15.76) - 0.088;
 }
 
 module.exports = {

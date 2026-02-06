@@ -1,4 +1,4 @@
-﻿# API 文档（serialServer.js）
+﻿﻿# API 文档（serialServer.js）
 
 基于 `server/serialServer.js` 的接口整理。
 
@@ -94,8 +94,8 @@
 - 路径：`/downlaod`
 - 请求体：
   - `fileArr` string[]
-  - `selectJson` object??????????????????? `historySelectCache`?
-- 说明：导出数据（路径拼写为 `downlaod`）
+  - `selectJson` object（可选，优先使用；未传则使用回放缓存的 `historySelectCache`）
+- 说明：导出数据（路径拼写为 `downlaod`），如传 `selectJson` 会用框选数据计算导出字段；如果数据库里有 `alias`，则 CSV 文件名使用别名
 - 响应：导出结果
 
 ### 11) 删除记录
@@ -103,7 +103,6 @@
 - 路径：`/delete`
 - 请求体：
   - `fileArr` string[]
-  - `selectJson` object??????????????????? `historySelectCache`?
 - 响应：删除结果
 
 ### 12) 修改记录名（按日期）
@@ -380,6 +379,8 @@ paths:
                   type: array
                   items:
                     type: string
+                selectJson:
+                  type: object
       responses:
         '200':
           description: Result
@@ -709,5 +710,7 @@ components:
         msg:
           type: string
 ```
+
+
 
 

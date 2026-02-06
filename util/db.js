@@ -199,12 +199,15 @@ function dbload(db, param, file, isPackaged, selectJson) {
         }
         // 将汇总的压力数据写入 CSV 文件
 
+        const remarkRow = await getRemark({ db, params: [param] })
+        const aliasFromDb = remarkRow?.alias
+
         // let str = nowGetTime.replace(/[/:]/g, "-");
         let str = param;
         console.log(str, 'str')
-        if (!isAllDigits(str)) {
-          // str = str.split(" ")[0];
-        } else {
+        if (aliasFromDb) {
+          str = String(aliasFromDb);
+        } else if (isAllDigits(str)) {
           str = timeStampTo_Date(Number(str));
         }
 
@@ -225,7 +228,7 @@ function dbload(db, param, file, isPackaged, selectJson) {
             { id: `${key}max`, title: `${res} Max（Kpa）` },
             { id: `${key}min`, title: `${res} Min（Kpa）` },
             { id: `${key}aver`, title: `${res} Aver（Kpa）` },
-            { id: `${key}pressureArea`, title: `${res} Area（cm?）` },
+            { id: `${key}pressureArea`, title: `${res} Area（cm²）` },
           )
           if (key == 'endi-back' || key == 'endi-sit') {
             handArr.push(
@@ -261,7 +264,6 @@ function dbload(db, param, file, isPackaged, selectJson) {
           header: handArr,
         });
 
-        const remarkRow = await getRemark({ db, params: [param] })
         const remarkText = remarkRow?.remark ?? ''
         if (remarkText) {
           csvWriteBackData.push({ remark: remarkText })

@@ -230,7 +230,7 @@ app.post('/startCol', async (req, res) => {
     const { fileName, select } = req.body
     selectArr = select
     historySelectCache = null
-      const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
+    const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
     console.log(sensorArr, file)
     const length = sensorArr.filter((a) => typeof file == 'string' &&  a.includes(file)).length
 
@@ -332,12 +332,12 @@ app.post('/downlaod', async (req, res) => {
   try {
     const { fileArr, selectJson } = req.body || {}
     if (!fileArr || !fileArr.length) {
-      res.json(new HttpResult(555, '??????', 'error'));
+      res.json(new HttpResult(555, '请选择先数据', 'error'));
     }
     const params = fileArr;
     const selectOverride = selectJson && typeof selectJson === 'object' ? selectJson : historySelectCache
     const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged, selectJson: selectOverride })
-    res.json(new HttpResult(0, data, '??'));
+    res.json(new HttpResult(0, data, '下载'));
   } catch {
 
   }
@@ -540,6 +540,7 @@ app.post('/cancalDbPlay', async (req, res) => {
   // 将回放flag置为false 并且将当前数据数组置为空
   historyFlag = false
   historyDbArr = null
+  historySelectCache = null
 
   if (colTimer) {
     clearInterval(colTimer)
