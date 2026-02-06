@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { Scheduler } from '@/scheduler/scheduler'
 
 export function HandModel({
   isRecording = false,
@@ -12,7 +13,6 @@ export function HandModel({
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const rendererRef = useRef(null)
-  const animationRef = useRef(null)
   const handGroupRef = useRef(null)
   const heatmapTextureRef = useRef(null)
   const modelRef = useRef(null)
@@ -138,15 +138,13 @@ export function HandModel({
     gridHelper.position.y = -4
     scene.add(gridHelper)
 
-    // Animation loop
-    const animate = () => {
-      animationRef.current = requestAnimationFrame(animate)
+    const renderFrame = () => {
       if (handGroup) {
         handGroup.rotation.y = Math.sin(Date.now() * 0.001) * 0.2
       }
       renderer.render(scene, camera)
     }
-    animate()
+    const unsubscribe = Scheduler.onRender(renderFrame)
 
     // Handle resize
     const handleResize = () => {
@@ -161,9 +159,7 @@ export function HandModel({
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
+      unsubscribe?.()
       if (rendererRef.current && containerRef.current) {
         containerRef.current.removeChild(rendererRef.current.domElement)
         rendererRef.current.dispose()

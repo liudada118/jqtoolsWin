@@ -9,6 +9,7 @@ import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
 import { useSensorSocket } from '@/contexts/SensorSocketContext'
 import { HeatmapCanvas } from '@/pages/assessment/heatmap'
+import { Scheduler } from '@/scheduler/scheduler'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -83,6 +84,44 @@ function handL(arr) {
 
   // return new Array(147).fill(100)
   return res1
+}
+
+function handR(arr) {
+  let adcArr = [
+    240, 239, 238, 256, 255, 254, 16, 15, 14, 32, 31, 30, 237, 236, 235, 253, 252, 251, 13, 12, 11, 29, 28, 27, 234, 233, 232, 250, 249, 248, 10, 9, 8, 26, 25, 24, 231, 230, 229,
+    247, 246, 245, 7, 6, 5, 23, 22, 21, 228, 227, 226, 244, 243, 242, 4, 3, 2, 20, 19, 18, 47, 44, 41, 38, 35, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 112, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101, 100, 99, 98, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114
+  ]
+
+  adcArr = adcArr.map((a) => a - 1)
+
+  const finger1 = adcArr.splice(0, 12)
+  const finger2 = adcArr.splice(0, 12)
+  const finger3 = adcArr.splice(0, 12)
+  const finger4 = adcArr.splice(0, 12)
+  const finger5 = adcArr.splice(0, 12)
+  const fingerArr = [finger1, finger2, finger3, finger4, finger5]
+
+  const res = new Array(147).fill(0)
+  for (let i = 0; i < 4; i++) {
+    for (let k = 0; k < 5; k++) {
+      for (let j = 0; j < 3; j++) {
+        res[i * 15 + k * 3 + j] = arr[fingerArr[k][i * 3 + j]]
+      }
+    }
+  }
+
+  const fingerMiddleHand = adcArr.splice(0, 5)
+  const handArr = adcArr.splice(0, 72)
+
+  for (let i = 0; i < 5; i++) {
+    res[15 * 4 + 1 + i * 3] = arr[fingerMiddleHand[i]]
+  }
+
+  for (let i = 0; i < handArr.length; i++) {
+    res[15 * 5 + i] = arr[handArr[i]]
+  }
+
+  return res
 }
 
 function handSkinChange(res) {
@@ -180,12 +219,17 @@ export default function GripAssessment() {
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [showLeftCompleteToast, setShowLeftCompleteToast] = useState(false)
   const [videoPlaying, setVideoPlaying] = useState(false)
-  const timerRef = useRef(null)
+  const recordTickRef = useRef(0)
   const videoRef = useRef(null)
   const lastWsTsRef = useRef(0)
   const bodyCanvasRef = useRef(null)
   const [heatmapCanvas, setHeatmapCanvas] = useState(null)
   const [heatmapVersion, setHeatmapVersion] = useState(0)
+  const latestSitDataRef = useRef(null)
+  const latestSeqRef = useRef(0)
+  const lastUiSeqRef = useRef(0)
+  const lastHeatmapSeqRef = useRef(0)
+  const lastHeatmapHandRef = useRef('left')
 
   const steps = [
     { id: 'left', label: '左手' },
@@ -241,42 +285,33 @@ export default function GripAssessment() {
   }, [lastJson])
 
   useEffect(() => {
+    if (lastJson && lastJson.sitData) {
+      latestSitDataRef.current = lastJson.sitData
+      latestSeqRef.current += 1
+    }
+  }, [lastJson])
+
+  useEffect(() => {
     if (mode === 'report') return
-    const now = Date.now()
-    if (now - lastWsTsRef.current < 50) return
+    const unsubscribe = Scheduler.onUI(() => {
+      if (status !== 'recording') return
+      const seq = latestSeqRef.current
+      if (!seq || seq === lastUiSeqRef.current) return
+      const sitData = latestSitDataRef.current
+      if (!sitData) return
 
-    const sitData = lastJson && lastJson.sitData
-    if (!sitData) return
+      lastUiSeqRef.current = seq
 
-    const hl = sitData.HL && Array.isArray(sitData.HL.arr) ? sitData.HL.arr : null
-    const hr = sitData.HR && Array.isArray(sitData.HR.arr) ? sitData.HR.arr : null
+      const hl = sitData.HL && Array.isArray(sitData.HL.arr) ? sitData.HL.arr : null
+      const hr = sitData.HR && Array.isArray(sitData.HR.arr) ? sitData.HR.arr : null
 
-    const upscale16To32 = (arr) => {
-      if (!arr || arr.length !== 256) return arr
-      const out = new Array(1024)
-      for (let i = 0; i < 16; i++) {
-        for (let j = 0; j < 16; j++) {
-          const v = arr[i * 16 + j]
-          const r = i * 2
-          const c = j * 2
-          const base = r * 32 + c
-          out[base] = v
-          out[base + 1] = v
-          out[base + 32] = v
-          out[base + 33] = v
-        }
+      const toPressure = (arr) => {
+        if (!arr || arr.length === 0) return 0
+        let sum = 0
+        for (let i = 0; i < arr.length; i++) sum += Number(arr[i]) || 0
+        return Math.round(sum / arr.length)
       }
-      return out
-    }
 
-    const toPressure = (arr) => {
-      if (!arr || arr.length === 0) return 0
-      let sum = 0
-      for (let i = 0; i < arr.length; i++) sum += Number(arr[i]) || 0
-      return Math.round(sum / arr.length)
-    }
-
-    if (status === 'recording') {
       if (hl) {
         const value = toPressure(hl)
         setLeftHandData(prev => {
@@ -294,54 +329,73 @@ export default function GripAssessment() {
         })
         if (currentHand === 'right') setCurrentPressure(value)
       }
-    }
+    })
+    return () => unsubscribe?.()
+  }, [mode, status, currentHand])
 
-    if (bodyCanvasRef.current) {
+  useEffect(() => {
+    if (mode === 'report') return
+    const unsubscribe = Scheduler.onRender(() => {
+      const sitData = latestSitDataRef.current
+      if (!sitData || !bodyCanvasRef.current) return
+
+      const now = Date.now()
+      if (now - lastWsTsRef.current < 50) return
+
+      const seq = latestSeqRef.current
+      if (!seq) return
+
+      const handChanged = lastHeatmapHandRef.current !== currentHand
+      if (seq === lastHeatmapSeqRef.current && !handChanged) return
+
+      const hl = sitData.HL && Array.isArray(sitData.HL.arr) ? sitData.HL.arr : null
+      const hr = sitData.HR && Array.isArray(sitData.HR.arr) ? sitData.HR.arr : null
+
       if (currentHand === 'left' && hl && hl.length === 256) {
-        // const arr = new Array(256).fill(100)
         const mapped = handSkinChange(handL(hl))
         bodyCanvasRef.current.changeHeatmap(mapped, 1, 1, 0)
         setHeatmapVersion(v => v + 1)
-      } else if (currentHand === 'right' && hr) {
-        const arr1024 = upscale16To32(hr)
-        bodyCanvasRef.current.changeHeatmap(arr1024, 1, 1, 0)
+      } else if (currentHand === 'right' && hr && hr.length === 256) {
+        const mapped = handSkinChange(handR(hr))
+        bodyCanvasRef.current.changeHeatmap(mapped, 1, 1, 0)
         setHeatmapVersion(v => v + 1)
       }
-    }
 
-    lastWsTsRef.current = now
-  }, [mode, status, lastJson, currentHand])
+      lastHeatmapSeqRef.current = seq
+      lastHeatmapHandRef.current = currentHand
+      lastWsTsRef.current = now
+    })
+    return () => unsubscribe?.()
+  }, [mode, currentHand])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onRender(() => {
+      if (status !== 'recording') return
+      const now = performance.now()
+      if (!recordTickRef.current) {
+        recordTickRef.current = now
+        return
+      }
+      const delta = now - recordTickRef.current
+      if (delta < 100) return
+      const steps = Math.floor(delta / 100)
+      recordTickRef.current += steps * 100
+      setTimer(prev => prev + steps)
+    })
+    return () => unsubscribe?.()
+  }, [status])
 
   // Start recording
   const startRecording = () => {
     setStatus('recording')
     setTimer(0)
-    
-    timerRef.current = setInterval(() => {
-      setTimer(prev => prev + 1)
-      const newPressure = Math.random() * 20 + 180
-      setCurrentPressure(newPressure)
-      
-      if (currentHand === 'left') {
-        setLeftHandData(prev => [
-          ...prev, 
-          { time: prev.length, value: newPressure }
-        ])
-      } else {
-        setRightHandData(prev => [
-          ...prev, 
-          { time: prev.length, value: newPressure }
-        ])
-      }
-    }, 100)
+    recordTickRef.current = 0
+    lastUiSeqRef.current = 0
+    lastHeatmapSeqRef.current = 0
   }
 
   // Stop recording
   const stopRecording = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-    }
-    
     if (currentHand === 'left') {
       // 左手采集完成，切换到右手
       setShowLeftCompleteToast(true)
@@ -409,14 +463,6 @@ export default function GripAssessment() {
       setVideoPlaying(!videoPlaying)
     }
   }
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [])
 
   // 获取当前手的数据
   const currentData = currentHand === 'left' ? leftHandData : rightHandData

@@ -4,9 +4,10 @@ import { Card } from '@/components/ui/Card'
 import { Play, X, ArrowLeftRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PressureChart, NormalDistributionChart } from '@/components/charts/PressureChart'
-import { HumanModel } from '@/components/three/HumanModel'
+import { FootLenScene } from 'shroomcomlibrary/heatmap/foot-len'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
+import { Scheduler } from '@/scheduler/scheduler'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -39,7 +40,7 @@ export default function GaitAssessment() {
   const [reportMode, setReportMode] = useState('static')
   const [timer, setTimer] = useState(0)
   const [pressureData, setPressureData] = useState([])
-  const timerRef = useRef(null)
+  const recordTickRef = useRef(0)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -63,24 +64,39 @@ export default function GaitAssessment() {
     } catch {}
   }, [mode, status, reportMode])
 
+  useEffect(() => {
+    const unsubscribe = Scheduler.onRender(() => {
+      if (status !== 'recording') return
+      const now = performance.now()
+      if (!recordTickRef.current) {
+        recordTickRef.current = now
+        return
+      }
+      const delta = now - recordTickRef.current
+      if (delta < 100) return
+      const steps = Math.floor(delta / 100)
+      recordTickRef.current += steps * 100
+      setTimer(prev => prev + steps)
+      setPressureData(prev => {
+        const next = [...prev]
+        for (let i = 0; i < steps; i++) {
+          next.push({ time: next.length, value: Math.random() * 20 + 180 })
+        }
+        return next
+      })
+    })
+    return () => unsubscribe?.()
+  }, [status])
+
+
   const startRecording = () => {
     setStatus('recording')
     setTimer(0)
     setPressureData([])
-    
-    timerRef.current = setInterval(() => {
-      setTimer(prev => prev + 1)
-      setPressureData(prev => [
-        ...prev, 
-        { time: prev.length, value: Math.random() * 20 + 180 }
-      ])
-    }, 100)
+    recordTickRef.current = 0
   }
 
   const stopRecording = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-    }
     setStatus('processing')
     
     setTimeout(() => {
@@ -103,14 +119,6 @@ export default function GaitAssessment() {
     }
     navigate('/dashboard')
   }
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [])
 
   return (
     <div className="min-h-screen w-full bg-[#BCC6D0] flex flex-col relative overflow-hidden">
@@ -220,7 +228,14 @@ export default function GaitAssessment() {
               </div>
             ) : (
               <>
-                <HumanModel type="gait" isRecording={status === 'recording'} />
+                <div className="w-full h-full">
+                  <FootLenScene
+                    showHeatmap
+                    depthScale={0.1}
+                    smoothness={0.5}
+                    sensorData={{ sensor1: [], sensor2: [], sensor3: [], sensor4: [] }}
+                  />
+                </div>
                 
                 {status === 'processing' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[2px]">

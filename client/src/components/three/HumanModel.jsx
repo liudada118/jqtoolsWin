@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { Scheduler } from '@/scheduler/scheduler'
 
 export function HumanModel({ type = 'sitstand', isRecording = false }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const rendererRef = useRef(null)
-  const animationRef = useRef(null)
   const modelRef = useRef(null)
 
   useEffect(() => {
@@ -140,8 +140,7 @@ export function HumanModel({ type = 'sitstand', isRecording = false }) {
     let animationTime = 0
 
     // Animation loop
-    const animate = () => {
-      animationRef.current = requestAnimationFrame(animate)
+    const renderFrame = () => {
       animationTime += 0.02
 
       if (isRecording && modelRef.current) {
@@ -175,7 +174,7 @@ export function HumanModel({ type = 'sitstand', isRecording = false }) {
 
       renderer.render(scene, camera)
     }
-    animate()
+    const unsubscribe = Scheduler.onRender(renderFrame)
 
     // Handle resize
     const handleResize = () => {
@@ -190,9 +189,7 @@ export function HumanModel({ type = 'sitstand', isRecording = false }) {
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
+      unsubscribe?.()
       if (rendererRef.current && containerRef.current) {
         containerRef.current.removeChild(rendererRef.current.domElement)
         rendererRef.current.dispose()

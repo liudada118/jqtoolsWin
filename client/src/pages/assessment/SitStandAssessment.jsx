@@ -4,9 +4,11 @@ import { Card } from '@/components/ui/Card'
 import { Play, X, ArrowLeftRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PressureChart, NormalDistributionChart } from '@/components/charts/PressureChart'
-import { HumanModel } from '@/components/three/HumanModel'
+import { SitAndFootScene } from 'shroomcomlibrary/heatmap/sit-and-foot'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
+import { Scheduler } from '@/scheduler/scheduler'
+import { useSensorSocket } from '@/contexts/SensorSocketContext'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -27,10 +29,29 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 const SIT_STAND_PROGRESS_KEY = 'jqtools.sitStandProgress'
 
 
+const reshapeTo32 = (arr) => {
+  if (!Array.isArray(arr) || arr.length !== 1024) return arr
+  const out = []
+  for (let r = 0; r < 32; r++) {
+    out.push(arr.slice(r * 32, r * 32 + 32))
+  }
+  return out
+}
+
+const reshapeTo64 = (arr) => {
+  if (!Array.isArray(arr) || arr.length !== 4096) return arr
+  const out = []
+  for (let r = 0; r < 64; r++) {
+    out.push(arr.slice(r * 64, r * 64 + 64))
+  }
+  return out
+}
+
 export default function SitStandAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -39,7 +60,15 @@ export default function SitStandAssessment() {
   const [reportMode, setReportMode] = useState('static')
   const [timer, setTimer] = useState(0)
   const [pressureData, setPressureData] = useState([])
-  const timerRef = useRef(null)
+  const recordTickRef = useRef(0)
+  const latestSeatRef = useRef(null)
+  const latestSeatSeqRef = useRef(0)
+  const lastUiSeqRef = useRef(0)
+  const [seatRealtimeData, setSeatRealtimeData] = useState(null)
+  const latestFootRef = useRef(null)
+  const latestFootSeqRef = useRef(0)
+  const lastFootUiSeqRef = useRef(0)
+  const [footpadData, setFootpadData] = useState(null)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -63,26 +92,73 @@ export default function SitStandAssessment() {
     } catch {}
   }, [mode, status, reportMode])
 
+  useEffect(() => {
+    if (!lastJson || !lastJson.sitData) return
+    const seatArr = lastJson.sitData?.sit?.arr
+    if (Array.isArray(seatArr) && seatArr.length) {
+      latestSeatRef.current = seatArr
+      latestSeatSeqRef.current += 1
+    }
+
+    const footArr = lastJson.sitData?.foot?.arr
+    if (Array.isArray(footArr) && footArr.length) {
+      latestFootRef.current = footArr
+      latestFootSeqRef.current += 1
+    }
+  }, [lastJson])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onUI(() => {
+      const seq = latestSeatSeqRef.current
+      if (seq && seq != lastUiSeqRef.current) {
+        lastUiSeqRef.current = seq
+        setSeatRealtimeData(latestSeatRef.current)
+      }
+
+      const footSeq = latestFootSeqRef.current
+      if (footSeq && footSeq != lastFootUiSeqRef.current) {
+        lastFootUiSeqRef.current = footSeq
+        setFootpadData(latestFootRef.current)
+      }
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onRender(() => {
+      if (status !== 'recording') return
+      const now = performance.now()
+      if (!recordTickRef.current) {
+        recordTickRef.current = now
+        return
+      }
+      const delta = now - recordTickRef.current
+      if (delta < 100) return
+      const steps = Math.floor(delta / 100)
+      recordTickRef.current += steps * 100
+      setTimer(prev => prev + steps)
+      setPressureData(prev => {
+        const next = [...prev]
+        for (let i = 0; i < steps; i++) {
+          next.push({ time: next.length, value: Math.random() * 20 + 180 })
+        }
+        return next
+      })
+    })
+    return () => unsubscribe?.()
+  }, [status])
+
+
   // Start recording
   const startRecording = () => {
     setStatus('recording')
     setTimer(0)
     setPressureData([])
-    
-    timerRef.current = setInterval(() => {
-      setTimer(prev => prev + 1)
-      setPressureData(prev => [
-        ...prev, 
-        { time: prev.length, value: Math.random() * 20 + 180 }
-      ])
-    }, 100)
+    recordTickRef.current = 0
   }
 
   // Stop recording
   const stopRecording = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-    }
     setStatus('processing')
     
     setTimeout(() => {
@@ -105,14 +181,6 @@ export default function SitStandAssessment() {
     }
     navigate('/dashboard')
   }
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [])
 
   return (
     <div className="min-h-screen w-full bg-[#BCC6D0] flex flex-col relative overflow-hidden">
@@ -222,7 +290,17 @@ export default function SitStandAssessment() {
               </div>
             ) : (
               <>
-                <HumanModel type="sitstand" isRecording={status === 'recording'} />
+                <div className="w-full h-full">
+                  <SitAndFootScene
+                    showHeatmap
+                    enableClipping={false}
+                    clipLevel={0.5}
+                    depthScale={0.25}
+                    smoothness={0.5}
+                    realtimeData={seatRealtimeData}
+                    footpadData={footpadData}
+                  />
+                </div>
                 
                 {status === 'processing' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[2px]">

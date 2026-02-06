@@ -7,6 +7,8 @@ import { PressureChart, NormalDistributionChart } from '@/components/charts/Pres
 import { ThreeSinkScene } from 'shroomcomlibrary/heatmap/three-sink'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
+import { useSensorSocket } from '@/contexts/SensorSocketContext'
+import { Scheduler } from '@/scheduler/scheduler'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -24,6 +26,15 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
   }
 })
 
+const reshapeTo64 = (arr) => {
+  if (!Array.isArray(arr) || arr.length !== 4096) return arr
+  const out = []
+  for (let r = 0; r < 64; r++) {
+    out.push(arr.slice(r * 64, r * 64 + 64))
+  }
+  return out
+}
+
 const STANDING_PROGRESS_KEY = 'jqtools.standingProgress'
 
 
@@ -31,6 +42,7 @@ export default function StandingAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -39,7 +51,12 @@ export default function StandingAssessment() {
   const [reportMode, setReportMode] = useState('static')
   const [timer, setTimer] = useState(0)
   const [pressureData, setPressureData] = useState([])
-  const timerRef = useRef(null)
+  const recordTickRef = useRef(0)
+  const latestFootRef = useRef(null)
+  const latestFootSeqRef = useRef(0)
+  const lastFootUiSeqRef = useRef(0)
+  const [footpadData, setFootpadData] = useState(null)
+  const [footpadMax, setFootpadMax] = useState(0)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -63,24 +80,77 @@ export default function StandingAssessment() {
     } catch {}
   }, [mode, status, reportMode])
 
+  useEffect(() => {
+    if (!lastJson || !lastJson.sitData) return
+    const footArr = lastJson.sitData?.foot?.arr
+    if (Array.isArray(footArr) && footArr.length) {
+      latestFootRef.current = footArr
+      latestFootSeqRef.current += 1
+    }
+  }, [lastJson])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onUI(() => {
+      const seq = latestFootSeqRef.current
+      if (!seq || seq == lastFootUiSeqRef.current) return
+      lastFootUiSeqRef.current = seq
+      const data = latestFootRef.current
+      setFootpadData(data)
+      if (Array.isArray(data)) {
+        let max = 0
+        if (data.length > 0 && Array.isArray(data[0])) {
+          for (let i = 0; i < data.length; i++) {
+            const row = data[i]
+            if (!Array.isArray(row)) continue
+            for (let j = 0; j < row.length; j++) {
+              const v = Number(row[j]) || 0
+              if (v > max) max = v
+            }
+          }
+        } else {
+          for (let i = 0; i < data.length; i++) {
+            const v = Number(data[i]) || 0
+            if (v > max) max = v
+          }
+        }
+        setFootpadMax(max)
+      }
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onRender(() => {
+      if (status !== 'recording') return
+      const now = performance.now()
+      if (!recordTickRef.current) {
+        recordTickRef.current = now
+        return
+      }
+      const delta = now - recordTickRef.current
+      if (delta < 100) return
+      const steps = Math.floor(delta / 100)
+      recordTickRef.current += steps * 100
+      setTimer(prev => prev + steps)
+      setPressureData(prev => {
+        const next = [...prev]
+        for (let i = 0; i < steps; i++) {
+          next.push({ time: next.length, value: Math.random() * 20 + 180 })
+        }
+        return next
+      })
+    })
+    return () => unsubscribe?.()
+  }, [status])
+
   const startRecording = () => {
     setStatus('recording')
     setTimer(0)
     setPressureData([])
-    
-    timerRef.current = setInterval(() => {
-      setTimer(prev => prev + 1)
-      setPressureData(prev => [
-        ...prev, 
-        { time: prev.length, value: Math.random() * 20 + 180 }
-      ])
-    }, 100)
+    recordTickRef.current = 0
   }
 
   const stopRecording = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-    }
     setStatus('processing')
     
     setTimeout(() => {
@@ -103,14 +173,6 @@ export default function StandingAssessment() {
     }
     navigate('/dashboard')
   }
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [])
 
   return (
     <div className="min-h-screen w-full bg-[#BCC6D0] flex flex-col relative overflow-hidden">
@@ -226,6 +288,9 @@ export default function StandingAssessment() {
                   clipLevel={0.35}
                   depthScale={0.35}
                   smoothness={0.6}
+                  realtimeData={footpadData}
+                  sourceData={footpadData}
+                  sourceMax={footpadMax || undefined}
                 />
                 
                 {status === 'processing' && (

@@ -969,7 +969,7 @@ function parseData(parserArr, objs, type) {
     const data = objs[key]
     if (obj.port.isOpen) {
       let blueArr = []
-      console.log(data.type)
+      // console.log(data.type)
       if (data.type && (data.type == 'HL' || data.type == 'HR')) {
 
         const { order } = constantObj
@@ -1036,17 +1036,40 @@ async function connectPort() {
   // 创建并连接数据通道并且设置回调
   for (let i = 0; i < ports.length; i++) {
 
-    const portInfo = ports[i]
+      const portInfo = ports[i]
 
 
 
 
-    const { path } = portInfo
-    const manufacturer = (portInfo.manufacturer || '').toLowerCase()
-    const portBaudRate = manufacturer.includes('wch.cn') ? 921600 : baudRate
+      const { path } = portInfo
+      const serialNumber = (portInfo.serialNumber || '').toUpperCase()
+      const serialTypeMap = {
+        '6&9CE54EF&0&1': 'sit',
+        '5B14174542': 'HR',
+        '5764030375': 'foot'
+      }
+      const fixedType = serialTypeMap[serialNumber]
+      const manufacturer = (portInfo.manufacturer || '').toLowerCase()
+      const friendlyName = (portInfo.friendlyName || '').toLowerCase()
+      let portBaudRate = baudRate
+      if (fixedType === 'foot') {
+        portBaudRate = 3000000
+      } else if (fixedType === 'sit') {
+        portBaudRate = 1000000
+      } else if (fixedType === 'HR' || fixedType === 'HL') {
+        portBaudRate = 921600
+      } else if (friendlyName.includes('ch340')) {
+        portBaudRate = 1000000
+      } else if (manufacturer.includes('wch.cn')) {
+        portBaudRate = 921600
+      }
     // parserArr[path]
-    const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
-    const dataItem = dataMap[path] = dataMap[path] ? dataMap[path] : {}
+      const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
+      const dataItem = dataMap[path] = dataMap[path] ? dataMap[path] : {}
+      if (fixedType) {
+        dataItem.fixedType = fixedType
+        dataItem.type = fixedType
+      }
     // parserItem 
     parserItem.parser = new DelimiterParser({ delimiter: splitBuffer })
 
@@ -1142,7 +1165,10 @@ async function connectPort() {
                 if (nowTime < expireTime) {
                   dataItem.premission = true
                 }
-                dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
+                  dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
+                  if (dataItem.fixedType) {
+                    dataItem.type = dataItem.fixedType
+                  }
               }
             } catch (err) {
               console.log(err, 'err')
@@ -1176,16 +1202,19 @@ async function connectPort() {
           const orderName = constantObj.order[order]
           // 前后帧赋值,类型赋值
           dataItem[orderName] = arr
-          dataItem.type = constantObj.type[type]
-          dataItem.stamp = new Date().getTime()
-        } else if (pointArr.length == 1024) {
+            dataItem.type = constantObj.type[type]
+            if (dataItem.fixedType) {
+              dataItem.type = dataItem.fixedType
+            }
+            dataItem.stamp = new Date().getTime()
+          } else if (pointArr.length == 1024) {
           // ret
-          if (!dataItem.premission) return
+          // if (!dataItem.premission) return
           // dataItem.type = 'hand'
           // dataItem[path]
-          // dataItem.type = 'sit'
-          let matrix
-          if (dataItem.type == 'hand') {
+            dataItem.type = dataItem.fixedType || 'sit'
+            let matrix
+          if (dataItem.type == 'hand' || dataItem.type == 'sit') {
             matrix = hand(pointArr)
           } else if (dataItem.type == 'bed') {
             matrix = jqbed(pointArr)
@@ -1263,7 +1292,10 @@ async function connectPort() {
             return
           }
           let matrix
-          dataItem.type = constantObj.typeConfig[type]
+            dataItem.type = constantObj.typeConfig[type]
+            if (dataItem.fixedType) {
+              dataItem.type = dataItem.fixedType
+            }
 
           if (constantObj.typeConfig[type] == 'car-back') {
             matrix = jqbed(pointArr)
@@ -1303,7 +1335,7 @@ async function connectPort() {
         else if (pointArr.length == 146) {
           const length = pointArr.length
           const arr = pointArr.splice(length - 16, length)
-          console.log(pointArr[0], pointArr[1])
+          // console.log(pointArr[0], pointArr[1])
           
           // dataItem.type = pointArr[1] == 1 ? 'leftHand' : 'rightHand'
           pointArr.splice(0, 2)
@@ -1339,7 +1371,10 @@ async function connectPort() {
         } else if (pointArr.length == 4096) {
           // if (!dataItem.premission) return
           dataItem.premission = true
-          dataItem.type = 'foot'
+            dataItem.type = 'foot'
+            if (dataItem.fixedType) {
+              dataItem.type = dataItem.fixedType
+            }
           if (!dataItem.premission) {
             dataItem.status = 'expired'
           } else {

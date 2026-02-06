@@ -1,14 +1,22 @@
 import React, { useEffect, useRef } from 'react'
 import * as echarts from 'echarts'
+import { Scheduler } from '@/scheduler/scheduler'
 
-export function PressureChart({ data, title = '压力总和曲线' }) {
+export function PressureChart({ data, title = '?????????' }) {
   const chartRef = useRef(null)
   const chartInstance = useRef(null)
+  const dataRef = useRef(data)
 
   useEffect(() => {
-    if (chartRef.current) {
-      chartInstance.current = echarts.init(chartRef.current)
-      
+    dataRef.current = data
+  }, [data])
+
+  useEffect(() => {
+    if (!chartRef.current) return
+    chartInstance.current = echarts.init(chartRef.current)
+
+    const renderChart = () => {
+      const safeData = Array.isArray(dataRef.current) ? dataRef.current : []
       const option = {
         grid: {
           top: 10,
@@ -18,7 +26,7 @@ export function PressureChart({ data, title = '压力总和曲线' }) {
         },
         xAxis: {
           type: 'category',
-          data: data.map((_, i) => i),
+          data: safeData.map((_, i) => i),
           show: false,
         },
         yAxis: {
@@ -27,7 +35,7 @@ export function PressureChart({ data, title = '压力总和曲线' }) {
         },
         series: [
           {
-            data: data.map(d => d.value),
+            data: safeData.map(d => d.value),
             type: 'line',
             smooth: true,
             symbol: 'none',
@@ -44,16 +52,19 @@ export function PressureChart({ data, title = '压力总和曲线' }) {
           },
         ],
       }
-      
-      chartInstance.current.setOption(option)
+      chartInstance.current?.setOption(option, { notMerge: true })
     }
 
+    renderChart()
+    const unsubscribe = Scheduler.onUI(renderChart)
+
     return () => {
+      unsubscribe?.()
       if (chartInstance.current) {
         chartInstance.current.dispose()
       }
     }
-  }, [data])
+  }, [])
 
   useEffect(() => {
     const handleResize = () => {
@@ -71,11 +82,18 @@ export function PressureChart({ data, title = '压力总和曲线' }) {
 export function NormalDistributionChart({ data }) {
   const chartRef = useRef(null)
   const chartInstance = useRef(null)
+  const dataRef = useRef(data)
 
   useEffect(() => {
-    if (chartRef.current) {
-      chartInstance.current = echarts.init(chartRef.current)
-      
+    dataRef.current = data
+  }, [data])
+
+  useEffect(() => {
+    if (!chartRef.current) return
+    chartInstance.current = echarts.init(chartRef.current)
+
+    const renderChart = () => {
+      const safeData = Array.isArray(dataRef.current) ? dataRef.current : []
       const option = {
         grid: {
           top: 10,
@@ -85,7 +103,7 @@ export function NormalDistributionChart({ data }) {
         },
         xAxis: {
           type: 'category',
-          data: data.map(d => d.x.toFixed(1)),
+          data: safeData.map(d => d.x.toFixed(1)),
           show: false,
         },
         yAxis: {
@@ -94,7 +112,7 @@ export function NormalDistributionChart({ data }) {
         },
         series: [
           {
-            data: data.map(d => d.y),
+            data: safeData.map(d => d.y),
             type: 'line',
             smooth: true,
             symbol: 'none',
@@ -105,16 +123,19 @@ export function NormalDistributionChart({ data }) {
           },
         ],
       }
-      
-      chartInstance.current.setOption(option)
+      chartInstance.current?.setOption(option, { notMerge: true })
     }
 
+    renderChart()
+    const unsubscribe = Scheduler.onUI(renderChart)
+
     return () => {
+      unsubscribe?.()
       if (chartInstance.current) {
         chartInstance.current.dispose()
       }
     }
-  }, [data])
+  }, [])
 
   useEffect(() => {
     const handleResize = () => {

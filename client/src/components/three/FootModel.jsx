@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { Scheduler } from '@/scheduler/scheduler'
 
 export function FootModel({ isRecording = false, pressureData = null }) {
   const containerRef = useRef(null)
   const sceneRef = useRef(null)
   const rendererRef = useRef(null)
-  const animationRef = useRef(null)
   const feetGroupRef = useRef(null)
 
   useEffect(() => {
@@ -141,8 +141,7 @@ export function FootModel({ isRecording = false, pressureData = null }) {
 
     // Animation loop
     let time = 0
-    const animate = () => {
-      animationRef.current = requestAnimationFrame(animate)
+    const renderFrame = () => {
       time += 0.02
 
       if (isRecording && feetGroupRef.current) {
@@ -169,7 +168,7 @@ export function FootModel({ isRecording = false, pressureData = null }) {
 
       renderer.render(scene, camera)
     }
-    animate()
+    const unsubscribe = Scheduler.onRender(renderFrame)
 
     // Handle resize
     const handleResize = () => {
@@ -184,9 +183,7 @@ export function FootModel({ isRecording = false, pressureData = null }) {
 
     return () => {
       window.removeEventListener('resize', handleResize)
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
+      unsubscribe?.()
       if (rendererRef.current && containerRef.current) {
         containerRef.current.removeChild(rendererRef.current.domElement)
         rendererRef.current.dispose()
