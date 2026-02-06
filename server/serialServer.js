@@ -1050,13 +1050,17 @@ async function connectPort() {
         '5764030361': 'foot1',
         '5ABA035264': 'foot2',
         '5764030349': 'foot3',
-        '5764030348': 'foot4'
+        '5764030348': 'foot4',
+        '5B7B047348': 'foot1',
+        '5B7B047344': 'foot2',
+        '5B7B047343': 'foot3',
+        '5B7B047333': 'foot4'
       }
       const fixedType = serialTypeMap[serialNumber]
       const manufacturer = (portInfo.manufacturer || '').toLowerCase()
       const friendlyName = (portInfo.friendlyName || '').toLowerCase()
       let portBaudRate = baudRate
-      if (fixedType === 'foot') {
+      if (fixedType === 'foot' || fixedType === 'foot1' || fixedType === 'foot2' || fixedType === 'foot3' || fixedType === 'foot4') {
         portBaudRate = 3000000
       } else if (fixedType === 'sit') {
         portBaudRate = 1000000
