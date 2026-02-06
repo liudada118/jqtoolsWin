@@ -1046,7 +1046,11 @@ async function connectPort() {
       const serialTypeMap = {
         '6&9CE54EF&0&1': 'sit',
         '5B14174542': 'HR',
-        '5764030375': 'foot'
+        '5764030375': 'foot',
+        '5764030361': 'foot1',
+        '5ABA035264': 'foot2',
+        '5764030349': 'foot3',
+        '5764030348': 'foot4'
       }
       const fixedType = serialTypeMap[serialNumber]
       const manufacturer = (portInfo.manufacturer || '').toLowerCase()

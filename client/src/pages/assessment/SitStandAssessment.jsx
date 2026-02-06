@@ -102,7 +102,7 @@ export default function SitStandAssessment() {
       latestSeatSeqRef.current += 1
     }
 
-    const footArr = lastJson.sitData?.foot?.arr
+    const footArr = lastJson.sitData?.foot1?.arr
     if (Array.isArray(footArr) && footArr.length) {
       latestFootRef.current = footArr
       latestFootSeqRef.current += 1

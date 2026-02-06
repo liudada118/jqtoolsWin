@@ -7,6 +7,7 @@ import { PressureChart, NormalDistributionChart } from '@/components/charts/Pres
 import { FootLenScene } from 'shroomcomlibrary/heatmap/foot-len'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
+import { useSensorSocket } from '@/contexts/SensorSocketContext'
 import { Scheduler } from '@/scheduler/scheduler'
 
 // Generate mock data
@@ -32,6 +33,7 @@ export default function GaitAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -41,6 +43,15 @@ export default function GaitAssessment() {
   const [timer, setTimer] = useState(0)
   const [pressureData, setPressureData] = useState([])
   const recordTickRef = useRef(0)
+  const latestFootRef = useRef({ foot1: null, foot2: null, foot3: null, foot4: null })
+  const latestFootSeqRef = useRef(0)
+  const lastFootUiSeqRef = useRef(0)
+  const [sensorData, setSensorData] = useState({
+    sensor1: [],
+    sensor2: [],
+    sensor3: [],
+    sensor4: []
+  })
 
   useEffect(() => {
     if (mode === 'report') return
@@ -63,6 +74,39 @@ export default function GaitAssessment() {
       localStorage.setItem(GAIT_PROGRESS_KEY, JSON.stringify({ status: safeStatus, reportMode }))
     } catch {}
   }, [mode, status, reportMode])
+
+  useEffect(() => {
+    if (!lastJson || !lastJson.sitData) return
+    const foot1 = lastJson.sitData?.foot1?.arr
+    const foot2 = lastJson.sitData?.foot2?.arr
+    const foot3 = lastJson.sitData?.foot3?.arr
+    const foot4 = lastJson.sitData?.foot4?.arr
+    if (foot1 || foot2 || foot3 || foot4) {
+      latestFootRef.current = {
+        foot1: Array.isArray(foot1) ? foot1 : null,
+        foot2: Array.isArray(foot2) ? foot2 : null,
+        foot3: Array.isArray(foot3) ? foot3 : null,
+        foot4: Array.isArray(foot4) ? foot4 : null
+      }
+      latestFootSeqRef.current += 1
+    }
+  }, [lastJson])
+
+  useEffect(() => {
+    const unsubscribe = Scheduler.onUI(() => {
+      const seq = latestFootSeqRef.current
+      if (!seq || seq == lastFootUiSeqRef.current) return
+      lastFootUiSeqRef.current = seq
+      const { foot1, foot2, foot3, foot4 } = latestFootRef.current
+      setSensorData({
+        sensor1: foot1 || [],
+        sensor2: foot2 || [],
+        sensor3: foot3 || [],
+        sensor4: foot4 || []
+      })
+    })
+    return () => unsubscribe?.()
+  }, [])
 
   useEffect(() => {
     const unsubscribe = Scheduler.onRender(() => {
@@ -233,7 +277,7 @@ export default function GaitAssessment() {
                     showHeatmap
                     depthScale={0.1}
                     smoothness={0.5}
-                    sensorData={{ sensor1: [], sensor2: [], sensor3: [], sensor4: [] }}
+                    sensorData={sensorData}
                   />
                 </div>
                 

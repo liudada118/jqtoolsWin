@@ -82,7 +82,7 @@ export default function StandingAssessment() {
 
   useEffect(() => {
     if (!lastJson || !lastJson.sitData) return
-    const footArr = lastJson.sitData?.foot?.arr
+    const footArr = lastJson.sitData?.foot1?.arr
     if (Array.isArray(footArr) && footArr.length) {
       latestFootRef.current = footArr
       latestFootSeqRef.current += 1
