@@ -6,6 +6,17 @@ const { timeStampTo_Date } = require("./time");
 const constantObj = require("./config");
 const { backYToX, sitYToX } = require("./line");
 
+const pointConfig = {
+  'endi-back': {
+    pointWidthDistance: 13,
+    pointHeightDistance: 10,
+  },
+  'endi-sit': {
+    pointWidthDistance: 10,
+    pointHeightDistance: 10,
+  },
+};
+
 /**
  * 输入当前系统名  返回可执行数据库
  * @param {*string} fileStr 输入当前选择系统名
@@ -135,8 +146,16 @@ function dbload(db, param, file, isPackaged, selectJson) {
 
             const { press: selectPress, area: selectArea, max: selectMax, min: selectMin, aver: selectAver } = colArrData(selectArr)
 
+            const pointInfo = pointConfig[key]
+            const pointArea =
+              pointInfo
+                ? pointInfo.pointWidthDistance * pointInfo.pointHeightDistance
+                : null
+            const pointValue = pointInfo ? area : null
+            const pressureAreaValue = pointInfo ? area * pointArea : area
+
             if (file.includes('endi')) newData.sec = (i / 12).toFixed(2)
-            newData[`${key}pressureArea`] = area
+            newData[`${key}pressureArea`] = pressureAreaValue
             newData[`${key}pressure`] = press
             newData[`${key}max`] = max
             newData[`${key}min`] = min
@@ -167,6 +186,12 @@ function dbload(db, param, file, isPackaged, selectJson) {
               newData[`${key}selectMin`] = sitYToX(selectMin)
               newData[`${key}selectAver`] = sitYToX(selectAver)
             }
+
+            if (pointInfo) {
+              const averValue = Number(newData[`${key}aver`]) || 0
+              newData[`${key}point`] = pointValue
+              newData[`${key}pressTotal`] = (averValue * pointArea * pointValue) / 100
+            }
           }
 
 
@@ -189,7 +214,7 @@ function dbload(db, param, file, isPackaged, selectJson) {
         for (let j = 0; j < keyArr.length; j++) {
           const key = keyArr[j]
           if (j == 0) {
-            if (file.includes('endi')) handArr.push({ id: "sec", title: "sec" })
+            if (file.includes('endi')) handArr.push({ id: "sec", title: "sec（s）" })
             handArr.push({ id: "time", title: "time" })
           }
 
@@ -197,17 +222,25 @@ function dbload(db, param, file, isPackaged, selectJson) {
           const res = key.replace(/endi/g, "car");
           console.log(res); // car
           handArr.push(
-            { id: `${key}max`, title: `${res}max` },
-            { id: `${key}min`, title: `${res}min` },
-            { id: `${key}aver`, title: `${res}aver` },
-            { id: `${key}pressureArea`, title: `${res}area` },
+            { id: `${key}max`, title: `${res} Max（Kpa）` },
+            { id: `${key}min`, title: `${res} Min（Kpa）` },
+            { id: `${key}aver`, title: `${res} Aver（Kpa）` },
+            { id: `${key}pressureArea`, title: `${res} Area（cm?）` },
+          )
+          if (key == 'endi-back' || key == 'endi-sit') {
+            handArr.push(
+              { id: `${key}point`, title: `${res} Points` },
+              { id: `${key}pressTotal`, title: `${res} Pressure Sum（N）` },
+            )
+          }
+          handArr.push(
             // { id: `${key}pressure`, title: `${res}pressure` },
-            { id: `${key}realData`, title: `${res}data` },
-            { id: `${key}selectData`, title: `${res}selectData` },
-            { id: `${key}selectMax`, title: `${res}selectMax` },
-            { id: `${key}selectMin`, title: `${res}selectMin` },
-            { id: `${key}selectAver`, title: `${res}selectAver` },
-            { id: `${key}selectW&H`, title: `${res}selectW&H` },
+            { id: `${key}realData`, title: `${res} Data` },
+            { id: `${key}selectData`, title: `${res}select Data` },
+            { id: `${key}selectMax`, title: `${res}select Max（Kpa）` },
+            { id: `${key}selectMin`, title: `${res}select Min（Kpa）` },
+            { id: `${key}selectAver`, title: `${res}select Aver（Kpa）` },
+            { id: `${key}selectW&H`, title: `${res}select W&H` },
             // { id: `${key}aver`, title: `${res}aver` },
           )
         }
@@ -516,7 +549,7 @@ async function changeDbDataName({ db, params }) {
         }
         console.log(`更新完成，共修改了 ${this.changes} 行`);
       });
-      db.run(sqlRemark, params, function (err) {
+      db.run(sqlRemark, params, function (err) { 
         if (err) {
           console.error('更新失败:', err.message);
           reject(err);
