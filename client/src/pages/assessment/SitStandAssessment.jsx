@@ -28,6 +28,8 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 
 const SIT_STAND_PROGRESS_KEY = 'jqtools.sitStandProgress'
 const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
+const SET_ACTIVE_MODE_URL = 'http://localhost:19245/setActiveMode'
+const COLLECT_API_BASE = 'http://localhost:19245'
 
 
 const reshapeTo32 = (arr) => {
@@ -76,19 +78,23 @@ export default function SitStandAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson, send } = useSensorSocket()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
 
   useEffect(() => {
-    if (typeof send !== 'function') return
+    if (mode === 'report') return
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
     } catch {}
-    send(JSON.stringify({ activeTypes: null, assessmentId, sampleType: 3 }))
-  }, [send])
+    fetch(SET_ACTIVE_MODE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 3, assessmentId })
+    }).catch(() => {})
+  }, [mode])
   
   const [status, setStatus] = useState(mode === 'report' ? 'completed' : 'idle')
   const [reportMode, setReportMode] = useState('static')
@@ -191,6 +197,26 @@ export default function SitStandAssessment() {
 
   // Start recording
   const startRecording = () => {
+    const now = new Date()
+    const date = now.toISOString().slice(0, 10)
+    const collectName = displayName || ''
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    fetch(`${COLLECT_API_BASE}/startCol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: collectName,
+        name: collectName,
+        collectName,
+        date,
+        colName: date,
+        select: {},
+        assessmentId
+      })
+    }).catch(() => {})
     setStatus('recording')
     setTimer(0)
     setPressureData([])
@@ -199,6 +225,7 @@ export default function SitStandAssessment() {
 
   // Stop recording
   const stopRecording = () => {
+    fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
     
     setTimeout(() => {

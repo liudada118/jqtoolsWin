@@ -351,6 +351,77 @@ let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 let activeSendTypes = null
 let activeAssessmentId = null
 let activeSampleType = null
+let currentSendIntervalMs = null
+const DEFAULT_SEND_MS = 80
+const MODE_TYPE_MAP = {
+  1: ['HL'],
+  2: ['HR'],
+  3: ['sit', 'foot1'],
+  4: ['foot1'],
+  5: ['foot1', 'foot2', 'foot3', 'foot4'],
+}
+let sensorHzCache = {}
+let sensorHzLocked = false
+let sensorTypeSignature = ''
+
+function getConnectedTypes() {
+  const types = new Set()
+  Object.keys(dataMap).forEach((key) => {
+    const item = dataMap[key]
+    const parser = parserArr[key]
+    if (!item || !item.type) return
+    if (!parser || !parser.port || !parser.port.isOpen) return
+    if (item.premission === false) return
+    types.add(item.type)
+  })
+  return Array.from(types).sort()
+}
+
+function updateSensorTypeSignature() {
+  const types = getConnectedTypes()
+  const signature = types.join('|')
+  if (signature !== sensorTypeSignature) {
+    sensorTypeSignature = signature
+    sensorHzLocked = false
+    sensorHzCache = {}
+  }
+  return types
+}
+
+function getTypeHz(type) {
+  let hz = null
+  Object.keys(dataMap).forEach((key) => {
+    const item = dataMap[key]
+    const parser = parserArr[key]
+    if (!item || item.type !== type) return
+    if (!parser || !parser.port || !parser.port.isOpen) return
+    const ms = Number(item.HZ)
+    if (!Number.isFinite(ms) || ms <= 0) return
+    if (hz === null || ms < hz) hz = ms
+  })
+  return hz
+}
+
+function maybeLockSensorHz() {
+  const types = updateSensorTypeSignature()
+  if (sensorHzLocked || !types.length) return
+  const next = {}
+  for (let i = 0; i < types.length; i++) {
+    const type = types[i]
+    const hz = getTypeHz(type)
+    if (!hz) return
+    next[type] = hz
+  }
+  sensorHzCache = next
+  sensorHzLocked = true
+  console.log('[hz] locked', sensorHzCache)
+}
+
+function resetSensorHzCache() {
+  sensorHzCache = {}
+  sensorHzLocked = false
+  sensorTypeSignature = ''
+}
 const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 let lastRealtimeLogTs = 0
@@ -358,6 +429,76 @@ let colPersonName = ''
 // 选择数据库数据
 let historyDbArr;
 let lastFootPointArr = [], pdfArrData = [], pdfReportName = '', pdfReport = '', pdfReportSex = ''
+
+function getActiveSendIntervalMs() {
+  if (!activeSendTypes || !Array.isArray(activeSendTypes) || !activeSendTypes.length) return null
+  updateSensorTypeSignature()
+  if (sensorHzLocked && sensorHzCache && Object.keys(sensorHzCache).length) {
+    let min = null
+    for (let i = 0; i < activeSendTypes.length; i++) {
+      const type = activeSendTypes[i]
+      const ms = Number(sensorHzCache[type])
+      if (!Number.isFinite(ms) || ms <= 0) continue
+      if (min === null || ms < min) min = ms
+    }
+    if (min !== null) return min
+  }
+  let min = null
+  Object.keys(dataMap).forEach((key) => {
+    const item = dataMap[key]
+    if (!item || !item.type || !activeSendTypes.includes(item.type)) return
+    let ms = Number(item.HZ)
+    if (!Number.isFinite(ms) || ms <= 0) return
+    if (min === null || ms < min) min = ms
+  })
+  return min
+}
+
+function updateSendTimerForActiveTypes() {
+  const interval = getActiveSendIntervalMs()
+  if (!activeSendTypes || !Array.isArray(activeSendTypes) || !activeSendTypes.length) return
+  const ms = Math.floor(interval ?? DEFAULT_SEND_MS)
+  if (currentSendIntervalMs === ms && playtimer) return
+  if (playtimer) {
+    clearInterval(playtimer)
+  }
+  console.log('[hz] current interval', ms, 'activeTypes', activeSendTypes, 'cache', sensorHzCache)
+  currentSendIntervalMs = ms
+  playtimer = setInterval(() => {
+    colAndSendData()
+  }, ms)
+}
+
+function resetSendTimer() {
+  if (playtimer) {
+    clearInterval(playtimer)
+  }
+  playtimer = null
+  currentSendIntervalMs = null
+}
+
+function setActiveSendTypes(types, sampleType = undefined) {
+  activeSendTypes = types
+  if (sampleType !== undefined) {
+    activeSampleType = sampleType
+  }
+  resetSendTimer()
+  if (activeSendTypes && activeSendTypes.length) {
+    updateSendTimerForActiveTypes()
+  }
+}
+
+function applyActiveMode(mode) {
+  if (mode === null || mode === undefined || mode === '') {
+    setActiveSendTypes(null, null)
+    return { activeTypes: null, sampleType: null }
+  }
+  const modeNum = parseInt(mode, 10)
+  const types = MODE_TYPE_MAP[modeNum]
+  if (!types) return null
+  setActiveSendTypes(types, String(modeNum))
+  return { activeTypes: types, sampleType: String(modeNum) }
+}
 
 const BAUD_CANDIDATES = [921600, 1000000, 3000000]
 
@@ -657,6 +798,10 @@ app.get('/connPort', async (req, res) => {
 app.post('/startCol', async (req, res) => {
   try {
     const { fileName, select, name, collectName, date } = req.body
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'assessmentId')) {
+      const v = req.body.assessmentId
+      activeAssessmentId = v === null || v === undefined || v === '' ? null : String(v)
+    }
     selectArr = select
     if (typeof req.body.fileName === 'string') req.body.fileName = decodeField(req.body.fileName)
     if (typeof req.body.name === 'string') req.body.name = decodeField(req.body.name)
@@ -681,6 +826,21 @@ app.post('/startCol', async (req, res) => {
 
   }
 
+})
+
+// 设置当前评估模式（控制 WS 发送与存储的数据类型）
+app.post('/setActiveMode', (req, res) => {
+  try {
+    const { mode } = req.body || {}
+    const result = applyActiveMode(mode)
+    if (!result) {
+      res.json(new HttpResult(1, {}, 'invalid mode'))
+      return
+    }
+    res.json(new HttpResult(0, result, 'success'))
+  } catch (e) {
+    res.json(new HttpResult(1, {}, 'setActiveMode failed'))
+  }
 })
 
 
@@ -1200,25 +1360,36 @@ server.on("connection", function connection(ws, req) {
       return
     }
     if (payload && payload.clearActiveTypes) {
-      activeSendTypes = null
+      setActiveSendTypes(null, null)
     }
-    const incoming =
-      payload?.activeTypes ??
-      payload?.activeType ??
-      payload?.filterTypes ??
-      payload?.filterType ??
-      payload?.onlyTypes ??
-      payload?.onlyType
-    if (incoming !== undefined) {
-      activeSendTypes = normalizeActiveTypes(incoming)
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, 'assessmentId')) {
-      const v = payload.assessmentId
-      activeAssessmentId = v === null || v === undefined || v === '' ? null : String(v)
+    const incomingMode =
+      payload?.mode ??
+      payload?.current ??
+      payload?.activeMode ??
+      payload?.activeModeId ??
+      payload?.activeModeType
+    if (incomingMode !== undefined) {
+      applyActiveMode(incomingMode)
+    } else {
+      const incoming =
+        payload?.activeTypes ??
+        payload?.activeType ??
+        payload?.filterTypes ??
+        payload?.filterType ??
+        payload?.onlyTypes ??
+        payload?.onlyType
+      if (incoming !== undefined) {
+        const types = normalizeActiveTypes(incoming)
+        setActiveSendTypes(types)
+      }
     }
     if (Object.prototype.hasOwnProperty.call(payload, 'sampleType')) {
       const v = payload.sampleType
       activeSampleType = v === null || v === undefined || v === '' ? null : String(v)
+      if (activeSendTypes && activeSendTypes.length) {
+        resetSendTimer()
+        updateSendTimerForActiveTypes()
+      }
     }
   });
 });
@@ -1582,12 +1753,14 @@ async function connectPort() {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
               console.log('playtimer', HZ)
-              if (playtimer) {
-                clearInterval(playtimer)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                if (playtimer) {
+                  clearInterval(playtimer)
+                }
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 80)
               }
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 80)
             }
             // if(!playtimer){
             //      playtimer = setInterval(() => {
@@ -1598,6 +1771,10 @@ async function connectPort() {
           // console.log(stamp, oldTimeObj[dataItem.type],dataItem.HZ,HZ,playtimer)
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
           // } else {
 
           // }
@@ -1635,16 +1812,22 @@ async function connectPort() {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
               console.log('playtimer', HZ)
-              if (playtimer) {
-                clearInterval(playtimer)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                if (playtimer) {
+                  clearInterval(playtimer)
+                }
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 80)
               }
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 80)
             }
           }
 
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
 
 
         }
@@ -1670,9 +1853,11 @@ async function connectPort() {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               console.log(MaxHZ)
               HZ = MaxHZ
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 1000 / HZ)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 1000 / HZ)
+              }
               sendDataLength = 0
             }
           }
@@ -1680,6 +1865,10 @@ async function connectPort() {
 
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
 
           dataItem.next = pointArr
           // const stamp = new Date().getTime()
@@ -1728,9 +1917,11 @@ async function connectPort() {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               console.log(MaxHZ)
               HZ = MaxHZ
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 1000 / HZ)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 1000 / HZ)
+              }
               sendDataLength = 0
             }
           }
@@ -1738,6 +1929,10 @@ async function connectPort() {
 
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
           // } else {
 
           // }
@@ -1789,14 +1984,20 @@ async function connectPort() {
             if (!MaxHZ) {
               MaxHZ = Math.floor(1000 / dataItem.HZ)
               HZ = MaxHZ
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 1000 / HZ)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 1000 / HZ)
+              }
             }
           }
           dataItem.stamp = stamp
           // if (!oldTimeObj[dataItem.type]) {
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
           // } else {
 
           // }
@@ -1839,14 +2040,20 @@ async function connectPort() {
             if (!MaxHZ && sendDataLength == 1) {
               MaxHZ = dataItem.HZ
               HZ = MaxHZ
-              playtimer = setInterval(() => {
-                colAndSendData()
-              }, 87)
+              if (!activeSendTypes || !activeSendTypes.length) {
+                playtimer = setInterval(() => {
+                  colAndSendData()
+                }, 87)
+              }
               sendDataLength = 0
             }
           }
 
           oldTimeObj[dataItem.type] = dataItem.stamp
+          maybeLockSensorHz()
+          if (activeSendTypes && activeSendTypes.includes(dataItem.type)) {
+            updateSendTimerForActiveTypes()
+          }
           algorData = await callPy('server', { sensor_data: pointArr })
           if (algorData.control_command) {
             control_command = algorData.control_command
@@ -1954,6 +2161,7 @@ async function stopPort() {
 
   // 将hz清除掉
   MaxHZ = undefined
+  resetSensorHzCache()
 }
 
 function colAndSendData() {
@@ -2129,7 +2337,9 @@ function ensureMatrixNameColumn(db) {
  * 将收到的
  */
 function storageData(data) {
-  const timestamp = Date.now(); // 获取当前时间的时间戳
+  const rawAssessmentId = activeAssessmentId
+  const parsedAssessmentId = rawAssessmentId !== null && rawAssessmentId !== undefined ? Number(rawAssessmentId) : NaN
+  const timestamp = Date.now()
   // const date = saveTime;
 
 
@@ -2166,6 +2376,7 @@ setInterval(() => {
       if (!item) return
       const port = item.port
       if (!port || !port.isOpen) {
+        resetSensorHzCache()
         const reopenBaud = item.baudRate || baudRate
         item.port = new SerialPort(
           {

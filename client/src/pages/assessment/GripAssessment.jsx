@@ -29,6 +29,8 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 
 const GRIP_PROGRESS_KEY = 'jqtools.gripProgress'
 const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
+const SET_ACTIVE_MODE_URL = 'http://localhost:19245/setActiveMode'
+const COLLECT_API_BASE = 'http://localhost:19245'
 
 const handLArr = [
   1, 2, 3, 6, 7, 8, 11, 12, 13, 16, 17, 18, 21, 22, 23, 26, 27, 28,
@@ -295,7 +297,7 @@ export default function GripAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson, send } = useSensorSocket()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -378,22 +380,18 @@ export default function GripAssessment() {
   }, [lastJson])
 
   useEffect(() => {
-    if (typeof send !== 'function') return
-    const type = currentHand === 'left' ? 'HL' : 'HR'
+    if (mode === 'report') return
+    const modeId = currentHand === 'left' ? 1 : 2
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
     } catch {}
-    const sampleType = currentHand === 'left' ? 1 : 2
-    send(JSON.stringify({ activeTypes: [type], assessmentId, sampleType }))
-  }, [currentHand, send])
-
-  useEffect(() => {
-    if (typeof send !== 'function') return
-    return () => {
-      send(JSON.stringify({ activeTypes: null }))
-    }
-  }, [send])
+    fetch(SET_ACTIVE_MODE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: modeId, assessmentId })
+    }).catch(() => {})
+  }, [mode, currentHand])
 
   useEffect(() => {
     if (lastJson && lastJson.sitData) {
@@ -498,6 +496,26 @@ export default function GripAssessment() {
 
   // Start recording
   const startRecording = () => {
+    const now = new Date()
+    const date = now.toISOString().slice(0, 10)
+    const collectName = displayName || ''
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    fetch(`${COLLECT_API_BASE}/startCol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: collectName,
+        name: collectName,
+        collectName,
+        date,
+        colName: date,
+        select: {},
+        assessmentId
+      })
+    }).catch(() => {})
     setStatus('recording')
     setTimer(0)
     recordTickRef.current = 0
@@ -507,6 +525,7 @@ export default function GripAssessment() {
 
   // Stop recording
   const stopRecording = () => {
+    fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     if (currentHand === 'left') {
       // 左手采集完成，切换到右手
       setShowLeftCompleteToast(true)

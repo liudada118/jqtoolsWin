@@ -158,7 +158,10 @@ export default function Dashboard() {
       const module = modules.find(m => m.id === moduleId)
       if (module && module.status !== 'locked') {
         try {
-          localStorage.setItem(ASSESSMENT_START_KEY, String(Date.now()))
+          const existing = localStorage.getItem(ASSESSMENT_START_KEY)
+          if (!existing) {
+            localStorage.setItem(ASSESSMENT_START_KEY, String(Date.now()))
+          }
         } catch {}
         navigate(module.path)
       }

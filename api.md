@@ -70,9 +70,23 @@
 
 `POST /startCol`
 - 说明：开始采集
-- Body：`{ fileName, name, collectName, date, colName, select }`
+- Body：`{ fileName, name, collectName, date, colName, select, assessmentId }`
 - 返回：`HttpResult`（成功或错误）
 - 备注：没有匹配传感器时返回错误提示
+
+`POST /setActiveMode`
+- 说明：设置当前评估模式（控制 WS 只发送对应传感器数据，存库也仅存该数据）
+- Body：`{ mode, assessmentId }`
+  - `mode`：1 左手、2 右手、3 起坐、4 静态、5 步道
+  - `assessmentId`：本次评估的时间戳（可选）
+- 返回：`HttpResult`
+- 备注：
+  - 映射关系：  
+    1 → `HL`  
+    2 → `HR`  
+    3 → `sit`, `foot1`  
+    4 → `foot1`  
+    5 → `foot1`, `foot2`, `foot3`, `foot4`
 
 `GET /endCol`
 - 说明：停止采集
@@ -197,7 +211,7 @@
 
 # 三、WebSocket（端口 19999）
 
-服务端只推送消息，客户端发消息会被忽略。
+服务端只推送消息，客户端无需发消息（使用 `POST /setActiveMode` 控制发送类型）。
 
 常见消息结构：
 - `{}` 初次连接的空包

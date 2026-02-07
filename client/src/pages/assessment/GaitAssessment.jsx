@@ -30,6 +30,8 @@ const EMPTY_4096 = new Array(4096).fill(0)
 
 const GAIT_PROGRESS_KEY = 'jqtools.gaitProgress'
 const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
+const SET_ACTIVE_MODE_URL = 'http://localhost:19245/setActiveMode'
+const COLLECT_API_BASE = 'http://localhost:19245'
 
 const stitchFootRows = (f1, f2, f3, f4) => {
   const out = new Array(64 * 256)
@@ -52,7 +54,7 @@ export default function GaitAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson, send } = useSensorSocket()
+  const { lastJson } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -68,13 +70,17 @@ export default function GaitAssessment() {
   const [realtimeData, setRealtimeData] = useState(null)
 
   useEffect(() => {
-    if (typeof send !== 'function') return
+    if (mode === 'report') return
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
     } catch {}
-    send(JSON.stringify({ activeTypes: null, assessmentId, sampleType: 5 }))
-  }, [send])
+    fetch(SET_ACTIVE_MODE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 5, assessmentId })
+    }).catch(() => {})
+  }, [mode])
 
   useEffect(() => {
     if (mode === 'report') return
@@ -156,6 +162,26 @@ export default function GaitAssessment() {
 
 
   const startRecording = () => {
+    const now = new Date()
+    const date = now.toISOString().slice(0, 10)
+    const collectName = displayName || ''
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    fetch(`${COLLECT_API_BASE}/startCol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: collectName,
+        name: collectName,
+        collectName,
+        date,
+        colName: date,
+        select: {},
+        assessmentId
+      })
+    }).catch(() => {})
     setStatus('recording')
     setTimer(0)
     setPressureData([])
@@ -163,6 +189,7 @@ export default function GaitAssessment() {
   }
 
   const stopRecording = () => {
+    fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
     
     setTimeout(() => {
