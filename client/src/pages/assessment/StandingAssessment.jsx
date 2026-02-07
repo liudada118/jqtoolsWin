@@ -36,13 +36,14 @@ const reshapeTo64 = (arr) => {
 }
 
 const STANDING_PROGRESS_KEY = 'jqtools.standingProgress'
+const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
 
 
 export default function StandingAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson } = useSensorSocket()
+  const { lastJson, send } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -57,6 +58,15 @@ export default function StandingAssessment() {
   const lastFootUiSeqRef = useRef(0)
   const [footpadData, setFootpadData] = useState(null)
   const [footpadMax, setFootpadMax] = useState(0)
+
+  useEffect(() => {
+    if (typeof send !== 'function') return
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    send(JSON.stringify({ activeTypes: null, assessmentId, sampleType: 4 }))
+  }, [send])
 
   useEffect(() => {
     if (mode === 'report') return

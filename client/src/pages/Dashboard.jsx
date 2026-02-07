@@ -110,6 +110,8 @@ const ModuleIcon = ({ moduleId, isLocked }) => {
   }
 }
 
+const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -125,6 +127,7 @@ export default function Dashboard() {
     age: '',
     weight: ''
   })
+  const allCompleted = modules.length > 0 && modules.every((m) => m.status === 'completed')
 
   // Check if returning from assessment
   useEffect(() => {
@@ -154,6 +157,9 @@ export default function Dashboard() {
     } else {
       const module = modules.find(m => m.id === moduleId)
       if (module && module.status !== 'locked') {
+        try {
+          localStorage.setItem(ASSESSMENT_START_KEY, String(Date.now()))
+        } catch {}
         navigate(module.path)
       }
     }
@@ -167,6 +173,9 @@ export default function Dashboard() {
     
     setUser(prev => ({ ...prev, ...userInfo }))
     setShowUserDialog(false)
+    try {
+      localStorage.setItem(ASSESSMENT_START_KEY, String(Date.now()))
+    } catch {}
     navigate('/assessment/grip')
   }
 
@@ -185,6 +194,17 @@ export default function Dashboard() {
     } finally {
       setIsConnecting(false)
     }
+  }
+
+  const handleRestartAll = () => {
+    localStorage.removeItem('currentModuleId')
+    localStorage.removeItem('assessmentCompleted')
+    localStorage.removeItem('jqtools.gripProgress')
+    localStorage.removeItem('jqtools.sitStandProgress')
+    localStorage.removeItem('jqtools.standingProgress')
+    localStorage.removeItem('jqtools.gaitProgress')
+    setModules(initialModules)
+    setShowUserDialog(true)
   }
 
   return (
@@ -287,6 +307,14 @@ export default function Dashboard() {
       <div className="absolute bottom-8 left-8 text-xs text-gray-400 font-medium">
         powered by 矩侨工业
       </div>
+      {allCompleted && (
+        <button
+          onClick={handleRestartAll}
+          className="absolute bottom-8 right-8 rounded-full bg-blue-600 text-white px-6 py-3 text-sm font-medium shadow-lg hover:bg-blue-700 transition-colors"
+        >
+          开启新的评估
+        </button>
+      )}
 
       {/* User Info Dialog */}
       <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>

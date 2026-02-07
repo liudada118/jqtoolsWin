@@ -215,6 +215,32 @@ function getTypeFromSerialCache(uniqueId) {
   return null
 }
 
+function normalizeActiveTypes(value) {
+  if (value === null || value === undefined) return null
+  if (Array.isArray(value)) {
+    const list = value.map((v) => String(v).trim()).filter(Boolean)
+    return list.length ? list : null
+  }
+  if (typeof value === 'string') {
+    const list = value
+      .split(/[,;\s]+/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+    return list.length ? list : null
+  }
+  return null
+}
+
+function filterDataByTypes(data, types) {
+  if (!types || !Array.isArray(types) || !types.length) return data
+  if (!data || typeof data !== 'object') return data
+  const out = {}
+  types.forEach((type) => {
+    if (data[type]) out[type] = data[type]
+  })
+  return out
+}
+
 
 const ORIGIN = 'https://sensor.bodyta.com';
 
@@ -322,6 +348,9 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
+let activeSendTypes = null
+let activeAssessmentId = null
+let activeSampleType = null
 const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 let lastRealtimeLogTs = 0
@@ -1155,8 +1184,42 @@ server.on("connection", function connection(ws, req) {
 
   socketSendData(server, JSON.stringify({}))
 
-  ws.on("message", () => {
-
+  ws.on("message", (msg) => {
+    let text = ''
+    if (Buffer.isBuffer(msg)) {
+      text = msg.toString('utf8')
+    } else if (typeof msg === 'string') {
+      text = msg
+    } else {
+      return
+    }
+    let payload
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      return
+    }
+    if (payload && payload.clearActiveTypes) {
+      activeSendTypes = null
+    }
+    const incoming =
+      payload?.activeTypes ??
+      payload?.activeType ??
+      payload?.filterTypes ??
+      payload?.filterType ??
+      payload?.onlyTypes ??
+      payload?.onlyType
+    if (incoming !== undefined) {
+      activeSendTypes = normalizeActiveTypes(incoming)
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'assessmentId')) {
+      const v = payload.assessmentId
+      activeAssessmentId = v === null || v === undefined || v === '' ? null : String(v)
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'sampleType')) {
+      const v = payload.sampleType
+      activeSampleType = v === null || v === undefined || v === '' ? null : String(v)
+    }
   });
 });
 
@@ -1899,14 +1962,16 @@ function colAndSendData() {
   if (!historyFlag && Object.keys(parserArr).length) {
     const obj = sendData()
     // selectArr
-    if (selectArr && Object.keys(selectArr).length) {
+    if (selectArr && Object.keys(selectArr).length && obj) {
       for (let i = 0; i < Object.keys(selectArr).length; i++) {
         const key = Object.keys(selectArr)[i]
-        obj[key].select = selectArr[key]
+        if (obj[key]) {
+          obj[key].select = selectArr[key]
+        }
       }
     }
 
-    if (colFlag) {
+    if (colFlag && obj && Object.keys(obj).length) {
       storageData(obj)
     }
   }
@@ -1985,6 +2050,7 @@ function sendData() {
         delete obj[key]
       }
     }
+    obj = filterDataByTypes(obj, activeSendTypes)
     // 如果obj里面包含  机器人type 发送数据
     if (Object.keys(obj).filter((a) => Object.values(constantObj.type).includes(a)).length) {
       socketSendData(server, JSON.stringify({ data: obj }))
@@ -2004,6 +2070,7 @@ function sendData() {
     //   }
     // }
     // console.log(obj)
+    obj = filterDataByTypes(obj, activeSendTypes)
     socketSendData(server, JSON.stringify({ sitData: obj }))
   }
 
@@ -2043,6 +2110,18 @@ function ensureMatrixNameColumn(db) {
         if (e) console.error('ALTER TABLE add name failed:', e)
       })
     }
+    const hasAssessmentId = rows.some((r) => r.name === 'assessment_id')
+    if (!hasAssessmentId) {
+      db.run('ALTER TABLE matrix ADD COLUMN assessment_id TEXT', (e) => {
+        if (e) console.error('ALTER TABLE add assessment_id failed:', e)
+      })
+    }
+    const hasSampleType = rows.some((r) => r.name === 'sample_type')
+    if (!hasSampleType) {
+      db.run('ALTER TABLE matrix ADD COLUMN sample_type TEXT', (e) => {
+        if (e) console.error('ALTER TABLE add sample_type failed:', e)
+      })
+    }
   })
 }
 
@@ -2062,11 +2141,13 @@ function storageData(data) {
   }
 
   const insertQuery =
-    "INSERT INTO matrix (data, timestamp,date ,`select`, name) VALUES (?, ?,? ,?, ?)";
+    "INSERT INTO matrix (data, timestamp,date ,`select`, name, assessment_id, sample_type) VALUES (?, ?,? ,?, ?, ?, ?)";
+  const assessmentId = activeAssessmentId || null
+  const sampleType = activeSampleType || null
 
   currentDb.run(
     insertQuery,
-    [JSON.stringify(newData), timestamp, colName, JSON.stringify(selectArr), colPersonName],
+    [JSON.stringify(newData), timestamp, colName, JSON.stringify(selectArr), colPersonName, assessmentId, sampleType],
     function (err) {
       if (err) {
         console.error(err);

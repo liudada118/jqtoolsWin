@@ -1,4 +1,5 @@
 
+import * as THREE from 'three'
 
 const options = {
     min: 0,
@@ -482,7 +483,7 @@ export class HeatmapCanvas {
         this.canvas = document.createElement('canvas');
 
 
-        document.body.appendChild(this.canvas)
+        // document.body.appendChild(this.canvas)
 
 
         const dpr = window.devicePixelRatio || 1;
@@ -511,24 +512,173 @@ export class HeatmapCanvas {
         }
         if (options) this.options = options
 
+        this.useGPU = false
+        try {
+            this.gpuCanvas = document.createElement('canvas')
+            this.gpuCanvas.width = this.canvas.width
+            this.gpuCanvas.height = this.canvas.height
+            this.renderer = new THREE.WebGLRenderer({
+                canvas: this.gpuCanvas,
+                antialias: false,
+                alpha: true,
+                preserveDrawingBuffer: true
+            })
+            this.renderer.setSize(this.gpuCanvas.width, this.gpuCanvas.height, false)
+            this.renderer.setClearColor(0x000000, 0)
+
+            this.scene = new THREE.Scene()
+            this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+            const texelSize = new THREE.Vector2(1 / this.width, 1 / this.height)
+            this.dataTexture = new THREE.DataTexture(
+                new Uint8Array(this.width * this.height * 4),
+                this.width,
+                this.height,
+                THREE.RGBAFormat
+            )
+            this.dataTexture.minFilter = THREE.LinearFilter
+            this.dataTexture.magFilter = THREE.LinearFilter
+            this.dataTexture.needsUpdate = true
+
+            const gradient = (this.options && this.options.gradient) || DEFAULT_GRADIENT
+            this.gradientTexture = buildGradientTexture(gradient)
+            this.material = createHeatmapMaterial(this.dataTexture, this.gradientTexture, texelSize)
+            const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material)
+            this.scene.add(plane)
+            this.cpuCtx = this.canvas.getContext('2d')
+            this.useGPU = true
+        } catch (err) {
+            this.useGPU = false
+        }
+
+
 
     }
 
     changeHeatmap(resArr, interp1, interp2, order) {
-        bthClickHandle(resArr, this.canvas, this.width, this.height, interp1, interp2, order, this.options)
-        const ctx = this.canvas.getContext('2d');
-        // canvas.width = 1024;
-        // canvas.height = 1024;
-
-        // 填充 Canvas 颜色
-        // ctx.fillStyle = 'rgb(255, 0, 0)'; // 纯红色
-        // ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (!this.useGPU) {
+            bthClickHandle(resArr, this.canvas, this.width, this.height, interp1, interp2, order, this.options)
+            return
+        }
+        const min = typeof this.options.min === 'number' ? this.options.min : 0
+        const max = typeof this.options.max === 'number' ? this.options.max : 1
+        const range = max - min || 1
+        const data = this.dataTexture.image.data
+        const total = this.width * this.height
+        for (let i = 0; i < total; i++) {
+            const v = Array.isArray(resArr) ? resArr[i] || 0 : 0
+            let n = (v - min) / range
+            if (n < 0) n = 0
+            if (n > 1) n = 1
+            const base = i * 4
+            const value = Math.round(n * 255)
+            data[base] = value
+            data[base + 1] = value
+            data[base + 2] = value
+            data[base + 3] = 255
+        }
+        this.dataTexture.needsUpdate = true
+        this.material.uniforms.uSharpen.value = typeof this.options.sharpen === 'number' ? this.options.sharpen : 0.6
+        this.material.uniforms.uGamma.value = typeof this.options.gamma === 'number' ? this.options.gamma : 1.0
+        this.material.uniforms.uFlipX.value = this.options.flipX ? 1.0 : 0.0
+        this.material.uniforms.uFlipY.value = this.options.flipY === false ? 0.0 : 1.0
+        this.renderer.render(this.scene, this.camera)
+        if (this.cpuCtx && this.gpuCanvas) {
+            this.cpuCtx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+            this.cpuCtx.drawImage(this.gpuCanvas, 0, 0, this.canvas.width, this.canvas.height)
+        }
     }
 }
 
 function changeArrValue(arr, arrMax, backMax, name) {
     const props = name ? 1 : 0.8
     return arr.map((a) => Math.floor(a * backMax / arrMax * props))
+}
+
+const DEFAULT_GRADIENT = {
+    0.00: '#ffffff',
+    0.01: "#4192fe",
+    0.08: "#49aaff",
+    0.17: "#51c6ff",
+    0.25: "#4ddff5",
+    0.33: "#34f6db",
+    0.42: "#6cffb9",
+    0.50: "#c5ff8b",
+    0.58: "#fdf655",
+    0.67: "#ffda41",
+    0.75: "#ffb54a",
+    0.83: "#ff9555",
+    0.92: "#ff7665",
+    1.00: "#ff0000"
+}
+
+function buildGradientTexture(gradient) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 1
+    const ctx = canvas.getContext('2d')
+    const stops = Object.keys(gradient)
+        .map((k) => ({ stop: parseFloat(k), color: gradient[k] }))
+        .sort((a, b) => a.stop - b.stop)
+    const lineGradient = ctx.createLinearGradient(0, 0, 256, 0)
+    stops.forEach(({ stop, color }) => lineGradient.addColorStop(stop, color))
+    ctx.fillStyle = lineGradient
+    ctx.fillRect(0, 0, 256, 1)
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.minFilter = THREE.LinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.wrapS = THREE.ClampToEdgeWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.needsUpdate = true
+    return texture
+}
+
+function createHeatmapMaterial(dataTexture, gradientTexture, texelSize) {
+    return new THREE.ShaderMaterial({
+        transparent: true,
+        uniforms: {
+            uData: { value: dataTexture },
+            uGradient: { value: gradientTexture },
+            uTexel: { value: texelSize },
+            uSharpen: { value: 0.6 },
+            uGamma: { value: 1.0 },
+            uFlipX: { value: 0.0 },
+            uFlipY: { value: 1.0 }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            precision mediump float;
+            varying vec2 vUv;
+            uniform sampler2D uData;
+            uniform sampler2D uGradient;
+            uniform vec2 uTexel;
+            uniform float uSharpen;
+            uniform float uGamma;
+            uniform float uFlipX;
+            uniform float uFlipY;
+
+            void main() {
+                vec2 uv = vUv;
+                if (uFlipX > 0.5) uv.x = 1.0 - uv.x;
+                if (uFlipY > 0.5) uv.y = 1.0 - uv.y;
+                float c = texture2D(uData, uv).r;
+                float l = texture2D(uData, uv + vec2(-uTexel.x, 0.0)).r;
+                float r = texture2D(uData, uv + vec2(uTexel.x, 0.0)).r;
+                float u = texture2D(uData, uv + vec2(0.0, uTexel.y)).r;
+                float d = texture2D(uData, uv + vec2(0.0, -uTexel.y)).r;
+                float blur = (l + r + u + d) * 0.25;
+                float v = clamp(c + uSharpen * (c - blur), 0.0, 1.0);
+                v = pow(v, uGamma);
+                vec4 col = texture2D(uGradient, vec2(v, 0.5));
+                gl_FragColor = col;
+            }
+        `
+    })
 }
 
 

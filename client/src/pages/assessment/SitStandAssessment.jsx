@@ -27,6 +27,7 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 })
 
 const SIT_STAND_PROGRESS_KEY = 'jqtools.sitStandProgress'
+const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
 
 
 const reshapeTo32 = (arr) => {
@@ -75,10 +76,19 @@ export default function SitStandAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson } = useSensorSocket()
+  const { lastJson, send } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
+
+  useEffect(() => {
+    if (typeof send !== 'function') return
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    send(JSON.stringify({ activeTypes: null, assessmentId, sampleType: 3 }))
+  }, [send])
   
   const [status, setStatus] = useState(mode === 'report' ? 'completed' : 'idle')
   const [reportMode, setReportMode] = useState('static')

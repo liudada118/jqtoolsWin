@@ -128,8 +128,8 @@ export function HandModel({
     indicator.visible = false
     handGroup.add(indicator)
 
-    handGroup.rotation.x = -0.2
-    handGroup.position.y = 0.2
+    handGroup.rotation.x = -Math.PI / 3
+    handGroup.position.set(-1, -1, 0)
 
     // Grid helper
     const gridHelper = new THREE.GridHelper(10, 20, 0xffffff, 0xffffff)
@@ -139,9 +139,6 @@ export function HandModel({
     scene.add(gridHelper)
 
     const renderFrame = () => {
-      if (handGroup) {
-        handGroup.rotation.y = Math.sin(Date.now() * 0.001) * 0.2
-      }
       renderer.render(scene, camera)
     }
     const unsubscribe = Scheduler.onRender(renderFrame)

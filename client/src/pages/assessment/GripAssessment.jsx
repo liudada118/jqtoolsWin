@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { Play, X, ArrowLeftRight, Check, Pause } from 'lucide-react'
@@ -28,6 +28,7 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
 })
 
 const GRIP_PROGRESS_KEY = 'jqtools.gripProgress'
+const ASSESSMENT_START_KEY = 'jqtools.assessmentStartAt'
 
 const handLArr = [
   1, 2, 3, 6, 7, 8, 11, 12, 13, 16, 17, 18, 21, 22, 23, 26, 27, 28,
@@ -38,55 +39,54 @@ const handLArr = [
   132, 133, 136, 137, 138, 141, 142, 143, 146, 147, 148
 ]
 
-function handL(arr) {
-  let adcArr = handLArr.slice().map((a) => a - 1)
+function arrX2Y(arr, width, height) {
+  // 计算边长 n，数组长度必须为 n*n
+  const len = arr.length;
+  const n = Math.sqrt(len);
+  if (n % 1 !== 0) {
+    throw new Error("输入数组的长度不是完全平方数，无法构成正方形矩阵");
+  }
 
-  const finger1 = adcArr.splice(0, 12)
-  const finger2 = adcArr.splice(0, 12)
-  const finger3 = adcArr.splice(0, 12)
-  const finger4 = adcArr.splice(0, 12)
-  const finger5 = adcArr.splice(0, 12)
-  const fingerArr = [finger1, finger2, finger3, finger4, finger5]
-
-  const res = new Array(147).fill(0)
-  for (let i = 0; i < 4; i++) {
-    for (let k = 0; k < 5; k++) {
-      for (let j = 0; j < 3; j++) {
-        res[i * 15 + k * 3 + j] = arr[fingerArr[k][i * 3 + j]]
-      }
+  const result = new Array(len);
+  // 遍历矩阵的每个位置 (i, j)
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const oldIndex = i * n + j;
+      const newIndex = (n - 1 - j) * n + (n - 1 - i);
+      result[newIndex] = arr[oldIndex];
     }
   }
-
-  const fingerMiddleHand = adcArr.splice(0, 5)
-  for (let i = 0; i < 5; i++) {
-    res[15 * 4 + 1 + i * 3] = arr[fingerMiddleHand[i]]
-  }
-
-  const handArr = adcArr.splice(0, 72)
-  for (let i = 0; i < handArr.length; i++) {
-    res[15 * 5 + i] = arr[handArr[i]]
-  }
-
-  const res1 = []
-  for (let i = 0; i < 5; i++) {
-    for (let j = 0; j < 15; j++) {
-      res1.push(res[i * 15 + 14 - j])
-    }
-  }
-  for (let i = 75 + 12 - 1; i >= 75; i--) {
-    res1.push(res[i])
-  }
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 15; j++) {
-      res1.push(res[75 + 12 + i * 15 + 14 - j])
-    }
-  }
-
-  // return new Array(147).fill(100)
-  return res1
+  return result;
 }
 
-function handR(arr) {
+function handL(arr) {
+  let newArr = [...arr]
+
+  const after = newArr.splice(0, 8 * 16)
+  newArr = newArr.concat(after)
+  newArr = arrX2Y(newArr, 16, 16)
+  const handArr = []
+  for (let i = 0; i < 10; i++) {
+    for (let j = 14; j >= 0; j--) {
+      handArr.push(newArr[(j + 1) * 16 + 15 - i])
+    }
+  }
+
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 15; j++) {
+      [handArr[i * 15 + j], handArr[(9 - i) * 15 + j]] = [handArr[(9 - i) * 15 + j], handArr[i * 15 + j]]
+    }
+  }
+
+  handArr.splice(5 * 15 + 12, 3)
+
+  for (let i = 4 * 15; i < 5 * 15; i++) {
+    handArr[i] = Math.floor(handArr[i] / 3)
+  }
+  return handArr
+}
+
+function handRBase(arr) {
   let adcArr = [
     240, 239, 238, 256, 255, 254, 16, 15, 14, 32, 31, 30, 237, 236, 235, 253, 252, 251, 13, 12, 11, 29, 28, 27, 234, 233, 232, 250, 249, 248, 10, 9, 8, 26, 25, 24, 231, 230, 229,
     247, 246, 245, 7, 6, 5, 23, 22, 21, 228, 227, 226, 244, 243, 242, 4, 3, 2, 20, 19, 18, 47, 44, 41, 38, 35, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 112, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101, 100, 99, 98, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114
@@ -122,6 +122,99 @@ function handR(arr) {
   }
 
   return res
+}
+
+function rotate90(arr, width, height) {
+  if (!Array.isArray(arr) || arr.length !== width * height) return arr
+  let matrix = []
+  for (let i = 0; i < height; i++) {
+    matrix[i] = []
+    for (let j = 0; j < width; j++) {
+      matrix[i].push(arr[i * height + j])
+    }
+  }
+
+  let temp = []
+  let len = matrix.length
+  for (let i = 0; i < len; i++) {
+    for (let j = 0; j < len; j++) {
+      let k = len - 1 - j
+      if (!temp[k]) {
+        temp[k] = []
+      }
+      temp[k][i] = matrix[i][j]
+    }
+  }
+  let res = []
+  for (let i = 0; i < temp.length; i++) {
+    res = res.concat(temp[i])
+  }
+  return res
+}
+
+function flipVertical(arr, width, height) {
+  if (!Array.isArray(arr) || arr.length !== width * height) return arr
+  const res = new Array(arr.length)
+  for (let row = 0; row < height; row++) {
+    const srcRow = height - 1 - row
+    for (let col = 0; col < width; col++) {
+      res[row * width + col] = arr[srcRow * width + col]
+    }
+  }
+  return res
+}
+
+function handRVideo1470506(arr) {
+  let handArr = handRBase(arr)
+
+  let handPointArr = [
+    [21, 3], [20, 3], [19, 3], [3, 10], [3, 11], [3, 12], [0, 15], [0, 16], [0, 17], [2, 23], [2, 24], [2, 25], [7, 27], [7, 28], [7, 29],
+    [21, 4], [20, 4], [19, 4], [4, 10], [4, 11], [4, 12], [1, 15], [1, 16], [1, 17], [3, 23], [3, 24], [3, 25], [8, 27], [8, 28], [8, 29],
+    [22, 5], [21, 5], [20, 5], [5, 10], [5, 11], [5, 12], [2, 16], [2, 17], [2, 18], [4, 23], [4, 24], [4, 25], [9, 27], [9, 28], [9, 29],
+    [22, 6], [21, 6], [20, 6], [6, 11], [6, 12], [6, 13], [3, 16], [3, 17], [3, 18], [5, 23], [5, 24], [5, 25], [10, 27], [10, 28], [10, 29],
+    [23, 8], [22, 8], [21, 8], [10, 12], [10, 13], [10, 14], [9, 17], [9, 18], [9, 19], [9, 22], [9, 23], [9, 24], [12, 26], [12, 27], [12, 28],
+    [15, 18], [15, 18], [15, 19], [15, 20], [15, 21], [15, 22], [15, 23], [15, 24], [15, 25], [15, 26], [15, 27], [15, 28],
+    [17, 15], [17, 15], [17, 16], [17, 17], [17, 18], [17, 19], [17, 20], [17, 21], [17, 22], [17, 23], [17, 24], [17, 25], [17, 26], [17, 27], [17, 28],
+    [19, 15], [19, 15], [19, 16], [19, 17], [19, 18], [19, 19], [19, 20], [19, 21], [19, 22], [19, 23], [19, 24], [19, 25], [19, 26], [19, 27], [19, 28],
+    [21, 15], [21, 15], [21, 16], [21, 17], [21, 18], [21, 19], [21, 20], [21, 21], [21, 22], [21, 23], [21, 24], [21, 25], [21, 26], [21, 27], [21, 28],
+    [23, 15], [23, 15], [23, 16], [23, 17], [23, 18], [23, 19], [23, 20], [23, 21], [23, 22], [23, 23], [23, 24], [23, 25], [23, 26], [23, 27], [23, 28]
+  ]
+
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+      for (let k = 0; k < 3; k++) {
+        if (j == 0) {
+          handPointArr[i * 15 + j * 3 + k][1] = handPointArr[i * 15 + j * 3 + k][1] - 1
+        }
+        if (j == 3) {
+          handPointArr[i * 15 + j * 3 + k][1] = handPointArr[i * 15 + j * 3 + k][1] - 1
+        }
+        if (j == 4) {
+          handPointArr[i * 15 + j * 3 + k][1] = handPointArr[i * 15 + j * 3 + k][1] - 1
+        }
+      }
+    }
+  }
+
+  handPointArr = handPointArr.map((a) => [a[0] + 1, a[1]])
+  let newZeroArr = new Array(1024).fill(0)
+  handPointArr.forEach((a, index) => {
+
+    if ([0, 15, 30, 45, 60].includes(index)) {
+
+    } else if ([1, 2, 16, 17, 31, 32, 46, 47, 61, 62].includes(index)) {
+      newZeroArr[(a[0]) * 32 + 31 - a[1]] = handArr[index]
+    } else {
+      newZeroArr[(a[0]) * 32 + 31 - a[1]] = handArr[index]
+      newZeroArr[(a[0] + 1) * 32 + 31 - a[1]] = handArr[index]
+    }
+  })
+
+  // newZeroArr = rotate90(newZeroArr, 32, 32)
+
+  newZeroArr = flipVertical(newZeroArr, 32, 32)
+
+  return newZeroArr
 }
 
 function handSkinChange(res) {
@@ -202,7 +295,7 @@ export default function GripAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
   const { user } = useAssessment()
-  const { lastJson } = useSensorSocket()
+  const { lastJson, send } = useSensorSocket()
   const displayName = user.name || '—'
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode')
@@ -285,6 +378,24 @@ export default function GripAssessment() {
   }, [lastJson])
 
   useEffect(() => {
+    if (typeof send !== 'function') return
+    const type = currentHand === 'left' ? 'HL' : 'HR'
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
+    const sampleType = currentHand === 'left' ? 1 : 2
+    send(JSON.stringify({ activeTypes: [type], assessmentId, sampleType }))
+  }, [currentHand, send])
+
+  useEffect(() => {
+    if (typeof send !== 'function') return
+    return () => {
+      send(JSON.stringify({ activeTypes: null }))
+    }
+  }, [send])
+
+  useEffect(() => {
     if (lastJson && lastJson.sitData) {
       latestSitDataRef.current = lastJson.sitData
       latestSeqRef.current += 1
@@ -356,7 +467,7 @@ export default function GripAssessment() {
         bodyCanvasRef.current.changeHeatmap(mapped, 1, 1, 0)
         setHeatmapVersion(v => v + 1)
       } else if (currentHand === 'right' && hr && hr.length === 256) {
-        const mapped = handSkinChange(handR(hr))
+        const mapped = handRVideo1470506(hr)
         bodyCanvasRef.current.changeHeatmap(mapped, 1, 1, 0)
         setHeatmapVersion(v => v + 1)
       }
@@ -668,7 +779,7 @@ export default function GripAssessment() {
                   heatmapCanvas={heatmapCanvas}
                   heatmapVersion={heatmapVersion}
                 />
-                
+
                 {/* Processing Overlay */}
                 {status === 'processing' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[2px]">
