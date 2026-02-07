@@ -286,7 +286,7 @@ export default function StandingAssessment() {
                   showHeatmap
                   enableClipping={false}
                   clipLevel={0.35}
-                  depthScale={0.35}
+                  depthScale={0}
                   smoothness={0.6}
                   realtimeData={footpadData}
                   sourceData={footpadData}

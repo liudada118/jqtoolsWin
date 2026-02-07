@@ -101,6 +101,121 @@ function flipFoot64x64Horizontal(arr) {
   return out
 }
 
+function zeroBelowThreshold(arr, threshold) {
+  if (!Array.isArray(arr)) return arr
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] < threshold) arr[i] = 0
+  }
+  return arr
+}
+
+function removeSmallIslands64x64(arr, minSize = 9) {
+  if (!Array.isArray(arr) || arr.length !== 4096) return arr
+  const size = 64
+  const visited = new Array(arr.length).fill(false)
+  const dirs = [-1, 0, 1]
+  for (let idx = 0; idx < arr.length; idx++) {
+    if (visited[idx] || arr[idx] <= 0) continue
+    const stack = [idx]
+    const component = []
+    visited[idx] = true
+    while (stack.length) {
+      const cur = stack.pop()
+      component.push(cur)
+      const r = Math.floor(cur / size)
+      const c = cur - r * size
+      for (let dr of dirs) {
+        const nr = r + dr
+        if (nr < 0 || nr >= size) continue
+        for (let dc of dirs) {
+          const nc = c + dc
+          if (nc < 0 || nc >= size) continue
+          if (dr === 0 && dc === 0) continue
+          const ni = nr * size + nc
+          if (!visited[ni] && arr[ni] > 0) {
+            visited[ni] = true
+            stack.push(ni)
+          }
+        }
+      }
+    }
+    if (component.length < minSize) {
+      for (let i = 0; i < component.length; i++) {
+        arr[component[i]] = 0
+      }
+    }
+  }
+  return arr
+}
+
+
+function parseSerialTypeMap(raw) {
+  if (!raw) return {}
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw
+  if (typeof raw !== 'string') return {}
+  let text = raw.trim()
+  if (!text) return {}
+
+  if (text.includes('"key"') && text.includes('"orgName"')) {
+    const keyIdx = text.indexOf('"key"')
+    if (keyIdx !== -1) {
+      const afterKey = text.slice(keyIdx)
+      const colonIdx = afterKey.indexOf(':')
+      if (colonIdx !== -1) {
+        let rest = afterKey.slice(colonIdx + 1)
+        const orgIdx = rest.indexOf('"orgName"')
+        if (orgIdx !== -1) rest = rest.slice(0, orgIdx)
+        rest = rest.replace(/^[\s,]+/, '').replace(/[\s,]+$/, '')
+        if (
+          (rest.startsWith('"') && rest.endsWith('"')) ||
+          (rest.startsWith("'") && rest.endsWith("'"))
+        ) {
+          rest = rest.slice(1, -1)
+        }
+        text = rest.trim()
+      }
+    }
+  }
+
+  const tryParse = (value) => {
+    try {
+      const obj = JSON.parse(value)
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj
+    } catch { }
+    return null
+  }
+
+  let obj = tryParse(text)
+  if (obj) return obj
+
+  const normalized = text.replace(/'/g, '"')
+  obj = tryParse(normalized)
+  if (obj) return obj
+
+  const map = {}
+  normalized.split(/[,;\n]+/).forEach((part) => {
+    const m = part.match(/^\s*"?([^":=]+)"?\s*[:=]\s*"?([^"]+)"?\s*$/)
+    if (m) {
+      map[m[1].trim()] = m[2].trim()
+    }
+  })
+  return map
+}
+
+function getTypeFromSerialCache(uniqueId) {
+  if (!uniqueId) return null
+  const cache = readSerialCache()
+  const map = parseSerialTypeMap(cache && cache.key)
+  const target = String(uniqueId).trim().toUpperCase()
+  for (const key of Object.keys(map || {})) {
+    if (String(key).trim().toUpperCase() === target) {
+      return map[key]
+    }
+  }
+  return null
+}
+
+
 const ORIGIN = 'https://sensor.bodyta.com';
 
 // 1) 所有实际请求自动带上 CORS 头
@@ -890,6 +1005,54 @@ function portWirte(port) {
   })
 }
 
+function sendMacCommand(port, path, baudRate, parserItem) {
+  if (!port) return
+  const run = () => {
+    if (baudRate === 3000000) {
+      if (parserItem?.macTimer) return
+      const sendOnce = () => {
+        portWirte(port)
+          .then(() => {
+            sendMacNum++
+            console.log(`[sendAT] ${path} total=${sendMacNum} success=${successNum}`)
+          })
+          .catch((err) => {
+            console.log(`[sendAT] ${path} failed`, err)
+          })
+      }
+      sendOnce()
+      parserItem.macTimer = setInterval(() => {
+        if (parserItem.macReady) {
+          clearInterval(parserItem.macTimer)
+          parserItem.macTimer = null
+          return
+        }
+        sendOnce()
+      }, 300)
+      return
+    }
+
+    const times = baudRate === 921600 ? 1 : 3
+    for (let i = 0; i < times; i++) {
+      setTimeout(() => {
+        portWirte(port)
+          .then(() => {
+            sendMacNum++
+            console.log(`[sendAT] ${path} total=${sendMacNum} success=${successNum}`)
+          })
+          .catch((err) => {
+            console.log(`[sendAT] ${path} failed`, err)
+          })
+      }, i * 120)
+    }
+  }
+  if (port.isOpen) {
+    run()
+  } else {
+    port.once('open', run)
+  }
+}
+
 app.get('/sendMac', async (req, res) => {
 
   if (Object.keys(parserArr).length) {
@@ -1103,6 +1266,12 @@ function parseData(parserArr, objs, type) {
     }
 
   })
+  if (json.foot) {
+    if (!json.foot4) {
+      json.foot4 = json.foot
+    }
+    delete json.foot
+  }
   return json
 }
 
@@ -1128,41 +1297,19 @@ async function connectPort() {
 
 
       const { path } = portInfo
-      const serialNumber = (portInfo.serialNumber || '').toUpperCase()
-      const serialTypeMap = {
-        '6&9CE54EF&0&1': 'sit',
-        '5B14174542': 'HR',
-        '5764030375': 'foot',
-        '5764030361': 'foot1',
-        '5ABA035264': 'foot2',
-        '5764030349': 'foot3',
-        '5764030348': 'foot4',
-        '5B7B047348': 'foot1',
-        '5B7B047344': 'foot2',
-        '5B7B047343': 'foot3',
-        '5B7B047333': 'foot4'
-      }
-      const fixedType = serialTypeMap[serialNumber]
       const manufacturer = (portInfo.manufacturer || '').toLowerCase()
       const friendlyName = (portInfo.friendlyName || '').toLowerCase()
+      const isCh340 = friendlyName.includes('ch340')
       let portBaudRate = baudRate
-      if (fixedType === 'foot' || fixedType === 'foot1' || fixedType === 'foot2' || fixedType === 'foot3' || fixedType === 'foot4') {
-        portBaudRate = 3000000
-      } else if (fixedType === 'sit') {
-        portBaudRate = 1000000
-      } else if (fixedType === 'HR' || fixedType === 'HL') {
-        portBaudRate = 921600
-      } else if (friendlyName.includes('ch340')) {
-        portBaudRate = 1000000
-      } else if (manufacturer.includes('wch.cn')) {
+      if (manufacturer.includes('wch.cn')) {
         portBaudRate = 921600
       }
     // parserArr[path]
       const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
       const dataItem = dataMap[path] = dataMap[path] ? dataMap[path] : {}
-      if (fixedType) {
-        dataItem.fixedType = fixedType
-        dataItem.type = fixedType
+      if (isCh340) {
+        dataItem.type = 'sit'
+        parserItem.typeLocked = true
       }
       parserItem.baudRate = portBaudRate
       // parserItem 
@@ -1210,6 +1357,8 @@ async function connectPort() {
       // });
 
       parserItem.port = port
+      // connection established -> send AT to query device info
+      sendMacCommand(port, path, portBaudRate, parserItem)
       parser.on("data", async function (data) {
 
 
@@ -1242,7 +1391,13 @@ async function connectPort() {
 
             console.log("Unique ID:", uniqueId);  // 34463730155032138F
             console.log("Versions:", version);    // C40510
+            console.log(`[mac] ${path} ${uniqueId || 'n/a'}`)
             successNum++
+            parserItem.macReady = true
+            if (parserItem.macTimer) {
+              clearInterval(parserItem.macTimer)
+              parserItem.macTimer = null
+            }
 
             console.log('sendTotal:', sendMacNum, '-----', 'success:', successNum)
             macInfo[path] = {
@@ -1250,32 +1405,34 @@ async function connectPort() {
               version
             }
 
-            try {
-
-
-              const response = await axios.get(`${constantObj.backendAddress}/device-manage/device/getDetail/${uniqueId}`)
-              const time = await axios.get(`http://sensor.bodyta.com:8080/rcv/login/getSystemTime`)
-
-
-              // 截至时间
-              if (!response.data.data) {
-                dataItem.premission = false
+            if (parserItem.typeLocked) {
+              dataItem.premission = true
+            } else {
+              const mappedType = parserItem.baudRate === 921600 ? null : getTypeFromSerialCache(uniqueId)
+              if (mappedType) {
+                dataItem.type = String(mappedType).trim()
+                dataItem.premission = true
               } else {
-                const expireTime = response.data.data.expireTime
-                const nowTime = time.data.time
-                if (nowTime < expireTime) {
-                  dataItem.premission = true
-                }
-                  dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
-                  if (dataItem.fixedType) {
-                    dataItem.type = dataItem.fixedType
+                try {
+                  const response = await axios.get(`${constantObj.backendAddress}/device-manage/device/getDetail/${uniqueId}`)
+                  const time = await axios.get(`http://sensor.bodyta.com:8080/rcv/login/getSystemTime`)
+
+                  // ??????
+                  if (!response.data.data) {
+                    dataItem.premission = false
+                  } else {
+                    const expireTime = response.data.data.expireTime
+                    const nowTime = time.data.time
+                    if (nowTime < expireTime) {
+                      dataItem.premission = true
+                    }
+                    dataItem.type = JSON.parse(response.data.data.typeInfo)[0]
                   }
+                } catch (err) {
+                  console.log(err, 'err')
+                }
               }
-            } catch (err) {
-              console.log(err, 'err')
             }
-
-
             if (Object.keys(macInfo).length == ports.length) {
               // console.log(macInfo)
               // return macInfo
@@ -1304,16 +1461,15 @@ async function connectPort() {
           // 前后帧赋值,类型赋值
           dataItem[orderName] = arr
             dataItem.type = constantObj.type[type]
-            if (dataItem.fixedType) {
-              dataItem.type = dataItem.fixedType
-            }
             dataItem.stamp = new Date().getTime()
           } else if (pointArr.length == 1024) {
           // ret
           // if (!dataItem.premission) return
           // dataItem.type = 'hand'
           // dataItem[path]
-            dataItem.type = dataItem.fixedType || 'sit'
+            if (!dataItem.type) {
+              dataItem.type = 'sit'
+            }
             let matrix
           if (dataItem.type == 'hand' || dataItem.type == 'sit') {
             matrix = hand(pointArr)
@@ -1394,9 +1550,6 @@ async function connectPort() {
           }
           let matrix
             dataItem.type = constantObj.typeConfig[type]
-            if (dataItem.fixedType) {
-              dataItem.type = dataItem.fixedType
-            }
 
           if (constantObj.typeConfig[type] == 'car-back') {
             matrix = jqbed(pointArr)
@@ -1472,13 +1625,16 @@ async function connectPort() {
         } else if (pointArr.length == 4096) {
           // if (!dataItem.premission) return
           dataItem.premission = true
-            dataItem.type = 'foot'
-            if (dataItem.fixedType) {
-              dataItem.type = dataItem.fixedType
+            if (!dataItem.type) {
+              dataItem.type = 'foot'
             }
           if (!dataItem.premission) {
             dataItem.status = 'expired'
           } else {
+            if (parserItem.baudRate === 3000000) {
+              zeroBelowThreshold(pointArr, 8)
+              removeSmallIslands64x64(pointArr, 12)
+            }
             if (dataItem.type == 'endi-sit') {
               dataItem.arr = endiSit(pointArr)
             } else if (dataItem.type == 'endi-back') {
@@ -1550,6 +1706,11 @@ async function connectPort() {
           }
 
           dataItem.type = constantObj.typeConfig[type]
+
+          if (parserItem.baudRate === 3000000) {
+            zeroBelowThreshold(pointArr, 5)
+            removeSmallIslands64x64(pointArr, 9)
+          }
 
           if (dataItem.type == 'endi-sit') {
             dataItem.arr = endiSit(pointArr)

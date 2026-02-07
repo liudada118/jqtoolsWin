@@ -47,6 +47,30 @@ const reshapeTo64 = (arr) => {
   return out
 }
 
+const rotateMatrix90CW = (matrix) => {
+  if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) return matrix
+  const rows = matrix.length
+  const cols = matrix[0].length
+  const out = Array.from({ length: cols }, () => new Array(rows))
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      out[c][rows - 1 - r] = matrix[r][c]
+    }
+  }
+  return out
+}
+
+const rotateFlat90CW = (arr, size) => {
+  if (!Array.isArray(arr) || arr.length !== size * size) return arr
+  const out = new Array(arr.length)
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      out[c * size + (size - 1 - r)] = arr[r * size + c]
+    }
+  }
+  return out
+}
+
 export default function SitStandAssessment() {
   const navigate = useNavigate()
   const orgName = useOrgName()
@@ -115,16 +139,16 @@ export default function SitStandAssessment() {
       if (seq && seq != lastUiSeqRef.current) {
         lastUiSeqRef.current = seq
         const seatFlat = latestSeatRef.current
-        setSeatRealtimeData(seatFlat)
-        setSeatData2d(reshapeTo32(seatFlat))
+        setSeatRealtimeData(rotateFlat90CW(seatFlat, 32))
+        setSeatData2d(rotateMatrix90CW(reshapeTo32(seatFlat)))
       }
 
       const footSeq = latestFootSeqRef.current
       if (footSeq && footSeq != lastFootUiSeqRef.current) {
         lastFootUiSeqRef.current = footSeq
         const footFlat = latestFootRef.current
-        setFootpadData(footFlat)
-        setFootpadData2d(reshapeTo64(footFlat))
+        setFootpadData(rotateFlat90CW(footFlat, 64))
+        setFootpadData2d(rotateMatrix90CW(reshapeTo64(footFlat)))
       }
     })
     return () => unsubscribe?.()
@@ -301,7 +325,7 @@ export default function SitStandAssessment() {
                     showHeatmap
                     enableClipping={false}
                     clipLevel={0.5}
-                    depthScale={0.25}
+                    depthScale={0}
                     smoothness={0.5}
                     realtimeData={seatRealtimeData}
                     seatData={seatData2d}
