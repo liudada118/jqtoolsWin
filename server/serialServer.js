@@ -353,6 +353,8 @@ let activeAssessmentId = null
 let activeSampleType = null
 let currentSendIntervalMs = null
 const DEFAULT_SEND_MS = 80
+const MIN_SEND_INTERVAL_MS = 5
+const HZ_CACHE_UPDATE_MS = 500
 const MODE_TYPE_MAP = {
   1: ['HL'],
   2: ['HR'],
@@ -363,6 +365,7 @@ const MODE_TYPE_MAP = {
 let sensorHzCache = {}
 let sensorHzLocked = false
 let sensorTypeSignature = ''
+let lastHzCacheUpdateTs = 0
 
 function getConnectedTypes() {
   const types = new Set()
@@ -384,6 +387,7 @@ function updateSensorTypeSignature() {
     sensorTypeSignature = signature
     sensorHzLocked = false
     sensorHzCache = {}
+    lastHzCacheUpdateTs = 0
   }
   return types
 }
@@ -403,24 +407,31 @@ function getTypeHz(type) {
 }
 
 function maybeLockSensorHz() {
+  const now = Date.now()
+  if (now - lastHzCacheUpdateTs < HZ_CACHE_UPDATE_MS) return
   const types = updateSensorTypeSignature()
-  if (sensorHzLocked || !types.length) return
+  if (!types.length) return
   const next = {}
   for (let i = 0; i < types.length; i++) {
     const type = types[i]
     const hz = getTypeHz(type)
     if (!hz) return
-    next[type] = hz
+    next[type] = Math.max(MIN_SEND_INTERVAL_MS, hz)
   }
-  sensorHzCache = next
-  sensorHzLocked = true
-  console.log('[hz] locked', sensorHzCache)
+  const changed = Object.keys(next).some((key) => next[key] !== sensorHzCache[key])
+  if (changed || !sensorHzLocked) {
+    sensorHzCache = next
+    sensorHzLocked = true
+    console.log('[hz] locked', sensorHzCache)
+  }
+  lastHzCacheUpdateTs = now
 }
 
 function resetSensorHzCache() {
   sensorHzCache = {}
   sensorHzLocked = false
   sensorTypeSignature = ''
+  lastHzCacheUpdateTs = 0
 }
 const ALGOR = 'algor', HANDLE = 'handle'
 var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
@@ -457,7 +468,7 @@ function getActiveSendIntervalMs() {
 function updateSendTimerForActiveTypes() {
   const interval = getActiveSendIntervalMs()
   if (!activeSendTypes || !Array.isArray(activeSendTypes) || !activeSendTypes.length) return
-  const ms = Math.floor(interval ?? DEFAULT_SEND_MS)
+  const ms = Math.max(MIN_SEND_INTERVAL_MS, Math.floor(interval ?? DEFAULT_SEND_MS))
   if (currentSendIntervalMs === ms && playtimer) return
   if (playtimer) {
     clearInterval(playtimer)
