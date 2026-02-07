@@ -88,6 +88,19 @@ function decodeField(value) {
   return decodeMaybeUri(fixMojibake(value))
 }
 
+function flipFoot64x64Horizontal(arr) {
+  if (!Array.isArray(arr) || arr.length !== 4096) return arr
+  const size = 64
+  const out = new Array(arr.length)
+  for (let r = 0; r < size; r++) {
+    const rowStart = r * size
+    for (let c = 0; c < size; c++) {
+      out[rowStart + c] = arr[rowStart + (size - 1 - c)]
+    }
+  }
+  return out
+}
+
 const ORIGIN = 'https://sensor.bodyta.com';
 
 // 1) 所有实际请求自动带上 CORS 头
@@ -1476,6 +1489,8 @@ async function connectPort() {
                 dataItem.cop = await callPy('realtime_server', { sensor_data: pointArr, data_prev: lastFootPointArr })
               }
 
+            } else if (dataItem.type === 'foot1' || dataItem.type === 'foot2' || dataItem.type === 'foot3' || dataItem.type === 'foot4') {
+              dataItem.arr = flipFoot64x64Horizontal(pointArr)
             } else {
               dataItem.arr = pointArr
             }
