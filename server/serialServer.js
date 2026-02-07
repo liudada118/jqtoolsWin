@@ -202,6 +202,73 @@ let colPersonName = ''
 let historyDbArr;
 let lastFootPointArr = [], pdfArrData = [], pdfReportName = '', pdfReport = '', pdfReportSex = ''
 
+const BAUD_CANDIDATES = [921600, 1000000, 3000000]
+
+function bufferContainsSequence(buffer, sequence) {
+  if (!buffer || buffer.length < sequence.length) return false
+  for (let i = 0; i <= buffer.length - sequence.length; i++) {
+    let match = true
+    for (let j = 0; j < sequence.length; j++) {
+      if (buffer[i + j] !== sequence[j]) {
+        match = false
+        break
+      }
+    }
+    if (match) return true
+  }
+  return false
+}
+
+async function detectBaudRate(path, timeoutMs = 800) {
+  for (let i = 0; i < BAUD_CANDIDATES.length; i++) {
+    const baudRate = BAUD_CANDIDATES[i]
+    const ok = await new Promise((resolve) => {
+      let cache = Buffer.alloc(0)
+      let timer = null
+      let port = null
+
+      const cleanup = (result) => {
+        if (timer) clearTimeout(timer)
+        if (port) {
+          port.off('data', onData)
+          port.off('error', onError)
+          if (port.isOpen) {
+            port.close(() => resolve(result))
+            return
+          }
+        }
+        resolve(result)
+      }
+
+      const onData = (data) => {
+        cache = Buffer.concat([cache, Buffer.from(data)])
+        if (cache.length > 1024) {
+          cache = cache.slice(-1024)
+        }
+        if (bufferContainsSequence(cache, splitArr)) {
+          cleanup(true)
+        }
+      }
+
+      const onError = () => cleanup(false)
+
+      try {
+        port = new SerialPort({ path, baudRate, autoOpen: true })
+        port.on('data', onData)
+        port.on('error', onError)
+      } catch (e) {
+        cleanup(false)
+        return
+      }
+
+      timer = setTimeout(() => cleanup(false), timeoutMs)
+    })
+
+    if (ok) return baudRate
+  }
+  return null
+}
+
 
 //对比数据
 let leftDbArr, rightDbArr;
@@ -964,10 +1031,16 @@ const newSerialPortLink = ({ path, parser, baudRate = 1000000 }) => {
 function parseData(parserArr, objs, type) {
 
   let json = {}
-  Object.keys(objs).forEach((key) => {
-    const obj = parserArr[key]
-    const data = objs[key]
-    if (obj.port.isOpen) {
+    Object.keys(objs).forEach((key) => {
+      const obj = parserArr[key]
+      const data = objs[key]
+      if (!obj || !obj.port || !obj.port.isOpen) {
+        if (data && data.type) {
+          json[data.type] = { status: 'offline' }
+        }
+        return
+      }
+      if (obj.port.isOpen) {
       let blueArr = []
       // console.log(data.type)
       if (data.type && (data.type == 'HL' || data.type == 'HR')) {
@@ -1078,15 +1151,22 @@ async function connectPort() {
         dataItem.fixedType = fixedType
         dataItem.type = fixedType
       }
-    // parserItem 
-    parserItem.parser = new DelimiterParser({ delimiter: splitBuffer })
+      parserItem.baudRate = portBaudRate
+      // parserItem 
+      parserItem.parser = new DelimiterParser({ delimiter: splitBuffer })
 
     const { parser } = parserItem
 
     // if()
 
-    if (!(parserItem.port && parserItem.port.isOpen)) {
-      const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate: portBaudRate })
+      if (!(parserItem.port && parserItem.port.isOpen)) {
+        const detectedBaud = await detectBaudRate(path)
+        if (detectedBaud) {
+          portBaudRate = detectedBaud
+        }
+        console.log('[baud]', path, '=>', portBaudRate, detectedBaud ? '(detected)' : '')
+        parserItem.baudRate = portBaudRate
+        const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate: portBaudRate })
 
       // linkIngPort.push(port)
 
@@ -1825,20 +1905,23 @@ function storageData(data) {
 setInterval(() => {
   if (Object.keys(parserArr).length) {
     Object.keys(parserArr).map((path) => {
-      // parserArr[path].port
-      if (parserArr[path] && !parserArr[path].port.isOpen) {
-        parserArr[path].port = new SerialPort(
+      const item = parserArr[path]
+      if (!item) return
+      const port = item.port
+      if (!port || !port.isOpen) {
+        const reopenBaud = item.baudRate || baudRate
+        item.port = new SerialPort(
           {
             path: path,
-            baudRate: baudRate,
+            baudRate: reopenBaud,
             autoOpen: true,
           },
           function (err) {
             console.log(err, "err");
           }
         );
-        //管道添加解析器
-        parserArr[path].port.pipe(parserArr[path].parser);
+        //???????
+        item.port.pipe(item.parser);
       }
     })
 

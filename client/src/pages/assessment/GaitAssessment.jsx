@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Play, X, ArrowLeftRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PressureChart, NormalDistributionChart } from '@/components/charts/PressureChart'
-import { FootLenScene } from 'shroomcomlibrary/heatmap/foot-len'
+import { FootSinkScene } from 'shroomcomlibrary/heatmap/foot-sink'
 import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
 import { useSensorSocket } from '@/contexts/SensorSocketContext'
@@ -26,7 +26,25 @@ const normalDistributionData = Array.from({ length: 100 }, (_, i) => {
   }
 })
 
+const EMPTY_4096 = new Array(4096).fill(0)
+
 const GAIT_PROGRESS_KEY = 'jqtools.gaitProgress'
+
+const stitchFootRows = (f1, f2, f3, f4) => {
+  const out = new Array(64 * 256)
+  let idx = 0
+  const blocks = [f1, f2, f3, f4]
+  for (let r = 0; r < 64; r++) {
+    const rowBase = r * 64
+    for (let b = 0; b < 4; b++) {
+      const block = blocks[b]
+      for (let c = 0; c < 64; c++) {
+        out[idx++] = block[rowBase + c] ?? 0
+      }
+    }
+  }
+  return out
+}
 
 
 export default function GaitAssessment() {
@@ -46,12 +64,7 @@ export default function GaitAssessment() {
   const latestFootRef = useRef({ foot1: null, foot2: null, foot3: null, foot4: null })
   const latestFootSeqRef = useRef(0)
   const lastFootUiSeqRef = useRef(0)
-  const [sensorData, setSensorData] = useState({
-    sensor1: [],
-    sensor2: [],
-    sensor3: [],
-    sensor4: []
-  })
+  const [realtimeData, setRealtimeData] = useState(null)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -98,12 +111,11 @@ export default function GaitAssessment() {
       if (!seq || seq == lastFootUiSeqRef.current) return
       lastFootUiSeqRef.current = seq
       const { foot1, foot2, foot3, foot4 } = latestFootRef.current
-      setSensorData({
-        sensor1: foot1 || [],
-        sensor2: foot2 || [],
-        sensor3: foot3 || [],
-        sensor4: foot4 || []
-      })
+      const f1 = Array.isArray(foot1) && foot1.length === 4096 ? foot1 : EMPTY_4096
+      const f2 = Array.isArray(foot2) && foot2.length === 4096 ? foot2 : EMPTY_4096
+      const f3 = Array.isArray(foot3) && foot3.length === 4096 ? foot3 : EMPTY_4096
+      const f4 = Array.isArray(foot4) && foot4.length === 4096 ? foot4 : EMPTY_4096
+      setRealtimeData(stitchFootRows(f1, f2, f3, f4))
     })
     return () => unsubscribe?.()
   }, [])
@@ -273,11 +285,13 @@ export default function GaitAssessment() {
             ) : (
               <>
                 <div className="w-full h-full">
-                  <FootLenScene
+                  <FootSinkScene
                     showHeatmap
-                    depthScale={0.1}
-                    smoothness={0.5}
-                    sensorData={sensorData}
+                    enableClipping={false}
+                    clipLevel={0.35}
+                    depthScale={0.35}
+                    smoothness={0.6}
+                    realtimeData={realtimeData}
                   />
                 </div>
                 
