@@ -6,8 +6,10 @@
   "scripts": {
     "start": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "electron-builder -w",
-    "build:mac": "electron-builder -m"
+    "build:renderer": "npm --prefix client run build",
+    "copy:renderer": "node scripts/copy-renderer.js",
+    "build": "npm run build:renderer && npm run copy:renderer && electron-builder -w",
+    "build:mac": "npm run build:renderer && npm run copy:renderer && electron-builder -m"
   },
   "author": "",
   "license": "ISC",

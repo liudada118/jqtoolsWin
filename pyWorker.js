@@ -7,9 +7,15 @@ const fs = require('fs');
 
 
 // console.log('userData from env:', process.workerData.isPackaged);
-let isPackaged = process.env.isPackaged == 'true'
-// isPackaged = isPackaged == 'true'
-// isPackaged = true
+let isPackaged = false
+if (typeof process.env.isPackaged !== 'undefined') {
+  isPackaged = process.env.isPackaged == 'true'
+} else {
+  try {
+    const { app } = require('electron')
+    if (app) isPackaged = app.isPackaged
+  } catch {}
+}
 console.log(process.resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(process.resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
 function pythonBin() {
   const isDev = !isPackaged;

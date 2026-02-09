@@ -26,11 +26,21 @@ console.log('userData from env:', typeof process.env.isPackaged);
 let { isPackaged, appPath } = process.env
 isPackaged = isPackaged == 'true'
 const app = express()
-const pdfDir = isPackaged
-  ? path.join(process.resourcesPath, 'OneStep')
-  : path.join(__dirname, '..', 'OneStep')
+const userDataDir =
+  typeof process.env.userData === 'string' && process.env.userData.trim()
+    ? process.env.userData.trim()
+    : null
+const resourcesBase =
+  process.env.resourcesPath ||
+  process.resourcesPath ||
+  (appPath ? path.dirname(appPath) : __dirname)
+const storageBase = isPackaged ? (userDataDir || resourcesBase) : path.join(__dirname, '..')
 
-const uploadDir = path.join(__dirname, '../img')
+let pdfDir = path.join(storageBase, 'OneStep')
+let uploadDir = path.join(storageBase, 'img')
+if (!fs.existsSync(pdfDir)) {
+  fs.mkdirSync(pdfDir, { recursive: true })
+}
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true })
 }

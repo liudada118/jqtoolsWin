@@ -254,7 +254,9 @@ function startApiChild() {
     const child = fork(path.join(__dirname, './server/serialServer.js'), {
       env: {
         isPackaged: isPackaged,
-        appPath: app.getAppPath()
+        appPath: app.getAppPath(),
+        userData: app.getPath('userData'),
+        resourcesPath: process.resourcesPath
       }
     })
 
