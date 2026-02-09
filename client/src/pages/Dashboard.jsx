@@ -310,7 +310,7 @@ export default function Dashboard() {
       <div className="absolute bottom-8 left-8 text-xs text-gray-400 font-medium">
         powered by 矩侨工业
       </div>
-      {allCompleted && (
+      { (
         <button
           onClick={handleRestartAll}
           className="absolute bottom-8 right-8 rounded-full bg-blue-600 text-white px-6 py-3 text-sm font-medium shadow-lg hover:bg-blue-700 transition-colors"

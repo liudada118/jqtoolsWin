@@ -51,10 +51,13 @@ function isAllDigits(str) {
 }
 
 
-function dbload(db, param, file, isPackaged) {
-  const selectQuery = "select * from matrix WHERE date=?";
+function dbload(db, param, file, isPackaged, byAssessmentId = false) {
+  const selectQuery = byAssessmentId
+    ? "select * from matrix WHERE assessment_id=?"
+    : "select * from matrix WHERE date=?";
   return new Promise((resolve, reject) => {
-    db.all(selectQuery, param, (err, rows) => {
+    const params = Array.isArray(param) ? param : [param];
+    db.all(selectQuery, params, (err, rows) => {
       if (err) {
         console.error(err);
       } else {
@@ -63,7 +66,18 @@ function dbload(db, param, file, isPackaged) {
         if (!rows.length) return;
         const csvWriteBackData = [];
         console.log(selectQuery, param, rows)
-        let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
+        const parsedRows = rows.map((row) => {
+          try {
+            return JSON.parse(row[`data`] || '{}')
+          } catch {
+            return {}
+          }
+        })
+        const keySet = new Set()
+        parsedRows.forEach((obj) => {
+          Object.keys(obj || {}).forEach((k) => keySet.add(k))
+        })
+        let keyArr = Array.from(keySet)
 
         // 定义数据
         for (var i = 0, j = 0; i < rows.length; i++, j++) {
@@ -73,8 +87,9 @@ function dbload(db, param, file, isPackaged) {
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
 
-            if (!JSON.parse(rows[i][`data`])[key]) continue
-            const data = JSON.parse(rows[i][`data`])[key].arr
+            const rowObj = parsedRows[i] || {}
+            if (!rowObj[key]) continue
+            const data = Array.isArray(rowObj[key]) ? rowObj[key] : rowObj[key].arr
             if (!data) continue
 
             if (j == 0) {
@@ -171,7 +186,7 @@ function dbload(db, param, file, isPackaged) {
   })
 }
 
-async function dbLoadCsv({ db, params, file, isPackaged }) {
+async function dbLoadCsv({ db, params, file, isPackaged, byAssessmentId = false }) {
   const selectQuery = "select * from matrix WHERE date=?";
   // params.forEach((param) => {
   //   db.all(selectQuery, param, (err, rows) => {
@@ -253,7 +268,7 @@ async function dbLoadCsv({ db, params, file, isPackaged }) {
   //     }
   //   });
   // })
-  const promises = params.map((param) => dbload(db, param, file, isPackaged))
+  const promises = params.map((param) => dbload(db, param, file, isPackaged, byAssessmentId))
   const results = await Promise.all(promises);
   console.log(results, promises, 'result')
   return results
@@ -299,8 +314,10 @@ async function changeDbName({ db, params }) {
   });
 }
 
-async function dbGetData({ db, params }) {
-  const selectQuery = "select * from matrix WHERE date=?";
+async function dbGetData({ db, params, byAssessmentId = false }) {
+  const selectQuery = byAssessmentId
+    ? "select * from matrix WHERE assessment_id=?"
+    : "select * from matrix WHERE date=?";
 
   // const params = [time];
   return new Promise((resolve, reject) => {
@@ -330,7 +347,20 @@ async function dbGetData({ db, params }) {
           area = [];
         console.log(rows , 'rows',params)
         
-        let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
+        const parsedRows = rows.map((row) => {
+          try {
+            return JSON.parse(row[`data`] || '{}')
+          } catch {
+            return {}
+          }
+        })
+
+        const keySet = new Set()
+        parsedRows.forEach((obj) => {
+          Object.keys(obj || {}).forEach((k) => keySet.add(k))
+        })
+        const keyArr = Array.from(keySet)
+
         let pressValue = {}, areaValue = {} , dataValue = {}
         for (let j = 0; j < keyArr.length; j++) {
           const key = keyArr[j]
@@ -339,14 +369,12 @@ async function dbGetData({ db, params }) {
           dataValue[key] = []
         }
         for (let i = 0; i < rows.length; i++) {
-
-
-
+          const rowObj = parsedRows[i] || {}
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
-            if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
-            
-            const data = JSON.parse(rows[i][`data`])[key].arr
+            const item = rowObj[key]
+            const data = Array.isArray(item) ? item : item?.arr
+            if (!Array.isArray(data)) continue
             dataValue[key].push(data)
             pressValue[key].push(data.reduce((a, b) => a + b, 0))
             areaValue[key].push(data.filter((a) => a > 0).length)

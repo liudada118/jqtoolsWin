@@ -10,24 +10,35 @@ const defaultUser = {
   weight: ''
 }
 
-export function AssessmentProvider({ children }) {
-  const [user, setUser] = useState(defaultUser)
+function readStoredUser() {
+  if (typeof window === 'undefined') return defaultUser
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return defaultUser
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return defaultUser
+    return { ...defaultUser, ...parsed }
+  } catch {}
+  return defaultUser
+}
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        setUser({ ...defaultUser, ...parsed })
-      }
-    } catch {}
-  }, [])
+export function AssessmentProvider({ children }) {
+  const [user, setUser] = useState(readStoredUser)
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
     } catch {}
   }, [user])
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== STORAGE_KEY) return
+      setUser(readStoredUser())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const value = useMemo(() => ({ user, setUser }), [user])
 

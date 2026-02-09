@@ -327,6 +327,22 @@ export default function GripAssessment() {
   const lastHeatmapHandRef = useRef('left')
   const collectStartTsRef = useRef(null)
 
+  const buildReportUrl = (sampleType) => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = String(1 || '').replace(/\D/g, '')
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(base)}.pdf`
+  }
+
   const steps = [
     { id: 'left', label: '左手' },
     { id: 'right', label: '右手' },
@@ -541,9 +557,14 @@ export default function GripAssessment() {
       setStatus('processing')
       setCurrentStep(2)
       
+      let assessmentId = null
+      try {
+        assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+      } catch {}
       const timestamp = collectStartTsRef.current || Date.now()
       const payload = {
         timestamp,
+        assessmentId,
         collectName: displayName || '',
         userName: user?.name || displayName || '',
         age: user?.age || '',
@@ -551,18 +572,19 @@ export default function GripAssessment() {
         userId: user?.id || ''
       }
 
-      const apiCall = fetch(`${COLLECT_API_BASE}/getHandPdf`, {
+      fetch(`${COLLECT_API_BASE}/getHandPdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }).catch(() => null)
-
-      Promise.race([
-        apiCall,
-        new Promise((resolve) => setTimeout(resolve, 2000))
-      ]).finally(() => {
-        setShowCompleteDialog(true)
       })
+        .then((res) => {
+          if (!res.ok) throw new Error('getHandPdf failed')
+          return res.json()
+        })
+        .then(() => {
+          setShowCompleteDialog(true)
+        })
+        .catch(() => {})
     }
   }
 
@@ -792,7 +814,7 @@ export default function GripAssessment() {
               /* 静态报告 - PDF 显示 */
               <div className="w-full h-full max-w-4xl mx-auto p-4">
                 <iframe 
-                  src="/assets/static_report.pdf"
+                  src={buildReportUrl(currentHand === 'left' ? '1' : '2')}
                   className="w-full h-full rounded-xl shadow-xl bg-white"
                   title="静态报告"
                 />

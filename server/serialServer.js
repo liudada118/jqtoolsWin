@@ -56,8 +56,32 @@ function sanitizeFilename(name) {
   return safe
 }
 
+function buildReportBaseName({ assessmentId, name, sampleType, fallback }) {
+  const idStr = assessmentId ? String(assessmentId) : ''
+  const nameStr = name ? String(decodeField(name)).trim() : ''
+  const sampleDigits = sampleType ? String(sampleType).replace(/\D/g, '') : ''
+  const parts = []
+  if (idStr) parts.push(idStr)
+  if (nameStr) parts.push(nameStr)
+  if (sampleDigits) parts.push(sampleDigits)
+  let raw = parts.join('_')
+  // if (sampleDigits === '4') raw += 'OneStepReport'
+  if (!raw) raw = fallback ? String(fallback) : ''
+  const safe = sanitizeFilename(raw)
+  return safe || sanitizeFilename(String(fallback || 'report')) || 'report'
+}
+
+function pickName(dbName, reqName) {
+  const a = decodeField(dbName)
+  const b = decodeField(reqName)
+  const aStr = typeof a === 'string' ? a.trim() : ''
+  const bStr = typeof b === 'string' ? b.trim() : ''
+  return aStr || bStr || ''
+}
+
 function fixMojibake(value) {
   if (typeof value !== 'string') return value
+  if (/[\u3400-\u9FFF]/.test(value)) return value
   try {
     const buf = Buffer.from(value, 'latin1')
     const utf = buf.toString('utf8')
@@ -85,7 +109,64 @@ function decodeMaybeUri(value) {
 }
 
 function decodeField(value) {
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8')
+  }
+  if (typeof value !== 'string') return value
   return decodeMaybeUri(fixMojibake(value))
+}
+
+function normalizeAssessmentId(value) {
+  if (value === null || value === undefined) return null
+  const str = String(value).trim()
+  return str ? str : null
+}
+
+async function resolveAssessmentContext(db, req, rawTimestamp) {
+  let assessmentId = normalizeAssessmentId(
+    req?.body?.assessmentId ?? req?.query?.assessmentId
+  )
+  const tsNum = Number(rawTimestamp)
+  let matchedDate = null
+  let matchedTimestamp = null
+
+  const pickRow = async (sql, params) =>
+    new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) return reject(err)
+        resolve(row || null)
+      })
+    })
+
+  if (Number.isFinite(tsNum)) {
+    let row = await pickRow(
+      "select date, timestamp, assessment_id from matrix WHERE timestamp = ?",
+      [tsNum]
+    )
+    if (!row) {
+      row = await pickRow(
+        "select date, timestamp, assessment_id from matrix ORDER BY ABS(timestamp - ?) ASC LIMIT 1",
+        [tsNum]
+      )
+    }
+    if (row) {
+      matchedDate = row.date || null
+      matchedTimestamp = row.timestamp || null
+      if (!assessmentId) assessmentId = normalizeAssessmentId(row.assessment_id)
+    }
+  } else if (rawTimestamp) {
+    const row = await pickRow(
+      "select date, timestamp, assessment_id from matrix WHERE date = ? ORDER BY timestamp DESC LIMIT 1",
+      [String(rawTimestamp)]
+    )
+    if (row) {
+      matchedDate = row.date || null
+      matchedTimestamp = row.timestamp || null
+      if (!assessmentId) assessmentId = normalizeAssessmentId(row.assessment_id)
+    }
+  }
+
+  return { assessmentId, matchedDate, matchedTimestamp, tsNum }
 }
 
 function flipFoot64x64Horizontal(arr) {
@@ -440,6 +521,7 @@ let colPersonName = ''
 // 选择数据库数据
 let historyDbArr;
 let lastFootPointArr = [], pdfArrData = [], pdfReportName = '', pdfReport = '', pdfReportSex = ''
+let pdfReportMeta = { assessmentId: '', name: '', sampleType: '', fallback: '' }
 
 function getActiveSendIntervalMs() {
   if (!activeSendTypes || !Array.isArray(activeSendTypes) || !activeSendTypes.length) return null
@@ -610,8 +692,16 @@ app.get('/OneStep/:name', (req, res) => {
       res.status(403).send('Forbidden')
       return
     }
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', 'inline')
+    const ext = path.extname(safeName).toLowerCase()
+    let contentType = 'application/octet-stream'
+    if (ext === '.pdf') contentType = 'application/pdf'
+    else if (ext === '.mp4') contentType = 'video/mp4'
+    else if (ext === '.json') contentType = 'application/json'
+    else if (ext === '.png') contentType = 'image/png'
+    res.setHeader('Content-Type', contentType)
+    if (ext === '.pdf') {
+      res.setHeader('Content-Disposition', 'inline')
+    }
     res.sendFile(resolvedPath, (err) => {
       if (err) {
         res.status(err.statusCode || 404).send('Not Found')
@@ -707,25 +797,32 @@ app.post('/uploadCanvas', upload.single('file'), async (req, res) => {
       (typeof req.query.date === 'string' && req.query.date.trim()) ||
       ''
     const sanitizedRequested = sanitizeFilename(requestedDate)
-    if (!sanitizedRequested) {
+    const resolvedName = pickName(pdfReportMeta.name, req.body.collectName)
+    const baseName = buildReportBaseName({
+      assessmentId: pdfReportMeta.assessmentId || req.body.assessmentId,
+      name: resolvedName,
+      sampleType: pdfReportMeta.sampleType || req.body.sample_type || req.body.sampleType,
+      fallback: sanitizedRequested || requestedDate
+    })
+    if (!baseName) {
       fs.unlinkSync(req.file.path)
       res.json(new HttpResult(1, {}, 'missing date'));
       return
     }
-    const finalName = `${sanitizedRequested}.png`
+    const finalName = `${baseName}.png`
     const newPath = path.join(uploadDir, finalName)
     fs.renameSync(req.file.path, newPath)
     req.file.filename = finalName
     req.file.path = newPath
     req.file.destination = uploadDir
     const absolutePath = path.resolve(req.file.path)
-    const name = `${pdfPath}/${sanitizedRequested}`
-    console.log(pdfArrData[0], name, `${imgPath}/${req.file.filename}.png`)
+    const name = `${pdfPath}/${baseName}`
+    console.log(pdfArrData[0], name, `${imgPath}/${baseName}.png`)
     const pdf = await callPy('generate_foot_pressure_report', {
       data_array: pdfArrData,
       name: name,
-      heatmap_png_path: `${imgPath}/${sanitizedRequested}.png`,
-      user_name: req.body.collectName,
+      heatmap_png_path: `${imgPath}/${baseName}.png`,
+      user_name: resolvedName,
       user_age: req.body.age,
       user_gender: req.body.gender,
       user_id: req.body.userId || 9527,
@@ -747,56 +844,36 @@ app.post('/getHandPdf' , async (req , res) => {
       req.query?.date ??
       ''
 
-    if (rawTimestamp === '') {
-      res.json(new HttpResult(1, {}, 'missing timestamp'))
+    const { assessmentId, matchedDate, matchedTimestamp, tsNum } =
+      await resolveAssessmentContext(currentDb, req, rawTimestamp)
+
+    if (!assessmentId) {
+      res.json(new HttpResult(1, {}, 'missing assessment_id'))
       return
     }
 
-    const tsNum = Number(rawTimestamp)
-    let matchedDate = null
-    let matchedTimestamp = null
+    const { dataArr, rows } = await dbGetData({
+      db: currentDb,
+      params: [assessmentId],
+      byAssessmentId: true
+    })
 
-    if (Number.isFinite(tsNum)) {
-      const exactRow = await new Promise((resolve, reject) => {
-        currentDb.get(
-          "select date, timestamp from matrix WHERE timestamp = ?",
-          [tsNum],
-          (err, row) => {
-            if (err) return reject(err)
-            resolve(row || null)
-          }
-        )
-      })
-
-      if (exactRow && exactRow.date) {
-        matchedDate = exactRow.date
-        matchedTimestamp = exactRow.timestamp
-      } else {
-        const nearestRow = await new Promise((resolve, reject) => {
-          currentDb.get(
-            "select date, timestamp from matrix ORDER BY ABS(timestamp - ?) ASC LIMIT 1",
-            [tsNum],
-            (err, row) => {
-              if (err) return reject(err)
-              resolve(row || null)
-            }
-          )
-        })
-        if (nearestRow && nearestRow.date) {
-          matchedDate = nearestRow.date
-          matchedTimestamp = nearestRow.timestamp
-        }
-      }
-    } else {
-      matchedDate = String(rawTimestamp)
-    }
-
-    if (!matchedDate) {
-      res.json(new HttpResult(1, {}, 'no data for timestamp'))
+    if (!rows || !rows.length) {
+      res.json(new HttpResult(1, {}, 'no data for assessment_id'))
       return
     }
 
-    const { dataArr } = await dbGetData({ db: currentDb, params: [matchedDate] })
+    const targetTs = Number(matchedTimestamp ?? tsNum)
+    const bestRow = Array.isArray(rows) && rows.length
+      ? rows.reduce((best, row) => {
+          const t = Number(row?.timestamp)
+          if (!Number.isFinite(t)) return best
+          if (!best) return row
+          const bestT = Number(best?.timestamp)
+          if (!Number.isFinite(bestT)) return row
+          return Math.abs(t - targetTs) < Math.abs(bestT - targetTs) ? row : best
+        }, null)
+      : null
     const keys = Object.keys(dataArr || {})
     const leftKey = keys.find((k) => k === 'HL' || /left|lhand|handl|左/i.test(k))
     const rightKey = keys.find((k) => k === 'HR' || /right|rhand|handr|右/i.test(k))
@@ -809,10 +886,22 @@ app.post('/getHandPdf' , async (req , res) => {
       return
     }
 
-    const safeDate = sanitizeFilename(String(matchedDate || rawTimestamp)) || String(Date.now())
-    const basePath = path.join(pdfPath, safeDate)
+    const safeDate =
+      sanitizeFilename(String(matchedDate || bestRow?.date || rawTimestamp || Date.now())) ||
+      String(Date.now())
+    const resolvedName = pickName(
+      bestRow ? bestRow.name : '',
+      req.body?.collectName || req.body?.userName || ''
+    )
+    const baseName = buildReportBaseName({
+      assessmentId: bestRow ? bestRow.assessment_id : '',
+      name: resolvedName,
+      sampleType: '',
+      fallback: safeDate
+    })
+    const basePath = path.join(pdfPath, baseName)
 
-    const userName = req.body?.collectName ?? req.body?.userName ?? ''
+    const userName = resolvedName || ''
     const userAge = req.body?.age ?? req.body?.userAge ?? ''
     const userGender = req.body?.gender ?? req.body?.userGender ?? ''
     const userId = req.body?.userId ?? 9527
@@ -821,7 +910,7 @@ app.post('/getHandPdf' , async (req , res) => {
       ? await callPy('process_glove_data_from_array', {
           sensor_array: leftArr,
           hand_type: '左手',
-          name: `${basePath}_左手`,
+          name: `${basePath}_1`,
           user_name: userName,
           user_age: userAge,
           user_gender: userGender,
@@ -833,7 +922,7 @@ app.post('/getHandPdf' , async (req , res) => {
       ? await callPy('process_glove_data_from_array', {
           sensor_array: rightArr,
           hand_type: '右手',
-          name: `${basePath}_右手`,
+          name: `${basePath}_2`,
           user_name: userName,
           user_age: userAge,
           user_gender: userGender,
@@ -845,7 +934,7 @@ app.post('/getHandPdf' , async (req , res) => {
       new HttpResult(
         0,
         {
-          date: matchedDate,
+          date: matchedDate || bestRow?.date || rawTimestamp,
           timestamp: matchedTimestamp ?? tsNum,
           left: leftResult,
           right: rightResult,
@@ -870,60 +959,19 @@ app.post('/getSitAndFootPdf', async (req, res) => {
       req.query?.date ??
       ''
 
-    if (rawTimestamp === '') {
-      res.json(new HttpResult(1, {}, 'missing timestamp'))
-      return
-    }
+    const { assessmentId, matchedDate, matchedTimestamp, tsNum } =
+      await resolveAssessmentContext(currentDb, req, rawTimestamp)
 
-    const tsNum = Number(rawTimestamp)
-    let matchedDate = null
-    let matchedTimestamp = null
-
-    if (Number.isFinite(tsNum)) {
-      const exactRow = await new Promise((resolve, reject) => {
-        currentDb.get(
-          "select date, timestamp from matrix WHERE timestamp = ?",
-          [tsNum],
-          (err, row) => {
-            if (err) return reject(err)
-            resolve(row || null)
-          }
-        )
-      })
-
-      if (exactRow && exactRow.date) {
-        matchedDate = exactRow.date
-        matchedTimestamp = exactRow.timestamp
-      } else {
-        const nearestRow = await new Promise((resolve, reject) => {
-          currentDb.get(
-            "select date, timestamp from matrix ORDER BY ABS(timestamp - ?) ASC LIMIT 1",
-            [tsNum],
-            (err, row) => {
-              if (err) return reject(err)
-              resolve(row || null)
-            }
-          )
-        })
-        if (nearestRow && nearestRow.date) {
-          matchedDate = nearestRow.date
-          matchedTimestamp = nearestRow.timestamp
-        }
-      }
-    } else {
-      matchedDate = String(rawTimestamp)
-    }
-
-    if (!matchedDate) {
-      res.json(new HttpResult(1, {}, 'no data for timestamp'))
+    if (!assessmentId) {
+      res.json(new HttpResult(1, {}, 'missing assessment_id'))
       return
     }
 
     const sampleType = '3'
     const rows = await new Promise((resolve, reject) => {
       currentDb.all(
-        "select * from matrix WHERE date=? AND sample_type=?",
-        [matchedDate, sampleType],
+        "select * from matrix WHERE assessment_id=? AND sample_type=?",
+        [assessmentId, sampleType],
         (err, data) => {
           if (err) return reject(err)
           resolve(data || [])
@@ -934,9 +982,19 @@ app.post('/getSitAndFootPdf', async (req, res) => {
     console.log(rows)
 
     if (!rows || !rows.length) {
-      res.json(new HttpResult(1, {}, 'no data for date'))
+      res.json(new HttpResult(1, {}, 'no data for assessment_id'))
       return
     }
+
+    const targetTs = Number(matchedTimestamp ?? tsNum)
+    const bestRow = rows.reduce((best, row) => {
+      const t = Number(row?.timestamp)
+      if (!Number.isFinite(t)) return best
+      if (!best) return row
+      const bestT = Number(best?.timestamp)
+      if (!Number.isFinite(bestT)) return row
+      return Math.abs(t - targetTs) < Math.abs(bestT - targetTs) ? row : best
+    }, null)
 
     const firstObj = (() => {
       try {
@@ -1006,8 +1064,29 @@ app.post('/getSitAndFootPdf', async (req, res) => {
       return
     }
 
-    const safeDate = sanitizeFilename(String(matchedDate || rawTimestamp)) || String(Date.now())
-    const pdfName = `${safeDate}_sit_and_foot.pdf`
+    const safeDate =
+      sanitizeFilename(String(matchedDate || bestRow?.date || rawTimestamp || Date.now())) ||
+      String(Date.now())
+    const resolvedName = pickName(
+      bestRow ? bestRow.name : '',
+      req.body?.collectName || req.body?.userName || ''
+    )
+    const baseName = buildReportBaseName({
+      assessmentId: bestRow ? bestRow.assessment_id : '',
+      name: resolvedName,
+      sampleType: sampleType,
+      fallback: safeDate
+    })
+    const pdfName = `${baseName}.pdf`
+
+    console.log('[getSitAndFootPdf] frame lengths:', {
+      standFrames: standData.length,
+      sitFrames: sitData.length,
+      standFrameSize: Array.isArray(standData[0]) ? standData[0].length : null,
+      sitFrameSize: Array.isArray(sitData[0]) ? sitData[0].length : null,
+      standTimes: standTimes.length,
+      sitTimes: sitTimes.length
+    })
 
     const pdfResult = await callPy('process_and_generate_report', {
       stand_data_seq: standData,
@@ -1018,11 +1097,24 @@ app.post('/getSitAndFootPdf', async (req, res) => {
       pdf_name: pdfName
     })
 
+    try {
+      const videoName = `${baseName}_combined_dashboard.mp4`
+      await callPy('generate_combined_dashboard', {
+        d_stand: standData,
+        t_stand: standTimes,
+        d_sit: sitData,
+        t_sit: sitTimes,
+        output_filename: path.join(pdfPath, videoName)
+      })
+    } catch (e) {
+      console.error('generate_combined_dashboard failed:', e)
+    }
+
     res.json(
       new HttpResult(
         0,
         {
-          date: matchedDate,
+          date: matchedDate || bestRow?.date || rawTimestamp,
           timestamp: matchedTimestamp ?? tsNum,
           pdf_name: pdfName,
           result: pdfResult
@@ -1047,60 +1139,19 @@ app.post('/getFootPdf', async (req, res) => {
       req.query?.date ??
       ''
 
-    if (rawTimestamp === '') {
-      res.json(new HttpResult(1, {}, 'missing timestamp'))
-      return
-    }
+    const { assessmentId, matchedDate, matchedTimestamp, tsNum } =
+      await resolveAssessmentContext(currentDb, req, rawTimestamp)
 
-    const tsNum = Number(rawTimestamp)
-    let matchedDate = null
-    let matchedTimestamp = null
-
-    if (Number.isFinite(tsNum)) {
-      const exactRow = await new Promise((resolve, reject) => {
-        currentDb.get(
-          "select date, timestamp from matrix WHERE timestamp = ?",
-          [tsNum],
-          (err, row) => {
-            if (err) return reject(err)
-            resolve(row || null)
-          }
-        )
-      })
-
-      if (exactRow && exactRow.date) {
-        matchedDate = exactRow.date
-        matchedTimestamp = exactRow.timestamp
-      } else {
-        const nearestRow = await new Promise((resolve, reject) => {
-          currentDb.get(
-            "select date, timestamp from matrix ORDER BY ABS(timestamp - ?) ASC LIMIT 1",
-            [tsNum],
-            (err, row) => {
-              if (err) return reject(err)
-              resolve(row || null)
-            }
-          )
-        })
-        if (nearestRow && nearestRow.date) {
-          matchedDate = nearestRow.date
-          matchedTimestamp = nearestRow.timestamp
-        }
-      }
-    } else {
-      matchedDate = String(rawTimestamp)
-    }
-
-    if (!matchedDate) {
-      res.json(new HttpResult(1, {}, 'no data for timestamp'))
+    if (!assessmentId) {
+      res.json(new HttpResult(1, {}, 'missing assessment_id'))
       return
     }
 
     const sampleTypeRaw = '5'
     const rows = await new Promise((resolve, reject) => {
       currentDb.all(
-        "select * from matrix WHERE date=? AND sample_type=?",
-        [matchedDate, sampleTypeRaw],
+        "select * from matrix WHERE assessment_id=? AND sample_type=?",
+        [assessmentId, sampleTypeRaw],
         (err, data) => {
           if (err) return reject(err)
           resolve(data || [])
@@ -1109,9 +1160,19 @@ app.post('/getFootPdf', async (req, res) => {
     })
 
     if (!rows || !rows.length) {
-      res.json(new HttpResult(1, {}, 'no data for date'))
+      res.json(new HttpResult(1, {}, 'no data for assessment_id'))
       return
     }
+
+    const targetTs = Number(matchedTimestamp ?? tsNum)
+    const bestRow = rows.reduce((best, row) => {
+      const t = Number(row?.timestamp)
+      if (!Number.isFinite(t)) return best
+      if (!best) return row
+      const bestT = Number(best?.timestamp)
+      if (!Number.isFinite(bestT)) return row
+      return Math.abs(t - targetTs) < Math.abs(bestT - targetTs) ? row : best
+    }, null)
 
     const formatTimestamp = (ts) => {
       const d = new Date(ts)
@@ -1159,9 +1220,21 @@ app.post('/getFootPdf', async (req, res) => {
       return
     }
 
-    const safeDate = sanitizeFilename(String(matchedDate || rawTimestamp)) || String(Date.now())
-    const pdfPathOut = path.join(pdfPath, `${safeDate}_foot.pdf`)
-    const csvPathOut = path.join(pdfPath, `${safeDate}_foot_input.csv`)
+    const safeDate =
+      sanitizeFilename(String(matchedDate || bestRow?.date || rawTimestamp || Date.now())) ||
+      String(Date.now())
+    const resolvedName = pickName(
+      bestRow ? bestRow.name : '',
+      req.body?.collectName || req.body?.userName || ''
+    )
+    const baseName = buildReportBaseName({
+      assessmentId: bestRow ? bestRow.assessment_id : '',
+      name: resolvedName,
+      sampleType: sampleTypeRaw,
+      fallback: safeDate
+    })
+    const pdfPathOut = path.join(pdfPath, `${baseName}.pdf`)
+    const csvPathOut = path.join(pdfPath, `${baseName}_input.csv`)
     const bodyWeightKg = Number(req.body?.body_weight_kg ?? req.body?.bodyWeightKg ?? 80)
 
     // try {
@@ -1191,6 +1264,16 @@ app.post('/getFootPdf', async (req, res) => {
     //   console.error('write foot csv failed', e)
     // }
 
+    console.log('[getFootPdf] frame lengths:', {
+      d1: data1.length,
+      d2: data2.length,
+      d3: data3.length,
+      d4: data4.length,
+      t1: t1.length,
+      t2: t2.length,
+      t3: t3.length,
+      t4: t4.length
+    })
     const pdfResult = await callPy('analyze_gait_and_build_report', {
       d1: data1,
       d2: data2,
@@ -1204,11 +1287,29 @@ app.post('/getFootPdf', async (req, res) => {
       output_pdf: pdfPathOut
     })
 
+    try {
+      const videoName = `${baseName}_dashboard.mp4`
+      const videoPathOut = path.join(pdfPath, videoName)
+      await callPy('generate_dashboard_video', {
+        d1: data1,
+        d2: data2,
+        d3: data3,
+        d4: data4,
+        t1,
+        t2,
+        t3,
+        t4,
+        output_filename: videoPathOut
+      })
+    } catch (e) {
+      console.error('generate_dashboard_video failed:', e)
+    }
+
     res.json(
       new HttpResult(
         0,
         {
-          date: matchedDate,
+          date: matchedDate || bestRow?.date || rawTimestamp,
           timestamp: matchedTimestamp ?? tsNum,
           pdf_path: pdfPathOut,
           csv_path: csvPathOut,
@@ -1354,14 +1455,14 @@ app.get('/getColHistory', async (req, res) => {
   //   "select DISTINCT date,timestamp, `select` from matrix ORDER BY timestamp DESC LIMIT ?,?";
 
   const selectQuery = `
-  SELECT m.date, m.timestamp, m.name, m.\`select\`
+  SELECT m.assessment_id, m.date, m.timestamp, m.name, m.\`select\`
   FROM matrix m
   INNER JOIN (
-    SELECT date, MAX(timestamp) AS max_ts
+    SELECT COALESCE(NULLIF(assessment_id,''), date) AS grp, MAX(timestamp) AS max_ts
     FROM matrix
-    GROUP BY date
+    GROUP BY grp
   ) t
-  ON m.date = t.date  AND m.timestamp = t.max_ts
+  ON COALESCE(NULLIF(m.assessment_id,''), m.date) = t.grp AND m.timestamp = t.max_ts
   ORDER BY m.timestamp DESC
   LIMIT ?, ?
 `;
@@ -1416,12 +1517,19 @@ app.get('/getColHistory', async (req, res) => {
 // 下载成csv
 app.post('/downlaod', async (req, res) => {
   try {
-    const { fileArr } = req.body
-    if (!fileArr.length) {
-      res.json(new HttpResult(555, '请选择先数据', 'error'));
+    const { fileArr, assessmentIds } = req.body || {}
+    const params = (assessmentIds && assessmentIds.length) ? assessmentIds : fileArr
+    if (!params || !params.length) {
+      res.json(new HttpResult(555, 'missing data', 'error'));
+      return
     }
-    const params = fileArr;
-    const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged })
+    const data = await dbLoadCsv({
+      db: currentDb,
+      params,
+      file,
+      isPackaged,
+      byAssessmentId: true
+    })
     res.json(new HttpResult(0, data, '下载'));
   } catch {
 
@@ -1457,13 +1565,26 @@ app.post('/changeDbName', async (req, res) => {
 
 // 获取数据库某个时间的所有数据
 app.post('/getDbHistory', async (req, res) => {
-  const { time } = req.body
+  const rawTimestamp =
+    req.body?.assessmentId ??
+    req.body?.time ??
+    req.body?.date ??
+    req.query?.assessmentId ??
+    req.query?.time ??
+    req.query?.date ??
+    ''
 
-  const selectQuery = "select * from matrix WHERE date=?";
+  const { assessmentId } = await resolveAssessmentContext(currentDb, req, rawTimestamp)
+  if (!assessmentId) {
+    res.json(new HttpResult(1, {}, 'missing assessment_id'))
+    return
+  }
 
-  const params = [time];
-
-  const { length, pressArr, areaArr, rows, dataArr } = await dbGetData({ db: currentDb, params })
+  const { length, pressArr, areaArr, rows, dataArr } = await dbGetData({
+    db: currentDb,
+    params: [assessmentId],
+    byAssessmentId: true
+  })
 
   const data = { length, pressArr, areaArr, dataArr }
 
@@ -1496,60 +1617,19 @@ app.post('/getDbHeatmap', async (req, res) => {
       req.query?.date ??
       ''
 
-    if (rawTimestamp === '') {
-      res.json(new HttpResult(1, {}, 'missing timestamp'))
-      return
-    }
+    const { assessmentId, matchedDate, matchedTimestamp, tsNum } =
+      await resolveAssessmentContext(currentDb, req, rawTimestamp)
 
-    const tsNum = Number(rawTimestamp)
-    let matchedDate = null
-    let matchedTimestamp = null
-
-    if (Number.isFinite(tsNum)) {
-      const exactRow = await new Promise((resolve, reject) => {
-        currentDb.get(
-          "select date, timestamp from matrix WHERE timestamp = ?",
-          [tsNum],
-          (err, row) => {
-            if (err) return reject(err)
-            resolve(row || null)
-          }
-        )
-      })
-
-      if (exactRow && exactRow.date) {
-        matchedDate = exactRow.date
-        matchedTimestamp = exactRow.timestamp
-      } else {
-        const nearestRow = await new Promise((resolve, reject) => {
-          currentDb.get(
-            "select date, timestamp from matrix ORDER BY ABS(timestamp - ?) ASC LIMIT 1",
-            [tsNum],
-            (err, row) => {
-              if (err) return reject(err)
-              resolve(row || null)
-            }
-          )
-        })
-        if (nearestRow && nearestRow.date) {
-          matchedDate = nearestRow.date
-          matchedTimestamp = nearestRow.timestamp
-        }
-      }
-    } else {
-      matchedDate = String(rawTimestamp)
-    }
-
-    if (!matchedDate) {
-      res.json(new HttpResult(1, {}, 'no data for timestamp'))
+    if (!assessmentId) {
+      res.json(new HttpResult(1, {}, 'missing assessment_id'))
       return
     }
 
     const sampleType = '4'
     const rows = await new Promise((resolve, reject) => {
       currentDb.all(
-        "select * from matrix WHERE date=? AND sample_type=?",
-        [matchedDate, sampleType],
+        "select * from matrix WHERE assessment_id=? AND sample_type=?",
+        [assessmentId, sampleType],
         (err, data) => {
           if (err) return reject(err)
           resolve(data || [])
@@ -1558,8 +1638,25 @@ app.post('/getDbHeatmap', async (req, res) => {
     })
 
     if (!rows || !rows.length) {
-      res.json(new HttpResult(1, {}, 'no data for date'))
+      res.json(new HttpResult(1, {}, 'no data for assessment_id'))
       return
+    }
+
+    const targetTs = Number(matchedTimestamp ?? tsNum)
+    const bestRow = rows.reduce((best, row) => {
+      const t = Number(row?.timestamp)
+      if (!Number.isFinite(t)) return best
+      if (!best) return row
+      const bestT = Number(best?.timestamp)
+      if (!Number.isFinite(bestT)) return row
+      return Math.abs(t - targetTs) < Math.abs(bestT - targetTs) ? row : best
+    }, null)
+
+    pdfReportMeta = {
+      assessmentId: bestRow?.assessment_id || '',
+      name: pickName(bestRow?.name || '', req.body?.collectName || req.body?.userName || ''),
+      sampleType: bestRow?.sample_type || sampleType,
+      fallback: matchedDate || bestRow?.date || rawTimestamp
     }
 
     const dataArr = {}
@@ -1595,13 +1692,19 @@ app.post('/getDbHeatmap', async (req, res) => {
 app.post('/getContrastData', async (req, res) => {
   const { left, right } = req.body
 
-  const selectQuery = "select * from matrix WHERE date=?";
-
   const params = [left];
   const params1 = [right]
 
-  const { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, rows: rowsL } = await dbGetData({ db: currentDb, params })
-  const { length, pressArr, areaArr, rows } = await dbGetData({ db: currentDb, params: params1 })
+  const { length: lengthL, pressArr: pressArrL, areaArr: areaArrL, rows: rowsL } = await dbGetData({
+    db: currentDb,
+    params,
+    byAssessmentId: true
+  })
+  const { length, pressArr, areaArr, rows } = await dbGetData({
+    db: currentDb,
+    params: params1,
+    byAssessmentId: true
+  })
 
   leftDbArr = rowsL
   rightDbArr = rows

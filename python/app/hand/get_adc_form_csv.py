@@ -924,7 +924,7 @@ def process_glove_data_from_array(sensor_array, hand_type, name, user_name, user
     print(f"  - PDF report: {pdf_path}")
     print(f"  - Timeseries CSV: {ts_csv}")
 
-    return results
+    return 'success'
 
 
 def process_glove_data(input_csv, output_csv):

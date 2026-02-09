@@ -70,6 +70,39 @@ export default function GaitAssessment() {
   const collectStartTsRef = useRef(null)
   const [realtimeData, setRealtimeData] = useState(null)
 
+  const buildReportUrl = (sampleType) => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = String(sampleType || '').replace(/\D/g, '')
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(base)}.pdf`
+  }
+
+  const buildDynamicVideoUrl = () => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = '5'
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    const videoName = `${base}_dashboard.mp4`
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(videoName)}`
+  }
+
   useEffect(() => {
     if (mode === 'report') return
     let assessmentId = null
@@ -194,9 +227,14 @@ export default function GaitAssessment() {
     fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
 
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
     const timestamp = collectStartTsRef.current || Date.now()
     const payload = {
       timestamp,
+      assessmentId,
       collectName: displayName || '',
       userName: user?.name || displayName || '',
       age: user?.age || '',
@@ -205,19 +243,20 @@ export default function GaitAssessment() {
       sample_type: '5'
     }
 
-    const apiCall = fetch(`${COLLECT_API_BASE}/getFootPdf`, {
+    fetch(`${COLLECT_API_BASE}/getFootPdf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).catch(() => null)
-
-    Promise.race([
-      apiCall,
-      new Promise((resolve) => setTimeout(resolve, 2000))
-    ]).finally(() => {
-      setStatus('completed')
-      setReportMode('static')
     })
+      .then((res) => {
+        if (!res.ok) throw new Error('getFootPdf failed')
+        return res.json()
+      })
+      .then(() => {
+        setStatus('completed')
+        setReportMode('static')
+      })
+      .catch(() => {})
   }
 
   const formatTime = (ms) => {
@@ -306,42 +345,28 @@ export default function GaitAssessment() {
           )}
 
           <div className="relative z-10 h-[60vh] w-full flex items-center justify-center">
-            {status === 'completed' && reportMode === 'static' ? (
-              <div className="bg-white p-8 rounded-xl shadow-xl max-w-2xl w-full h-full overflow-y-auto">
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                  <h3 className="text-xl font-bold text-gray-800">行走步态评估静态报告</h3>
-                  <span className="text-sm text-gray-500">2026-02-05</span>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">步速</span>
-                      <span className="text-2xl font-bold text-blue-600">1.2 m/s</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">步频</span>
-                      <span className="text-2xl font-bold text-blue-600">110 steps/min</span>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">步长一致性</span>
-                      <span className="text-2xl font-bold text-green-600">High</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">双支撑相占比</span>
-                      <span className="text-2xl font-bold text-blue-500">22%</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-6">
-                  <h4 className="font-medium text-gray-700 mb-2">评估结论</h4>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    受测者步态周期规律，左右步长对称性良好。行走速度处于同龄人正常范围，未见明显跛行或拖步现象。下肢运动协调性正常。
-                  </p>
-                </div>
+            {status === 'completed' && reportMode === 'static' && (
+              <div className="w-full h-full max-w-4xl mx-auto p-4">
+                <iframe
+                  src={buildReportUrl('5')}
+                  className="w-full h-full rounded-xl shadow-xl bg-white"
+                  title="report"
+                />
               </div>
-            ) : (
+            )}
+
+            {status === 'completed' && reportMode === 'dynamic' && (
+              <div className="w-full h-full max-w-5xl mx-auto p-4">
+                <video
+                  src={buildDynamicVideoUrl()}
+                  className="w-full h-full rounded-xl shadow-xl bg-black"
+                  controls
+                />
+              </div>
+            )}
+
+
+            {!(status === 'completed') && (
               <>
                 <div className="w-full h-full">
                   <FootSinkScene
@@ -353,19 +378,18 @@ export default function GaitAssessment() {
                     realtimeData={realtimeData}
                   />
                 </div>
-                
+
                 {status === 'processing' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[2px]">
                     <div className="w-64 h-2 bg-gray-200 rounded-full overflow-hidden mb-4">
                       <div className="h-full bg-blue-500 animate-progress" style={{ width: '100%' }}></div>
                     </div>
-                    <p className="text-white font-medium text-lg drop-shadow-md">正在汇总采集数据并生成报告，请稍候...</p>
+                    <p className="text-white font-medium text-lg drop-shadow-md">???????????????????????????..</p>
                   </div>
                 )}
               </>
             )}
           </div>
-
           <div className="absolute bottom-12 z-20 flex flex-col items-center gap-2">
             {status === 'idle' && (
               <>
@@ -394,19 +418,6 @@ export default function GaitAssessment() {
               </>
             )}
 
-            {status === 'completed' && reportMode === 'dynamic' && (
-              <div className="flex gap-4">
-                <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg p-1 flex items-center gap-2 pr-4">
-                  <button className="w-8 h-8 flex items-center justify-center">
-                    <Play className="w-4 h-4 text-gray-600 fill-gray-600" />
-                  </button>
-                  <div className="h-1 w-32 bg-gray-200 rounded-full overflow-hidden">
-                    <div className="h-full w-1/3 bg-gray-400"></div>
-                  </div>
-                  <span className="text-xs text-gray-500 font-mono">00:00:04</span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

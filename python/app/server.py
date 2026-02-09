@@ -61,6 +61,13 @@ def analyze_gait_and_build_report_with_csv(
         d1, d2, d3, d4, t1, t2, t3, t4, body_weight_kg, output_pdf, working_dir=working_dir
     )
 
+
+def generate_dashboard_video_safe(d1, d2, d3, d4, t1, t2, t3, t4, output_filename="gait_dashboard.mp4"):
+    import contextlib
+    with contextlib.redirect_stdout(sys.stderr):
+        return generate_dashboard_video(d1, d2, d3, d4, t1, t2, t3, t4, output_filename=output_filename)
+
+
 FUNCS = {
     "ping": ping,
     "realtime_server": realtime_server,
@@ -69,7 +76,7 @@ FUNCS = {
     "generate_foot_pressure_report": generate_foot_pressure_report,
     "process_glove_data_from_array": process_glove_data_from_array,
     "analyze_gait_and_build_report": analyze_gait_and_build_report_with_csv,
-    "generate_dashboard_video": generate_dashboard_video,
+    "generate_dashboard_video": generate_dashboard_video_safe,
     "process_and_generate_report": process_and_generate_report,
     "generate_combined_dashboard": generate_combined_dashboard,
 }

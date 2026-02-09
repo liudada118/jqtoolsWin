@@ -113,6 +113,39 @@ export default function SitStandAssessment() {
   const [footpadData2d, setFootpadData2d] = useState(null)
   const collectStartTsRef = useRef(null)
 
+  const buildReportUrl = (sampleType) => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = String(sampleType || '').replace(/\D/g, '')
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(base)}.pdf`
+  }
+
+  const buildDynamicVideoUrl = () => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = '3'
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    const videoName = `${base}_combined_dashboard.mp4`
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(videoName)}`
+  }
+
   useEffect(() => {
     if (mode === 'report') return
     try {
@@ -230,9 +263,14 @@ export default function SitStandAssessment() {
     fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
 
+    let assessmentId = null
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
+    } catch {}
     const timestamp = collectStartTsRef.current || Date.now()
     const payload = {
       timestamp,
+      assessmentId,
       collectName: displayName || '',
       userName: user?.name || displayName || '',
       age: user?.age || '',
@@ -240,19 +278,20 @@ export default function SitStandAssessment() {
       userId: user?.id || ''
     }
 
-    const apiCall = fetch(`${COLLECT_API_BASE}/getSitAndFootPdf`, {
+    fetch(`${COLLECT_API_BASE}/getSitAndFootPdf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).catch(() => null)
-
-    Promise.race([
-      apiCall,
-      new Promise((resolve) => setTimeout(resolve, 2000))
-    ]).finally(() => {
-      setStatus('completed')
-      setReportMode('static')
     })
+      .then((res) => {
+        if (!res.ok) throw new Error('getSitAndFootPdf failed')
+        return res.json()
+      })
+      .then(() => {
+        setStatus('completed')
+        setReportMode('static')
+      })
+      .catch(() => {})
   }
 
   const formatTime = (ms) => {
@@ -297,7 +336,7 @@ export default function SitStandAssessment() {
           
           <div className="text-right flex items-center gap-4">
             <span className="text-gray-700 font-medium">{displayName}</span>
-            <span className="text-gray-600">{orgName || '—'}</span>
+            <span className="text-gray-600">{orgName || '-'}</span>
           </div>
           <button 
             onClick={() => navigate('/history')}
@@ -328,55 +367,40 @@ export default function SitStandAssessment() {
           {status === 'completed' && (
             <div className="absolute top-8 z-20 flex items-center gap-2 bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-sm">
               <span className="text-gray-700 font-medium">
-                {displayName}的起坐能力评估{reportMode === 'static' ? '静态报告' : '动态报告'}
+                {`${displayName}'s Sit-Stand Assessment (${reportMode === 'static' ? 'Static' : 'Dynamic'})`}
               </span>
-              <button 
+              <button
                 onClick={() => setReportMode(prev => prev === 'static' ? 'dynamic' : 'static')}
                 className="flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm ml-2"
               >
                 <ArrowLeftRight className="w-4 h-4" />
-                切换至{reportMode === 'static' ? '动态报告' : '静态报告'}
+                {`Switch to ${reportMode === 'static' ? 'Dynamic' : 'Static'}`}
               </button>
             </div>
           )}
 
           <div className="relative z-10 h-[60vh] w-full flex items-center justify-center">
-            {status === 'completed' && reportMode === 'static' ? (
-              <div className="bg-white p-8 rounded-xl shadow-xl max-w-2xl w-full h-full overflow-y-auto">
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                  <h3 className="text-xl font-bold text-gray-800">起坐能力评估静态报告</h3>
-                  <span className="text-sm text-gray-500">2026-02-05</span>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">起立时间</span>
-                      <span className="text-2xl font-bold text-blue-600">1.2 s</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">坐下时间</span>
-                      <span className="text-2xl font-bold text-blue-600">1.5 s</span>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">最大压力峰值</span>
-                      <span className="text-2xl font-bold text-green-600">450 N</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">平衡稳定性</span>
-                      <span className="text-2xl font-bold text-blue-500">Good</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-6">
-                  <h4 className="font-medium text-gray-700 mb-2">评估结论</h4>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    受测者起坐动作流畅，下肢爆发力良好。起立过程中重心转移平稳，无明显晃动。建议保持当前下肢力量训练强度。
-                  </p>
-                </div>
+            {status === 'completed' && reportMode === 'static' && (
+              <div className="w-full h-full max-w-4xl mx-auto p-4">
+                <iframe
+                  src={buildReportUrl('3')}
+                  className="w-full h-full rounded-xl shadow-xl bg-white"
+                  title="SitStandReport"
+                />
               </div>
-            ) : (
+            )}
+
+            {status === 'completed' && reportMode === 'dynamic' && (
+              <div className="w-full h-full max-w-4xl mx-auto p-4">
+                <video
+                  src={buildDynamicVideoUrl()}
+                  className="w-full h-full rounded-xl shadow-xl bg-black"
+                  controls
+                />
+              </div>
+            )}
+
+            {status !== 'completed' && (
               <>
                 <div className="w-full h-full">
                   <SitAndFootScene
@@ -390,13 +414,13 @@ export default function SitStandAssessment() {
                     footpadData={footpadData2d || footpadData}
                   />
                 </div>
-                
+
                 {status === 'processing' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10 backdrop-blur-[2px]">
                     <div className="w-64 h-2 bg-gray-200 rounded-full overflow-hidden mb-4">
                       <div className="h-full bg-blue-500 animate-progress" style={{ width: '100%' }}></div>
                     </div>
-                    <p className="text-white font-medium text-lg drop-shadow-md">正在汇总采集数据并生成报告，请稍候...</p>
+                    <p className="text-white font-medium text-lg drop-shadow-md">Generating report, please wait...</p>
                   </div>
                 )}
               </>
@@ -404,6 +428,8 @@ export default function SitStandAssessment() {
           </div>
 
           <div className="absolute bottom-12 z-20 flex flex-col items-center gap-2">
+
+
             {status === 'idle' && (
               <>
                 <button 

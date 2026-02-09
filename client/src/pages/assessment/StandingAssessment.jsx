@@ -66,6 +66,23 @@ export default function StandingAssessment() {
   const collectMetaRef = useRef({ date: '', collectName: '' })
   const collectStartTsRef = useRef(null)
 
+  const buildReportUrl = (sampleType) => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = String(sampleType || '').replace(/\D/g, '')
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    const suffix = sampleDigits === '4' ? 'OneStepReport' : ''
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(base + suffix)}.pdf`
+  }
+
   useEffect(() => {
     if (mode === 'report') return
     let assessmentId = null
@@ -215,12 +232,20 @@ export default function StandingAssessment() {
     setStatus('processing')
 
     const date = collectMetaRef.current?.date || new Date().toISOString().slice(0, 10)
-    const timestamp = collectStartTsRef.current || Date.now()
+    let assessmentId = null
+    let globalTs = null
+    try {
+      const raw = localStorage.getItem(ASSESSMENT_START_KEY)
+      assessmentId = raw || null
+      const parsed = raw ? Number(raw) : NaN
+      if (Number.isFinite(parsed)) globalTs = parsed
+    } catch {}
+    const timestamp = globalTs ?? collectStartTsRef.current ?? Date.now()
     const collectName = collectMetaRef.current?.collectName || displayName || ''
     const collectAge = user?.age || ''
     const collectGender = user?.gender || ''
 
-    const heatmapPromise = axios({
+    axios({
       method: 'post',
       url: `${COLLECT_API_BASE}/getDbHeatmap`,
       data: {
@@ -228,7 +253,8 @@ export default function StandingAssessment() {
         collectName,
         age: collectAge,
         gender: collectGender,
-        date
+        date,
+        assessmentId
       }
     }).then((res) => {
       if (res.status === 200) {
@@ -239,15 +265,12 @@ export default function StandingAssessment() {
         }
       }
       return null
-    }).catch(() => null)
-
-    Promise.race([
-      heatmapPromise,
-      new Promise((resolve) => setTimeout(resolve, 2000))
-    ]).finally(() => {
-      setStatus('completed')
-      setReportMode('static')
     })
+      .then(() => {
+        setStatus('completed')
+        setReportMode('static')
+      })
+      .catch(() => {})
   }
 
   const formatTime = (ms) => {
@@ -337,39 +360,12 @@ export default function StandingAssessment() {
 
           <div className="relative z-10 h-[60vh] w-full flex items-center justify-center">
             {status === 'completed' && reportMode === 'static' ? (
-              <div className="bg-white p-8 rounded-xl shadow-xl max-w-2xl w-full h-full overflow-y-auto">
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                  <h3 className="text-xl font-bold text-gray-800">静态站立评估静态报告</h3>
-                  <span className="text-sm text-gray-500">2026-02-05</span>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">重心偏移量</span>
-                      <span className="text-2xl font-bold text-blue-600">2.3 mm</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">晃动面积</span>
-                      <span className="text-2xl font-bold text-blue-600">12.5 mm²</span>
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">足底压力分布</span>
-                      <span className="text-2xl font-bold text-green-600">Symmetrical</span>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <span className="text-sm text-gray-500 block mb-1">跌倒风险</span>
-                      <span className="text-2xl font-bold text-green-500">Low</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-6">
-                  <h4 className="font-medium text-gray-700 mb-2">评估结论</h4>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    受测者静态站立稳定性良好，重心控制能力正常。双足压力分布均匀，未见明显姿势异常。跌倒风险处于低水平。
-                  </p>
-                </div>
+              <div className="w-full h-full max-w-4xl mx-auto p-4">
+                <iframe
+                  src={buildReportUrl('4')}
+                  className="w-full h-full rounded-xl shadow-xl bg-white"
+                  title="????"
+                />
               </div>
             ) : (
               <>
