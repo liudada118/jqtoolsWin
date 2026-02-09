@@ -325,6 +325,7 @@ export default function GripAssessment() {
   const lastUiSeqRef = useRef(0)
   const lastHeatmapSeqRef = useRef(0)
   const lastHeatmapHandRef = useRef('left')
+  const collectStartTsRef = useRef(null)
 
   const steps = [
     { id: 'left', label: '左手' },
@@ -499,6 +500,7 @@ export default function GripAssessment() {
     const now = new Date()
     const date = now.toISOString().slice(0, 10)
     const collectName = displayName || ''
+    collectStartTsRef.current = Date.now()
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
@@ -539,10 +541,28 @@ export default function GripAssessment() {
       setStatus('processing')
       setCurrentStep(2)
       
-      // Simulate processing
-      setTimeout(() => {
+      const timestamp = collectStartTsRef.current || Date.now()
+      const payload = {
+        timestamp,
+        collectName: displayName || '',
+        userName: user?.name || displayName || '',
+        age: user?.age || '',
+        gender: user?.gender || '',
+        userId: user?.id || ''
+      }
+
+      const apiCall = fetch(`${COLLECT_API_BASE}/getHandPdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(() => null)
+
+      Promise.race([
+        apiCall,
+        new Promise((resolve) => setTimeout(resolve, 2000))
+      ]).finally(() => {
         setShowCompleteDialog(true)
-      }, 2000)
+      })
     }
   }
 

@@ -101,7 +101,7 @@ function startWorker() {
   });
 
   // 握手：确认常驻 OK（会发送一条请求）
-  callPy('ping', {}, { timeoutMs: 30000 })
+  callPy('ping', {}, { timeoutMs: 100000 })
     .then(() => console.log('[PY] ready'))
     .catch(e => console.error('[PY] handshake failed:', e.message));
 }
@@ -116,7 +116,7 @@ function writeLine(line) {
   });
 }
 
-function callPy(fn, args, { timeoutMs = 30000 } = {}) {
+function callPy(fn, args, { timeoutMs = 100000 } = {}) {
   if (!child) startWorker();
   const id = nextId++;
   return new Promise(async (resolve, reject) => {

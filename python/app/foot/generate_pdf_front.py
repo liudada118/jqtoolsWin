@@ -58,6 +58,31 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False
 
 # ==================================================================================
+# 0. 文件读取函数
+# ==================================================================================
+
+def read_gait_raw_data(file_paths):
+    """
+    读取原始 CSV 数据
+    输入: 4个CSV的文件路径列表
+    输出: results_data (包含4个list), results_time (包含4个list)
+    """
+    # 确保文件按 1, 2, 3, 4 排序
+    file_paths.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
+    
+    results_data = []
+    results_time = []
+    
+    for fp in file_paths:
+        df = pd.read_csv(fp)
+        results_data.append(df['data'].tolist())
+        results_time.append(df['time'].tolist())
+        
+    # 返回 8 个独立的序列
+    return (results_data[0], results_data[1], results_data[2], results_data[3],
+            results_time[0], results_time[1], results_time[2], results_time[3])
+
+# ==================================================================================
 # 1. 严格集成的去噪与对齐函数
 # ==================================================================================
 
@@ -124,18 +149,21 @@ def align_dataframes(dfs, max_delay_seconds=0.15):
     return aligned_dfs
 
 
-def load_and_preprocess_aligned_final(file_paths):
-    # file_paths: 原始 CSV 文件路径列表
-    # 返回: 经过对齐、拼接、去噪（四级过滤）后的全流程三维矩阵 total_matrix
+def load_and_preprocess_aligned_final(d1, d2, d3, d4, t1, t2, t3, t4):
     """
-    终极方案：时间对齐 + 四级去噪 (严格阈值)
+    参数：
+        d1, d2, d3, d4: 原始 data 序列列表
+        t1, t2, t3, t4: 对应的时间序列列表
+    返回：
+        经过对齐、拼接、去噪（四级过滤）后的全流程三维矩阵 total_matrix
     """
-    print(f"1. 正在读取 {len(file_paths)} 个文件并执行全流程去噪...")
-    
-    # 1. 排序文件 (1.csv, 2.csv...)
-    # 兼容全路径，提取文件名数字进行排序
-    file_paths.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
-    raw_dfs = [pd.read_csv(fp) for fp in file_paths]
+    print(f"1. 正在处理独立序列数据...")
+    raw_dfs = [
+        pd.DataFrame({'data': d1, 'time': t1, 'max': 0}),
+        pd.DataFrame({'data': d2, 'time': t2, 'max': 0}),
+        pd.DataFrame({'data': d3, 'time': t3, 'max': 0}),
+        pd.DataFrame({'data': d4, 'time': t4, 'max': 0})
+    ]
     
     # 使用修正后的对齐逻辑
     dfs = align_dataframes(raw_dfs, max_delay_seconds=0.05)
@@ -145,24 +173,18 @@ def load_and_preprocess_aligned_final(file_paths):
     
     # --- 单板处理 (1-3级去噪) ---
     for i, df in enumerate(dfs):
-        fn = os.path.basename(file_paths[i])
-        print(f"  正在预处理板卡 {fn} (已对齐)...")
-        
-        # 向量化加载数据
+        # --- 单板独立处理部分 ---
         all_frames = []
-        for idx in range(len(df)):
-            raw_data = df.iloc[idx]['data']
+        frame_maxes = []
+        for _, row in df.iterrows():
+            # 字符串转矩阵逻辑
             try:
-                if isinstance(raw_data, str):
-                    if raw_data.startswith('['):
-                         mat = np.array(ast.literal_eval(raw_data), dtype=np.float32)
-                    else:
-                         mat = np.fromstring(raw_data, sep=',')
-                else:
-                    mat = np.array(raw_data, dtype=np.float32)
+                mat = np.array(ast.literal_eval(row['data']), dtype=np.float32)
             except:
                 mat = np.zeros(64*64, dtype=np.float32)
-            all_frames.append(mat.reshape(64, 64))
+            f_mat = mat.reshape(64, 64)
+            all_frames.append(f_mat)
+            frame_maxes.append(np.max(f_mat))
         tensor = np.array(all_frames)
         
         # [Step 1] 去掉 <= 4
@@ -235,14 +257,21 @@ def load_and_preprocess_aligned_final(file_paths):
     return total_matrix
 
 
-def load_and_analyze_wrapper(file_paths):
-    # file_paths: 原始 CSV 文件路径列表
-    # 返回: 纯净矩阵, 左脚压力曲线, 右脚压力曲线, 左脚重心列, 右脚重心列
+def load_and_analyze_wrapper(d1, d2, d3, d4, t1, t2, t3, t4):
     """
     包装函数：调用严格的去噪加载，然后计算曲线和中心
+    参数：
+        d1, d2, d3, d4: 四个传感器数据文件路径
+        t1, t2, t3, t4: 四个传感器时间戳文件路径
+    返回:
+        total_matrix: 纯净矩阵
+        left_curve: 左脚压力曲线
+        right_curve: 右脚压力曲线
+        center_l: 左脚重心列
+        center_r: 右脚重心列
     """
     # 1. 获取纯净的矩阵 (严格阈值)
-    total_matrix = load_and_preprocess_aligned_final(file_paths)
+    total_matrix = load_and_preprocess_aligned_final(d1, d2, d3, d4, t1, t2, t3, t4)
     
     # 2. 基于干净数据计算左右曲线和中心
     print("正在计算动态中心与压力曲线...")
@@ -2322,10 +2351,17 @@ def generate_pdf_report(output_pdf_path, elements):
     doc.build(elements, onFirstPage=draw_header_fixed, onLaterPages=draw_header_fixed)
 
 
-def analyze_gait_and_build_report(file_paths, body_weight_kg, output_pdf, working_dir=None):
-    # file_paths: CSV 列表, body_weight_kg: 体重, output_pdf: PDF 路径, working_dir: 临时工作目录
-    # 返回: 生成的 PDF 文件路径
-    
+def analyze_gait_and_build_report(d1, d2, d3, d4, t1, t2, t3, t4, body_weight_kg, output_pdf, working_dir=None):
+    """
+    功能：分析步态数据并生成 PDF 报告
+    参数:
+        d1, d2, d3, d4: 四个传感器数据文件路径
+        t1, t2, t3, t4: 四个传感器时间戳文件路径
+        body_weight_kg: 体重 (kg)
+        output_pdf: 输出 PDF 文件路径
+        working_dir: 临时工作目录 (可选)
+    返回: 生成的 PDF 文件路径
+    """
     global GLOBAL_K
     if working_dir is None: working_dir = tempfile.mkdtemp(prefix="gait_report_")
     os.makedirs(working_dir, exist_ok=True)
@@ -2335,7 +2371,7 @@ def analyze_gait_and_build_report(file_paths, body_weight_kg, output_pdf, workin
     SENSOR_PITCH_MM = 14.0
 
     # 1. 加载并深度去噪数据 (调用严格 wrapper)
-    raw_total_matrix, _, _, _, _ = load_and_analyze_wrapper(file_paths)
+    raw_total_matrix, _, _, _, _ = load_and_analyze_wrapper(d1, d2, d3, d4, t1, t2, t3, t4)
 
     # 初步计算中心和曲线 (基于原始数据)
     raw_center_l, raw_center_r = analyze_foot_distribution(raw_total_matrix)
@@ -2652,7 +2688,7 @@ def analyze_gait_and_build_report(file_paths, body_weight_kg, output_pdf, workin
 
     # 8. 组装 PDF
     title = "步态分析报告"
-    metadata = {"生成时间": datetime.now().strftime("%Y-%m-%d %H:%M"), "采样率": f"{FPS} FPS", "样本文件数": len(file_paths)}
+    metadata = {"生成时间": datetime.now().strftime("%Y-%m-%d %H:%M"), "采样率": f"{FPS} FPS"}
     elems = []
 
     elems.append(Paragraph(title, styles['ChineseTitle']))
@@ -2791,13 +2827,15 @@ if __name__ == "__main__":
     BODY_WEIGHT_KG = 80.0
     # 数据保存所在的文件夹
     file_name = 'data/20251206/20251206_徐'
+    output_pdf = os.path.join(file_name, "gait_report_vfront.pdf")
+    tmp_dir = os.path.join(file_name, "temp_denoised")
 
     input_files = [os.path.join(file_name, f"{i}.csv") for i in range(1, 5)]
-    output_pdf = os.path.join(file_name, "gait_report_v5-1.pdf")
-    tmp_dir = os.path.join(file_name, "temp_denoised")
-    
+
+    data_1, data_2, data_3, data_4, time_1, time_2, time_3, time_4 = read_gait_raw_data(input_files)
+
     try:
-        out = analyze_gait_and_build_report(input_files, BODY_WEIGHT_KG, output_pdf, working_dir=tmp_dir)
+        out = analyze_gait_and_build_report(data_1, data_2, data_3, data_4, time_1, time_2, time_3, time_4, BODY_WEIGHT_KG, output_pdf, working_dir=tmp_dir)
         print(f"\n[成功] 报告已生成: {out}")
     except Exception as e:
         print(f"程序出错: {e}")

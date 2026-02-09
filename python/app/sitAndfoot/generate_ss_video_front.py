@@ -21,6 +21,20 @@ plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False
 
 # =================================================================
+# 0. 文件读取
+# =================================================================
+
+def read_ss_raw_data(stand_path, sit_path):
+    """
+    输入： stand_path: 站立数据CSV路径, sit_path: 坐姿数据CSV路径
+    输出: stand_data_seq, stand_time_seq, sit_data_seq, sit_time_seq
+    """
+    df_stand = pd.read_csv(stand_path)
+    df_sit = pd.read_csv(sit_path)
+    return (df_stand['data'].tolist(), df_stand['time'].tolist(), 
+            df_sit['data'].tolist(), df_sit['time'].tolist())
+
+# =================================================================
 # 1. 核心算法工具
 # =================================================================
 
@@ -131,12 +145,14 @@ def unite_broken_arch_components(binary_map, dist_threshold=3.0):
 # 2. 数据加载器
 # =================================================================
 
-def load_data_generic(file_path, shape=(64, 64), is_sit=False):
-    # file_path: CSV文件路径, shape: 矩阵尺寸, is_sit: 是否为坐垫数据
-    # 返回: 处理后的帧序列(numpy.ndarray), 时间序列, 实际采集频率(FPS)
-    """ 通用加载函数，含时间解析与特定去噪 """
-    print(f"正在读取: {file_path}")
-    df = pd.read_csv(file_path)
+def load_data_generic(data_seq, time_seq, shape=(64, 64), is_sit=False):
+    """
+    通用数据加载与预处理函数
+    输入参数：
+        data_seq: 数据序列, time_seq: 时间序列, shape: 矩阵尺寸, is_sit: 是否为坐垫数据
+    返回: 处理后的帧序列(numpy.ndarray), 时间序列, 实际采集频率(FPS)
+    """
+    df = pd.DataFrame({'data': data_seq, 'time': time_seq})
     
     # 1. 时间解析
     times = pd.to_datetime(df['time'], format='%Y/%m/%d %H:%M:%S:%f', errors='coerce')
@@ -517,15 +533,43 @@ def synchronize_data(stand_frames, stand_times, sit_frames, sit_times, start_idx
 # =================================================================
 
 def generate_combined_dashboard(
-    stand_seg, stand_times, 
-    sit_seg, sit_times, 
-    full_sit_frames, full_sit_times, 
-    center_l, center_r, 
-    speed_factor,
-    output_filename
+    d_stand, t_stand, 
+    d_sit, t_sit, 
+    output_filename,
+    SPEED_FACTOR=0.5
 ):
-    # stand_seg: 站立切片, stand_times: 时间切片, sit_seg: 坐姿同步切片, sit_times: 坐姿时间切片, full_sit_frames: 坐姿全过程, full_sit_times: 坐姿全时间, center_l/r: 脚中心, speed_factor: 播放速度倍率, output_filename: 视频保存路径
-    # 返回: 无（直接生成并保存MP4视频文件）
+    """
+    生成站立+坐姿综合视频仪表盘
+    输入参数：
+        d_stand: 站立数据序列, t_stand: 站立时间序列
+        d_sit: 坐姿数据序列, t_sit: 坐姿时间序列
+        SPEED_FACTOR: 视频播放速度倍数
+        output_filename: 输出视频文件路径
+    返回: None
+    生成的视频包含站立和坐姿的热力图及相关指标走势图。
+    """
+    # ================= 1. 数据处理与分析 =================
+    print("1. 正在处理 Stand 数据...")
+    stand_frames, stand_times, _ = load_data_generic(d_stand, t_stand, shape=(64,64), is_sit=False)
+    
+    print("2. 正在处理 Sit 数据...")
+    full_sit_frames, full_sit_times, _ = load_data_generic(d_sit, t_sit, shape=(32,32), is_sit=True)
+    
+    if len(stand_frames) == 0:
+        print("错误：Stand 数据为空")
+        return
+
+    print("3. 分析足底中心与区间...")
+    center_l, center_r = analyze_foot_centers(stand_frames)
+    start_idx, end_idx = find_stand_interval(stand_frames)
+    
+    print("4. 执行数据同步...")
+    stand_seg, stand_times, sit_seg, sit_times = synchronize_data(
+        stand_frames, stand_times, full_sit_frames, full_sit_times, start_idx, end_idx
+    )
+    
+    # ================= 2. 视频生成逻辑 =================
+
     real_fps = 77.0 
     if len(stand_times) > 1:
         dt = (stand_times.iloc[-1] - stand_times.iloc[0]).total_seconds()
@@ -720,34 +764,23 @@ def generate_combined_dashboard(
 
 if __name__ == "__main__":
     base_dir = './data/20260115/20260115_xu' 
-    SPEED_FACTOR = 0.5
-    
+    SPEED_FACTOR = 0.5  # 播放速度倍率
+    output_path = os.path.join(base_dir, "combined_dashboard_vfront.mp4")
+
     if not os.path.exists(base_dir):
         if os.path.exists('sit.csv'): base_dir = '.'
-        elif os.path.exists('../sit.csv'): base_dir = '..'
-    
-    file_stand = os.path.join(base_dir, "stand.csv")
-    file_sit = os.path.join(base_dir, "sit.csv")
-    output_path = os.path.join(base_dir, "combined_dashboard_v3.mp4")
 
-    if os.path.exists(file_stand) and os.path.exists(file_sit):
-        stand_frames, stand_times, _ = load_data_generic(file_stand, shape=(64,64), is_sit=False)
-        sit_frames, sit_times, _ = load_data_generic(file_sit, shape=(32,32), is_sit=True)
-        
-        center_l, center_r = analyze_foot_centers(stand_frames)
-        start_idx, end_idx = find_stand_interval(stand_frames)
-        
-        s_frames, s_times, sit_seg, sit_seg_times = synchronize_data(
-            stand_frames, stand_times, sit_frames, sit_times, start_idx, end_idx
+    if os.path.exists(os.path.join(base_dir, "stand.csv")) and os.path.exists(os.path.join(base_dir, "sit.csv")):
+        d_stand, t_stand, d_sit, t_sit = read_ss_raw_data(
+            os.path.join(base_dir, "stand.csv"), 
+            os.path.join(base_dir, "sit.csv")
         )
         
         generate_combined_dashboard(
-            s_frames, s_times, 
-            sit_seg, sit_seg_times, 
-            sit_frames, sit_times, 
-            center_l, center_r, 
-            SPEED_FACTOR,
-            output_path
+            d_stand, t_stand,
+            d_sit, t_sit,
+            output_path,
+            SPEED_FACTOR=SPEED_FACTOR
         )
     else:
         print(f"❌ 未在 {base_dir} 找到输入文件")

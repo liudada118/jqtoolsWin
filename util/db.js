@@ -309,6 +309,16 @@ async function dbGetData({ db, params }) {
         console.error(err);
         reject(err)
       } else {
+        if (!rows || rows.length === 0) {
+          resolve({
+            length: 0,
+            pressArr: {},
+            areaArr: {},
+            dataArr: {},
+            rows: []
+          })
+          return
+        }
         let length = rows.length;
         indexArr = [0, length - 1];
         timeStamp = [];

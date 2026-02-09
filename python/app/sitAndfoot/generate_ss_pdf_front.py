@@ -37,6 +37,18 @@ except Exception as e:
 plt.rcParams['font.sans-serif'] = ['SimSun', 'SimHei', 'Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
 
+# ================= 0. 数据读取函数 =================
+
+def read_ss_raw_data(stand_path, sit_path):
+    """
+    输入： stand_path: 站立数据CSV路径, sit_path: 坐姿数据CSV路径
+    输出: stand_data_seq, stand_time_seq, sit_data_seq, sit_time_seq
+    """
+    df_stand = pd.read_csv(stand_path)
+    df_sit = pd.read_csv(sit_path)
+    return (df_stand['data'].tolist(), df_stand['time'].tolist(), 
+            df_sit['data'].tolist(), df_sit['time'].tolist())
+
 # ================= 1. 核心算法工具 =================
 
 def AMPD(data):
@@ -160,12 +172,13 @@ def parse_data_column(df, shape=(64, 64)):
     return np.array(raw_frames)
 
 
-def load_stand_data(file_path):
-    # file_path: stand.csv文件路径
-    # 返回: 去噪后的帧序列 numpy.ndarray, 时间序列 pd.Series
-
-    print(f"正在读取 Stand 文件: {file_path}")
-    df = pd.read_csv(file_path)
+def load_stand_data(data_seq, time_seq):
+    """
+    参数： data_seq: 站立数据序列, time_seq: 站立时间序列
+    返回: 去噪后的帧序列 numpy.ndarray, 时间序列 pd.Series
+    """
+    print(f"正在处理 Stand 序列数据...")
+    df = pd.DataFrame({'data': data_seq, 'time': time_seq})
     times = parse_time_column(df)
     tensor = parse_data_column(df, shape=(64, 64))
 
@@ -207,12 +220,13 @@ def load_stand_data(file_path):
     return np.array(final_matrix), times
 
 
-def load_sit_data(file_path):
-    # file_path: sit.csv文件路径
-    # 返回: 去噪后的帧序列 numpy.ndarray, 时间序列 pd.Series
-
-    print(f"正在读取 Sit 文件: {file_path}")
-    df = pd.read_csv(file_path)
+def load_sit_data(data_seq, time_seq):
+    """
+    参数： data_seq: 坐姿数据序列, time_seq: 坐姿时间序列
+    返回: 去噪后的帧序列 numpy.ndarray, 时间序列 pd.Series
+    """
+    print(f"正在处理 Sit 序列数据...")
+    df = pd.DataFrame({'data': data_seq, 'time': time_seq})
     times = parse_time_column(df)
     tensor = parse_data_column(df, shape=(32, 32))
 
@@ -631,59 +645,51 @@ def generate_sit_visuals(sit_data, sit_times, stand_peaks, stand_times, output_d
 
 # ================= 7. 主控与PDF生成合并函数 (分业独立控制版) =================
 
-def process_and_generate_report(input_dir, output_dir=None, pdf_name="Sit_Stand_Analysis_Report.pdf"):
+def process_and_generate_report(stand_data_seq, stand_time_seq, 
+    sit_data_seq, sit_time_seq, output_dir=None, pdf_name="Sit_Stand_Analysis_Report.pdf"):
     # input_dir: CSV所在目录, output_dir: PDF保存目录, pdf_name: 文件名
     # 返回: 无（直接保存PDF到指定目录并清理临时图片）
     """
     合并版主控函数：负责数据处理、绘图、以及直接生成PDF报告。
     已将 PDF 页面生成逻辑拆开，方便单独调试每一页的样式。
     """
-    if output_dir is None: output_dir = input_dir
     if not os.path.exists(output_dir): 
-        print(f"输出目录不存在: {output_dir}")
-        return
-
-    stand_csv = os.path.join(input_dir, "stand.csv")
-    sit_csv = os.path.join(input_dir, "sit.csv")
+        print(f"创建输出目录: {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
     
     temp_images = []
-    
     stand_img1, stand_img2 = None, None
     sit_img1, sit_img2 = None, None
     
     # ---------------------------------------------------------
     # 1. 数据加载与图像生成阶段
     # ---------------------------------------------------------
-    if os.path.exists(stand_csv) and os.path.exists(sit_csv):
-        try:
-            # 加载数据
-            stand_data, stand_times = load_stand_data(stand_csv)
-            sit_data, sit_times = load_sit_data(sit_csv)
-            
-            # 核心算法
-            stand_peaks = detect_stand_peaks_assisted(stand_data, stand_times, sit_data, sit_times)
+    try:
+        # 加载数据
+        stand_data, stand_times = load_stand_data(stand_data_seq, stand_time_seq)
+        sit_data, sit_times = load_sit_data(sit_data_seq, sit_time_seq)
+        
+        # 核心算法
+        stand_peaks = detect_stand_peaks_assisted(stand_data, stand_times, sit_data, sit_times)
 
-            # 计算用时
-            duration_stats = calculate_cycle_durations(stand_times, stand_peaks)
+        # 计算用时
+        duration_stats = calculate_cycle_durations(stand_times, stand_peaks)
+        
+        # 生成图片
+        print("正在生成 Stand 页面图片...")
+        stand_img1, stand_img2 = generate_stand_visuals(stand_data, stand_peaks, output_dir)
+        if stand_img1: temp_images.append(stand_img1)
+        if stand_img2: temp_images.append(stand_img2)
+        
+        print("正在生成 Sit 页面图片 (基于 Stand 同步)...")
+        sit_img1, sit_img2 = generate_sit_visuals(sit_data, sit_times, stand_peaks, stand_times, output_dir)
+        if sit_img1: temp_images.append(sit_img1)
+        if sit_img2: temp_images.append(sit_img2)
             
-            # 生成图片
-            print("正在生成 Stand 页面图片...")
-            stand_img1, stand_img2 = generate_stand_visuals(stand_data, stand_peaks, output_dir)
-            if stand_img1: temp_images.append(stand_img1)
-            if stand_img2: temp_images.append(stand_img2)
-            
-            print("正在生成 Sit 页面图片 (基于 Stand 同步)...")
-            sit_img1, sit_img2 = generate_sit_visuals(sit_data, sit_times, stand_peaks, stand_times, output_dir)
-            if sit_img1: temp_images.append(sit_img1)
-            if sit_img2: temp_images.append(sit_img2)
-                
-        except Exception as e:
-            print(f"数据处理阶段发生错误: {e}")
-            import traceback
-            traceback.print_exc()
-            return
-    else:
-        print(f"错误：在 {input_dir} 中未同时找到 sit.csv 和 stand.csv")
+    except Exception as e:
+        print(f"数据处理阶段发生错误: {e}")
+        import traceback
+        traceback.print_exc()
         return
 
     # ---------------------------------------------------------
@@ -826,14 +832,13 @@ def process_and_generate_report(input_dir, output_dir=None, pdf_name="Sit_Stand_
         # for _ in range(num_blank_pages):
         #     story.append(PageBreak())
 
-        story.append(PageBreak())
-        title_text = "站-坐-站 足底压力、重心演变综合分析 (Comprehensive Analysis)"
-        story.append(Paragraph(title_text, heading_style))
+        # story.append(PageBreak())
+        # title_text = "站-坐-站 足底压力、重心演变综合分析 (Comprehensive Analysis)"
+        # story.append(Paragraph(title_text, heading_style))
 
-        story.append(PageBreak())
-        title_text = "站-坐-站 坐姿压力、重心演变综合分析 (Comprehensive Analysis)"
-        story.append(Paragraph(title_text, heading_style))
-
+        # story.append(PageBreak())
+        # title_text = "站-坐-站 坐姿压力、重心演变综合分析 (Comprehensive Analysis)"
+        # story.append(Paragraph(title_text, heading_style))
 
         # 生成 PDF
         doc.build(story, onFirstPage=draw_header, onLaterPages=draw_header)
@@ -864,7 +869,12 @@ if __name__ == "__main__":
     # 配置数据目录
     DATA_DIR = "./data/20260109/20260109_liu2" # 请修改为实际数据路径
     OUTPUT_DIR = DATA_DIR  # 可自定义输出目录
-    PDF_NAME = "Sit_Stand_Analysis_Report_new.pdf"  # 可自定义PDF名称
-    
+    PDF_NAME = "Sit_Stand_Analysis_Report_front.pdf"  # 可自定义PDF名称
+
+    d_stand, t_stand, d_sit, t_sit = read_ss_raw_data(
+        os.path.join(DATA_DIR, "stand.csv"),
+        os.path.join(DATA_DIR, "sit.csv")
+    )
+    print("数据读取完成。开始处理...")
     # 执行处理
-    process_and_generate_report(DATA_DIR, output_dir=OUTPUT_DIR, pdf_name=PDF_NAME)
+    process_and_generate_report(d_stand, t_stand, d_sit, t_sit, output_dir=OUTPUT_DIR, pdf_name=PDF_NAME)

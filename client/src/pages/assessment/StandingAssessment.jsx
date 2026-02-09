@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import axios from 'axios'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { Play, X, ArrowLeftRight } from 'lucide-react'
@@ -9,6 +10,7 @@ import { useOrgName } from '@/lib/useOrgName'
 import { useAssessment } from '@/contexts/AssessmentContext'
 import { useSensorSocket } from '@/contexts/SensorSocketContext'
 import { Scheduler } from '@/scheduler/scheduler'
+import { bthClickHandle } from '@/lib/heatmap'
 
 // Generate mock data
 const generateMockData = (points) => {
@@ -60,6 +62,9 @@ export default function StandingAssessment() {
   const lastFootUiSeqRef = useRef(0)
   const [footpadData, setFootpadData] = useState(null)
   const [footpadMax, setFootpadMax] = useState(0)
+  const heatmapCanvasRef = useRef(null)
+  const collectMetaRef = useRef({ date: '', collectName: '' })
+  const collectStartTsRef = useRef(null)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -163,6 +168,8 @@ export default function StandingAssessment() {
     const now = new Date()
     const date = now.toISOString().slice(0, 10)
     const collectName = displayName || ''
+    collectMetaRef.current = { date, collectName }
+    collectStartTsRef.current = Date.now()
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
@@ -186,14 +193,61 @@ export default function StandingAssessment() {
     recordTickRef.current = 0
   }
 
+  const sendCanvas = async (canvas, meta) => {
+    if (!canvas) return
+    const { date, collectName, collectAge, collectGender } = meta || {}
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) return
+    const form = new FormData()
+    form.append('file', blob, `${date || 'heatmap'}.png`)
+    form.append('date', date || '')
+    form.append('collectName', collectName || '')
+    form.append('age', collectAge || '')
+    form.append('gender', collectGender || '')
+    form.append('userId', user?.id || '')
+    try {
+      await axios.post(`${COLLECT_API_BASE}/uploadCanvas`, form)
+    } catch {}
+  }
+
   const stopRecording = () => {
     fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
-    
-    setTimeout(() => {
+
+    const date = collectMetaRef.current?.date || new Date().toISOString().slice(0, 10)
+    const timestamp = collectStartTsRef.current || Date.now()
+    const collectName = collectMetaRef.current?.collectName || displayName || ''
+    const collectAge = user?.age || ''
+    const collectGender = user?.gender || ''
+
+    const heatmapPromise = axios({
+      method: 'post',
+      url: `${COLLECT_API_BASE}/getDbHeatmap`,
+      data: {
+        time: timestamp,
+        collectName,
+        age: collectAge,
+        gender: collectGender,
+        date
+      }
+    }).then((res) => {
+      if (res.status === 200) {
+        const peak = res.data?.data?.peak_frame_data
+        if (Array.isArray(peak) && peak.length) {
+          heatmapCanvasRef.current = bthClickHandle(peak)
+          return sendCanvas(heatmapCanvasRef.current, { date, collectName, collectAge, collectGender })
+        }
+      }
+      return null
+    }).catch(() => null)
+
+    Promise.race([
+      heatmapPromise,
+      new Promise((resolve) => setTimeout(resolve, 2000))
+    ]).finally(() => {
       setStatus('completed')
       setReportMode('static')
-    }, 2000)
+    })
   }
 
   const formatTime = (ms) => {

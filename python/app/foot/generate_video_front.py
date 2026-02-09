@@ -23,6 +23,29 @@ GLOBAL_K = 1.0  # 默认值，会被校准覆盖
 BODY_WEIGHT_KG = 80.0  # 【重要】请在此处设置受试者体重
 
 # =================================================================
+# 0. 文件读取函数
+# =================================================================
+
+def read_gait_raw_data(file_paths):
+    """
+    读取原始 CSV 数据并拆分为 8 个独立序列
+    输出: data_1, data_2, data_3, data_4, time_1, time_2, time_3, time_4
+    """
+    # 确保文件按 1.csv, 2.csv, 3.csv, 4.csv 排序
+    file_paths.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
+    
+    results_data = []
+    results_time = []
+    
+    for fp in file_paths:
+        df = pd.read_csv(fp)
+        results_data.append(df['data'].tolist())
+        results_time.append(df['time'].tolist())
+        
+    return (results_data[0], results_data[1], results_data[2], results_data[3],
+            results_time[0], results_time[1], results_time[2], results_time[3])
+
+# =================================================================
 # 1. 基础数据处理 (保持不变)
 # =================================================================
 
@@ -36,6 +59,7 @@ def parse_custom_time(time_str):
             fixed_str = parts[0] + '.' + parts[1]
             return pd.to_datetime(fixed_str, format='%Y/%m/%d %H:%M:%S.%f')
     return pd.NaT
+
 
 def align_dataframes(dfs, max_delay_seconds=0.15):
     # dfs: DataFrame 列表, max_delay_seconds: 延迟容忍
@@ -62,13 +86,19 @@ def align_dataframes(dfs, max_delay_seconds=0.15):
         aligned_dfs.append(merged)
     return aligned_dfs
 
-def load_and_preprocess_aligned_final(file_paths):
-    # file_paths: CSV 路径列表
+
+def load_and_preprocess_aligned_final(d1, d2, d3, d4, t1, t2, t3, t4):
+    # d1, d2, d3, d4: 原始 data 序列列表
+    # t1, t2, t3, t4: 对应的时间序列列表
     # 返回: 经过对齐去噪后的三维矩阵 total_matrix
 
-    print(f"1. 正在读取 {len(file_paths)} 个文件并执行全流程去噪...")
-    file_paths.sort(key=lambda x: int(os.path.basename(x).split('.')[0]))
-    raw_dfs = [pd.read_csv(fp) for fp in file_paths]
+    print(f"1. 正在处理独立序列数据...")
+    raw_dfs = [
+        pd.DataFrame({'data': d1, 'time': t1, 'max': 0}),
+        pd.DataFrame({'data': d2, 'time': t2, 'max': 0}),
+        pd.DataFrame({'data': d3, 'time': t3, 'max': 0}),
+        pd.DataFrame({'data': d4, 'time': t4, 'max': 0})
+    ]
     dfs = align_dataframes(raw_dfs, max_delay_seconds=0.15)
     min_len = len(dfs[0])
     cleaned_tensors = []
@@ -168,6 +198,7 @@ def detect_active_gait_range(total_matrix, frame_ms=13, std_threshold=2.0, force
     
     return int(final_start), int(final_end)
 
+
 # --- [新增] 2. 提取静止帧 ---
 def extract_static_pressure_data(raw_matrix, walk_start_idx, buffer_frames=100, min_pressure_threshold=1000):
     # raw_matrix: 帧矩阵, walk_start_idx: 行走起点, buffer_frames: 缓冲帧, min_pressure_threshold: 最小压力触发
@@ -196,6 +227,7 @@ def extract_static_pressure_data(raw_matrix, walk_start_idx, buffer_frames=100, 
         
     return static_sums, valid_frames
 
+
 # --- [新增] 3. 计算 K 值 ---
 def calibrate_k(body_weight_kg, static_frames_data):
     # body_weight_kg: 用户体重, static_frames_data: 静止帧数据
@@ -214,6 +246,7 @@ def calibrate_k(body_weight_kg, static_frames_data):
     print(f"  [校准结果] 计算得出 k = {k:.6f} (体重 {body_weight_kg}kg)")
     return k
 
+
 # --- [新增] 4. ADC 转 牛顿力 函数 ---
 def adc_to_force(adc_values):
     # adc_values: ADC 数值（矩阵或序列）
@@ -224,6 +257,7 @@ def adc_to_force(adc_values):
     global GLOBAL_K 
     adc = np.maximum(0, np.array(adc_values))
     return GLOBAL_K * np.power(adc, 0.783)
+
 
 def calculate_cop_single_side(pressure_grid):
     # pressure_grid: 单只脚压力矩阵
@@ -240,6 +274,7 @@ def calculate_cop_single_side(pressure_grid):
     weighted_y = (arr * y_coords).sum()
     cop_y = weighted_y / total_pressure
     return (cop_x, cop_y)
+
 
 def analyze_foot_distribution(total_matrix):
     # total_matrix: 帧矩阵
@@ -269,6 +304,7 @@ def analyze_foot_distribution(total_matrix):
     centers.sort()
     return centers[0], centers[1]
 
+
 def get_foot_mask_by_centers(frame, is_right_foot, center_l, center_r):
     # frame: 单帧矩阵, is_right_foot: 左右标识, center_l/r: 重心坐标
     # 返回: 对应脚的二值化掩膜矩阵
@@ -287,6 +323,7 @@ def get_foot_mask_by_centers(frame, is_right_foot, center_l, center_r):
         else:
             if dist_l <= dist_r: mask[labels == i] = 1
     return mask
+
 
 def detect_gait_events_simple(total_matrix, is_right, center_l, center_r):
     # total_matrix: 帧矩阵, is_right: 左右标识, center_l/r: 重心坐标
@@ -481,9 +518,30 @@ def calculate_step_metrics(frames, cops, interval_sec=0.013, pitch_mm=14.0):
 # 4. 仪表盘式视频生成 (更新图表标题)
 # =================================================================
 
-def generate_dashboard_video(total_matrix, left_span, right_span, center_l, center_r, output_filename="gait_dashboard.mp4"):
-    # total_matrix: 帧矩阵, left_span/right_span: 选中的步态区间, center_l/r: 重心, output_filename: 保存路径
-    # 返回: 无（生成双侧步态同步动态分析仪表盘视频）
+def generate_dashboard_video(d1, d2, d3, d4, t1, t2, t3, t4, output_filename="gait_dashboard.mp4"):
+    """
+    生成包含步态分析仪表盘的视频文件
+    参数：
+        d1, d2, d3, d4: 四个传感器的原始 data 序列列表
+        t1, t2, t3, t4: 对应的时间序列列表
+        output_filename: 输出视频文件名
+    返回: 无
+    """
+    total_matrix = load_and_preprocess_aligned_final(d1, d2, d3, d4, t1, t2, t3, t4)
+    # 1.1 计算行走开始时间
+    start_cut, end_cut = detect_active_gait_range(total_matrix)
+    # 1.2 提取静止帧
+    static_sums, static_frames_list = extract_static_pressure_data(total_matrix, start_cut)
+    # 1.3 计算 K 值并更新全局变量
+    GLOBAL_K = calibrate_k(BODY_WEIGHT_KG, static_frames_list)
+    print(f"全局校准系数已更新: GLOBAL_K={GLOBAL_K:.5f}")
+    
+    # 2. 分析中心
+    center_l, center_r = analyze_foot_distribution(total_matrix)
+    print(f"检测到足部分布中心: L={center_l}, R={center_r}")
+    
+    # 3. 选择步态区间
+    left_span, right_span = select_max_pressure_steps(total_matrix, center_l, center_r)
     
     if left_span is None or right_span is None:
         print("未检测到完整的左右脚数据，无法生成对比视频。")
@@ -684,42 +742,12 @@ def generate_dashboard_video(total_matrix, left_span, right_span, center_l, cent
 
 if __name__ == "__main__":
     # 配置输入路径
-    base_dir = './20251206/20251206_徐' 
-    if not os.path.exists(base_dir):
-        print("警告：路径不存在，生成模拟数据进行测试...")
-        os.makedirs("test_data", exist_ok=True)
-        for i in range(1, 5):
-            df = pd.DataFrame({
-                'time': pd.date_range(start='2025/12/06 12:00:00', periods=100, freq='10ms').strftime('%Y/%m/%d %H:%M:%S.%f').str[:-3],
-                'data': [str(list(np.zeros(4096))) for _ in range(100)],
-                'max': [0]*100
-            })
-            df.to_csv(f"test_data/{i}.csv", index=False)
-        input_files = [f"test_data/{i}.csv" for i in range(1, 5)]
-    else:
-        input_files = [os.path.join(base_dir, f"{i}.csv") for i in range(1, 5)]
+    base_dir = './data/20251206/20251206_徐' 
+    input_files = [os.path.join(base_dir, f"{i}.csv") for i in range(1, 5)]
+    output_path = os.path.join(os.path.dirname(input_files[0]), "gait_dashboard_force_front.mp4")
 
     # 1. 加载数据
-    total_matrix = load_and_preprocess_aligned_final(input_files)
+    d1, d2, d3, d4, t1, t2, t3, t4 = read_gait_raw_data(input_files)
 
-    # 1.1 计算行走开始时间
-    start_cut, end_cut = detect_active_gait_range(total_matrix)
-    # 1.2 提取静止帧
-    static_sums, static_frames_list = extract_static_pressure_data(total_matrix, start_cut)
-    # 1.3 计算 K 值并更新全局变量
-    GLOBAL_K = calibrate_k(BODY_WEIGHT_KG, static_frames_list)
-    print(f"全局校准系数已更新: GLOBAL_K={GLOBAL_K:.5f}")
-    
-    # 2. 分析中心
-    center_l, center_r = analyze_foot_distribution(total_matrix)
-    print(f"检测到足部分布中心: L={center_l}, R={center_r}")
-    
-    # 3. 筛选步态
-    # 3.1. 靠近某一行的步态
-    # best_left, best_right = select_central_steps(total_matrix, center_l, center_r, target_row=128)
-    # 3.2. 最大压力的步态
-    best_left, best_right = select_max_pressure_steps(total_matrix, center_l, center_r)
-    
-    # 4. 生成仪表盘视频
-    output_path = os.path.join(os.path.dirname(input_files[0]), "gait_dashboard_force.mp4")
-    generate_dashboard_video(total_matrix, best_left, best_right, center_l, center_r, output_filename=output_path)
+    # 2. 生成仪表盘视频
+    generate_dashboard_video(d1, d2, d3, d4, t1, t2, t3, t4, output_filename=output_path)

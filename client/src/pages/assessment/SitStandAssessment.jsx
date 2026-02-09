@@ -111,6 +111,7 @@ export default function SitStandAssessment() {
   const lastFootUiSeqRef = useRef(0)
   const [footpadData, setFootpadData] = useState(null)
   const [footpadData2d, setFootpadData2d] = useState(null)
+  const collectStartTsRef = useRef(null)
 
   useEffect(() => {
     if (mode === 'report') return
@@ -200,6 +201,7 @@ export default function SitStandAssessment() {
     const now = new Date()
     const date = now.toISOString().slice(0, 10)
     const collectName = displayName || ''
+    collectStartTsRef.current = Date.now()
     let assessmentId = null
     try {
       assessmentId = localStorage.getItem(ASSESSMENT_START_KEY)
@@ -227,11 +229,30 @@ export default function SitStandAssessment() {
   const stopRecording = () => {
     fetch(`${COLLECT_API_BASE}/endCol`).catch(() => {})
     setStatus('processing')
-    
-    setTimeout(() => {
+
+    const timestamp = collectStartTsRef.current || Date.now()
+    const payload = {
+      timestamp,
+      collectName: displayName || '',
+      userName: user?.name || displayName || '',
+      age: user?.age || '',
+      gender: user?.gender || '',
+      userId: user?.id || ''
+    }
+
+    const apiCall = fetch(`${COLLECT_API_BASE}/getSitAndFootPdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => null)
+
+    Promise.race([
+      apiCall,
+      new Promise((resolve) => setTimeout(resolve, 2000))
+    ]).finally(() => {
       setStatus('completed')
       setReportMode('static')
-    }, 2000)
+    })
   }
 
   const formatTime = (ms) => {
