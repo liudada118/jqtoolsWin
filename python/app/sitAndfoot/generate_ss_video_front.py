@@ -17,7 +17,11 @@ from scipy.spatial.distance import cdist
 # =================================================================
 # 请根据实际环境修改 ffmpeg 路径
 _ffmpeg_candidates = [
+    # macOS
+    r"/Users/imac/Documents/GitHub/jqtoolsWin/python/ffmpeg/ffmpeg",
+    # Windows (bundled)
     os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'Python311', 'ffmpeg', 'bin', 'ffmpeg.exe')),
+    # Windows (conda)
     r"D:\ProgramData\Anaconda3\envs\cop_env\Library\bin\ffmpeg.exe",
 ]
 for _ff in _ffmpeg_candidates:

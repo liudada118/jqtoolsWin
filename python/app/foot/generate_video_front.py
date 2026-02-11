@@ -14,7 +14,18 @@ from datetime import datetime
 # =================================================================
 # 【配置区】FFmpeg 路径 (根据你的环境确认) 、中文显示支持
 # =================================================================
-plt.rcParams['animation.ffmpeg_path'] = r"D:\ProgramData\Anaconda3\envs\cop_env\Library\bin\ffmpeg.exe"
+_ffmpeg_candidates = [
+    # macOS
+    r"/Users/imac/Documents/GitHub/jqtoolsWin/python/ffmpeg/ffmpeg",
+    # Windows (bundled)
+    os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'Python311', 'ffmpeg', 'bin', 'ffmpeg.exe')),
+    # Windows (conda)
+    r"D:\ProgramData\Anaconda3\envs\cop_env\Library\bin\ffmpeg.exe",
+]
+for _ff in _ffmpeg_candidates:
+    if os.path.exists(_ff):
+        plt.rcParams['animation.ffmpeg_path'] = _ff
+        break
 
 plt.rcParams['font.sans-serif'] = ['SimSun', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False

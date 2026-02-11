@@ -11,7 +11,7 @@ from matplotlib.colors import LinearSegmentedColormap
 # SECTION 0: 配置
 # =================================================================
 INPUT_CSV = "./data/20260205_114721_右手_抚摸_硬度_中等_123.csv"
-OUTPUT_VIDEO = "./video_output/hand_heatmap_right_1.mp4"
+OUTPUT_VIDEO = "./video_output/hand_heatmap_right_front.mp4"
 # 确保路径正确
 _ffmpeg_candidates = [
     # macOS
@@ -27,7 +27,7 @@ for _ff in _ffmpeg_candidates:
         break
 
 FPS = 100
-GRID_SIZE = 128
+GRID_SIZE = 32
 
 # =================================================================
 # SECTION 1: 前端映射矩阵
@@ -45,31 +45,6 @@ GLOVES_POINTS =[
     [23, 7], [23, 8], [23, 9], [23, 10], [23, 11], [23, 12], [23, 13], [23, 14], [23, 15], [23, 16], [23, 17], [23, 18], [23, 19], [23, 20], [23, 21],
     [25, 7], [25, 8], [25, 9], [25, 10], [25, 11], [25, 12], [25, 13], [25, 14], [25, 15], [25, 16], [25, 17], [25, 18], [25, 19], [25, 20], [25, 21]
 ]
-
-
-GLOVES_POINTS_132 = [
-    # --- Thumb (Right) ---
-    [50, 113], [52, 116], [56, 109], [58, 112], [62, 105], [64, 108], [68, 101], [70, 104], [74, 97], [76, 100], [80, 93], [82, 96],
-    # --- Index ---
-    [25, 90], [26, 93], [33, 88], [34, 91], [41, 86], [42, 89], [49, 84], [50, 87], [57, 82], [58, 85], [65, 80], [66, 83],
-    # --- Middle ---
-    [15, 62], [15, 65], [24, 62], [24, 65], [33, 62], [33, 65], [43, 62], [43, 65], [52, 62], [52, 65], [62, 62], [62, 65],
-    # --- Ring ---
-    [25, 36], [25, 39], [33, 38], [33, 41], [41, 40], [41, 43], [49, 42], [49, 45], [57, 44], [57, 47], [65, 46], [65, 49],
-    # --- Pinky (Left) ---
-    [45, 12], [46, 15], [50, 15], [51, 18], [55, 19], [56, 22], [60, 22], [61, 25], [65, 26], [66, 29], [70, 29], [71, 32],
-    # --- Palm (Row 1: 12 pts) ---
-    [70, 25], [70, 32], [70, 39], [70, 46], [70, 53], [70, 60], [70, 67], [70, 74], [70, 81], [70, 88], [70, 95], [70, 103],
-    # --- Palm (Row 2: 15 pts) ---
-    [81, 28], [81, 33], [81, 38], [81, 43], [81, 48], [81, 53], [81, 58], [81, 64], [81, 69], [81, 74], [81, 79], [81, 84], [81, 89], [81, 94], [81, 100],
-    # --- Palm (Row 3: 15 pts) ---
-    [92, 32], [92, 36], [92, 41], [92, 45], [92, 50], [92, 54], [92, 59], [92, 64], [92, 68], [92, 73], [92, 77], [92, 82], [92, 86], [92, 91], [92, 96],
-    # --- Palm (Row 4: 15 pts) ---
-    [103, 36], [103, 40], [103, 44], [103, 48], [103, 52], [103, 56], [103, 60], [103, 64], [103, 68], [103, 72], [103, 76], [103, 80], [103, 84], [103, 88], [103, 92],
-    # --- Palm (Row 5: 15 pts) ---
-    [115, 40], [115, 43], [115, 46], [115, 50], [115, 53], [115, 57], [115, 60], [115, 64], [115, 67], [115, 70], [115, 74], [115, 77], [115, 81], [115, 84], [115, 88]
-]
-
 
 SENSOR_GROUPS = {
     'Thumb': [19,18,17,3,2,1,243,242,241,227,226,225],
@@ -91,7 +66,7 @@ current_offset = 0
 for region in ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky', 'Palm']:
     indices = SENSOR_GROUPS[region]
     # 根据顺序切分对应的坐标点
-    coords = GLOVES_POINTS_132[current_offset : current_offset + len(indices)]
+    coords = GLOVES_POINTS[current_offset : current_offset + len(indices)]
     REGION_DATA_MAP[region] = {
         'indices': indices,
         'coords': coords
@@ -103,6 +78,13 @@ for region in ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky', 'Palm']:
 # =================================================================
 
 def load_data(csv_path):
+    """
+    参数：
+    加载 CSV 数据，返回 DataFrame 和传感器矩阵
+    1. timestamp 转为相对时间（秒）
+    2. 传感器数据字符串转为整数矩阵，长度不足补零，超出截断
+    3. 返回值：DataFrame, 传感器矩阵 (N x 256)
+    """
     print(f"Loading data: {csv_path}")
     df = pd.read_csv(csv_path)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -138,6 +120,19 @@ def map_to_grid(sensor_frame, points_map, grid_size=32):
 
 
 def calculate_metrics(sensor_matrix):
+    """
+    参数：
+    计算各手指和手掌的平均压力值（ADC）和受压面积
+    返回值：
+    metrics = {
+        'Thumb': {'adc': [], 'area': []},
+        'Index': {'adc': [], 'area': []},
+        'Middle': {'adc': [], 'area': []},
+        'Ring': {'adc': [], 'area': []},
+        'Pinky': {'adc': [], 'area': []},
+        'Palm': {'adc': [], 'area': []}
+    }
+    """
     metrics = {k: {'adc': [], 'area': []} for k in SENSOR_GROUPS.keys()}
     threshold = 1
     for frame in sensor_matrix:
@@ -178,11 +173,28 @@ def get_smooth_heatmap(original_matrix, upscale_factor=UPSCALE_FACTOR, sigma=Non
 # SECTION 3: 视频生成
 # =================================================================
 
-def create_video(df, sensor_matrix, metrics, output_file):
-    img_bg = plt.imread("left_hand.png")
+def create_video(data_seq, time_seq, output_file):
 
-    frames = len(df)
-    times = df['rel_time'].values
+    frames = len(data_seq)
+    timestamps = pd.to_datetime(time_seq, format='%Y/%m/%d %H:%M:%S:%f', errors='coerce')
+    start_time = timestamps[0]
+    times = (timestamps - start_time).total_seconds().to_numpy()
+
+    sensor_matrix = []
+    target_len = 256
+    for item in data_seq:
+        if isinstance(item, str):
+            arr = np.fromstring(item, sep=',', dtype=int)
+        else:
+            arr = np.array(item, dtype=int)
+        if len(arr) < target_len:
+            arr = np.pad(arr, (0, target_len - len(arr)))
+        else:
+            arr = arr[:target_len]
+        sensor_matrix.append(arr)
+    sensor_matrix = np.vstack(sensor_matrix)
+
+    metrics = calculate_metrics(sensor_matrix)
     
     fig = plt.figure(figsize=(18, 10), facecolor='#0f172a')
     gs = GridSpec(3, 6, figure=fig, wspace=0.3, hspace=0.4)
@@ -221,13 +233,6 @@ def create_video(df, sensor_matrix, metrics, output_file):
     ax_heat.set_facecolor('black')
     ax_heat.set_title("Tactile Matrix", color='white', fontsize=16)
     ax_heat.axis('off')
-
-    background_display = ax_heat.imshow(
-        img_bg, 
-        extent=[-0.5, 31.5, 31.5, -0.5], 
-        alpha=0.7, 
-        zorder=1
-    )
 
     cmap = LinearSegmentedColormap.from_list("custom_jet", 
         [(0, 0, 0, 0), (0, 0, 1, 1), (0, 1, 1, 1), (0, 1, 0, 1), (1, 1, 0, 1), (1, 0, 0, 1)], N=256)
@@ -302,62 +307,11 @@ def create_video(df, sensor_matrix, metrics, output_file):
         # ani.save("backup.gif", writer='pillow', fps=FPS)
 
 
-def debug_first_frame(df, sensor_matrix):
-    # 基础配置
-    # GRID_SIZE = 128
-    UPSCALE_FACTOR = 10
-    
-    # 创建画布
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set_facecolor('black')
-    
-    # 加载背景
-    try:
-        img_bg = plt.imread("left_hand.jpg")
-    except:
-        print("未找到 left_hand.jpg，请检查路径")
-        return
-
-    # --- 调试核心区域：调整这里的 extent 来移动背景图 ---
-    # 格式: [左边界, 右边界, 底边界, 顶边界]
-    custom_extent = [-0.5, 31.5, 31.5, -0.5] 
-    
-    # 绘制背景
-    ax.imshow(img_bg, extent=custom_extent, alpha=0.7, zorder=1)
-    
-    # 获取第一帧数据并映射（使用你之前的分层逻辑）
-    current_data = sensor_matrix[0]
-    total_high_res = np.zeros((GRID_SIZE * UPSCALE_FACTOR, GRID_SIZE * UPSCALE_FACTOR))
-    
-    for region_name, info in REGION_DATA_MAP.items():
-        layer_32 = np.zeros((GRID_SIZE, GRID_SIZE))
-        for i, (r, c) in enumerate(info['coords']):
-            s_idx = info['indices'][i]
-            if s_idx < len(current_data):
-                layer_32[r, c] = current_data[s_idx]
-        
-        # 使用你定义的插值函数
-        smoothed_region = get_smooth_heatmap(layer_32, upscale_factor=UPSCALE_FACTOR)
-        total_high_res = np.maximum(total_high_res, smoothed_region)
-    
-    # 绘制热力图
-    cmap = plt.get_cmap('jet') # 临时使用标准 jet 方便观察
-    ax.imshow(total_high_res, extent=custom_extent, cmap=cmap, 
-              vmin=0, vmax=200, alpha=0.6, zorder=2)
-    
-    # 绘制原始传感器散点（辅助对齐：红点代表你的 GLOVES_POINTS 物理坐标）
-    for r, c in GLOVES_POINTS_132:
-        ax.scatter(c, r, s=10, c='white', marker='x', alpha=0.5, zorder=3)
-
-    ax.set_title("Debug Mode: Check alignment (White X = Sensor Point)")
-    plt.show()
-
-
 if __name__ == "__main__":
     if not os.path.exists(INPUT_CSV):
         print(f"Error: File not found {INPUT_CSV}")
     else:
-        df, matrix = load_data(INPUT_CSV)
-        metrics = calculate_metrics(matrix)
-        debug_first_frame(df, matrix)
-        create_video(df, matrix, metrics, OUTPUT_VIDEO)
+        df_raw = pd.read_csv(INPUT_CSV)
+        data_sequence = df_raw['sensor_data_raw'].tolist()
+        time_sequence = df_raw['timestamp'].tolist()
+        create_video(data_sequence, time_sequence, OUTPUT_VIDEO)

@@ -343,6 +343,23 @@ export default function GripAssessment() {
     return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(base)}.pdf`
   }
 
+  const buildGloveVideoUrl = (sampleType) => {
+    let assessmentId = ''
+    try {
+      assessmentId = localStorage.getItem(ASSESSMENT_START_KEY) || ''
+    } catch {}
+    const nameStr = displayName || ''
+    const sampleDigits = String(sampleType || '').replace(/\D/g, '')
+    const parts = []
+    if (assessmentId) parts.push(assessmentId)
+    if (nameStr) parts.push(nameStr)
+    if (sampleDigits) parts.push(sampleDigits)
+    const base = parts.join('_')
+    if (!base) return ''
+    const videoName = `${base}_glove.mp4`
+    return `http://127.0.0.1:19245/OneStep/${encodeURIComponent(videoName)}`
+  }
+
   const steps = [
     { id: 'left', label: '左手' },
     { id: 'right', label: '右手' },
@@ -824,7 +841,7 @@ export default function GripAssessment() {
               <div className="w-full h-full max-w-4xl mx-auto p-4 flex flex-col items-center justify-center">
                 <video 
                   ref={videoRef}
-                  src="/assets/dynamic_report.mp4"
+                  src={buildGloveVideoUrl(currentHand === 'left' ? '1' : '2')}
                   className="w-full h-full max-h-[50vh] rounded-xl shadow-xl bg-black object-contain"
                   controls
                   onPlay={() => setVideoPlaying(true)}

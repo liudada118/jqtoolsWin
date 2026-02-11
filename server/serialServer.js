@@ -430,7 +430,22 @@ if (isPackaged) {
 
 const port = 19245
 
-const config = fs.readFileSync('./config.txt', 'utf-8',)
+function resolveConfigPath() {
+  const candidates = [
+    path.join(dbPath, 'config.txt'),
+    path.join(__dirname, '../config.txt'),
+    path.join(process.cwd(), 'config.txt'),
+  ]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p
+    } catch {}
+  }
+  return candidates[0]
+}
+
+const configPath = resolveConfigPath()
+const config = fs.readFileSync(configPath, 'utf-8',)
 const result = JSON.parse(decryptStr(config))
 console.log(result)
 // 当前的软件系统 , 当前的波特率
@@ -940,6 +955,59 @@ app.post('/getHandPdf' , async (req , res) => {
         })
       : null
 
+
+    try {
+      const formatTimestamp = (ts) => {
+        const d = new Date(Number(ts))
+        const pad = (n, len = 2) => String(n).padStart(len, '0')
+        return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(), 3)}`
+      }
+      const sortedRows = Array.isArray(rows)
+        ? rows.slice().sort((a, b) => Number(a?.timestamp || 0) - Number(b?.timestamp || 0))
+        : []
+      const leftSeq = []
+      const leftTimes = []
+      const rightSeq = []
+      const rightTimes = []
+      sortedRows.forEach((row) => {
+        let dataObj = {}
+        try {
+          dataObj = JSON.parse(row.data || '{}')
+        } catch {}
+        const ts = formatTimestamp(row.timestamp)
+        if (leftKey) {
+          const v = dataObj[leftKey]?.arr || dataObj[leftKey]
+          if (Array.isArray(v)) {
+            leftSeq.push(v)
+            leftTimes.push(ts)
+          }
+        }
+        if (rightKey) {
+          const v = dataObj[rightKey]?.arr || dataObj[rightKey]
+          if (Array.isArray(v)) {
+            rightSeq.push(v)
+            rightTimes.push(ts)
+          }
+        }
+      })
+
+      if (leftSeq.length && leftTimes.length) {
+        await callPy('generate_glove_video', {
+          data_seq: leftSeq,
+          time_seq: leftTimes,
+          output_file: `${basePath}_1_glove.mp4`
+        })
+      }
+      if (rightSeq.length && rightTimes.length) {
+        await callPy('generate_glove_video', {
+          data_seq: rightSeq,
+          time_seq: rightTimes,
+          output_file: `${basePath}_2_glove.mp4`
+        })
+      }
+    } catch (e) {
+      console.error('generate_glove_video failed:', e)
+    }
     res.json(
       new HttpResult(
         0,
@@ -1367,7 +1435,7 @@ app.post('/selectSystem', (req, res) => {
 // 查询系统列表和当前系统
 app.get('/getSystem', async (req, res) => {
 
-  const config = fs.readFileSync('./config.txt', 'utf-8',)
+  const config = fs.readFileSync(configPath, 'utf-8',)
   const result = JSON.parse(decryptStr(config))
   result.value = 'foot'
 

@@ -5,6 +5,7 @@ from real_rime_and_replay_cop_speed2 import process_frame_realtime , process_pla
 import real_time_and_replay_cop_speed_2 as real_rime_and_replay_cop_speed
 from staticFoot.Comprehensive_Indicators_4096_modify_input3 import extract_peak_frame , generate_foot_pressure_report
 from hand.get_adc_form_csv import process_glove_data_from_array
+from hand.glove_video_front import create_video as create_glove_video
 from foot.generate_pdf_front import analyze_gait_and_build_report
 from foot.generate_video_front import generate_dashboard_video
 from sitAndfoot.generate_ss_pdf_front import process_and_generate_report
@@ -68,6 +69,12 @@ def generate_dashboard_video_safe(d1, d2, d3, d4, t1, t2, t3, t4, output_filenam
         return generate_dashboard_video(d1, d2, d3, d4, t1, t2, t3, t4, output_filename=output_filename)
 
 
+def generate_glove_video_safe(*args, **kwargs):
+    import contextlib
+    with contextlib.redirect_stdout(sys.stderr):
+        return create_glove_video(*args, **kwargs)
+
+
 FUNCS = {
     "ping": ping,
     "realtime_server": realtime_server,
@@ -77,6 +84,7 @@ FUNCS = {
     "process_glove_data_from_array": process_glove_data_from_array,
     "analyze_gait_and_build_report": analyze_gait_and_build_report_with_csv,
     "generate_dashboard_video": generate_dashboard_video_safe,
+    "generate_glove_video": generate_glove_video_safe,
     "process_and_generate_report": process_and_generate_report,
     "generate_combined_dashboard": generate_combined_dashboard,
 }
