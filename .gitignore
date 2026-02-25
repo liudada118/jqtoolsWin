@@ -9,3 +9,8 @@
 /dist*
 /python/venv
 /python
+/client/node_modules
+/img
+/OneStep
+/pdf
+/build
