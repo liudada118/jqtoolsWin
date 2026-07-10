@@ -1,0 +1,8 @@
+LIBRARY JqToolsCarAdaptiveNative
+EXPORTS
+    JqCarAdaptiveStart
+    JqCarAdaptiveStop
+    JqCarAdaptiveIsRunning
+    JqCarAdaptiveGetDebugUrl
+    JqCarAdaptiveOpenDebugPage
+    JqCarAdaptiveGetLastError

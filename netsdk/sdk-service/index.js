@@ -1,0 +1,507 @@
+'use strict';
+
+const { spawn } = require('child_process');
+const path = require('path');
+
+const DEFAULT_BASE_URL = 'http://127.0.0.1:19245';
+const DEFAULT_WS_URL = 'ws://127.0.0.1:19999';
+const DEFAULT_ALGORITHM_SCRIPT = path.join(__dirname, 'python', 'app', 'server.py');
+
+/**
+ * SDK 统一错误类型。
+ * 请求超时、HTTP 请求失败、后端业务错误都会封装成 JqToolsError。
+ */
+class JqToolsError extends Error {
+  /** 创建 SDK 错误，并把额外上下文挂到错误对象上。 */
+  constructor(message, details = {}) {
+    super(message);
+    this.name = 'JqToolsError';
+    Object.assign(this, details);
+  }
+}
+
+/**
+ * SDK 内部的 Python 算法常驻进程管理器。
+ * 负责启动 `server.py`，通过 stdin/stdout 的 JSON 行协议调用算法函数，
+ * 并把 Python 普通日志与 JSON 响应区分开。
+ */
+class PythonAlgorithmWorker {
+  /**
+   * @param {Object} [options]
+   * @param {string} [options.pythonPath] Python 可执行文件路径。
+   * @param {string} [options.scriptPath] Python 算法入口 `server.py` 路径。
+   * @param {number} [options.timeout=15000] Python 单次调用超时时间，单位毫秒。
+   * @param {Object} [options.env] 传给 Python 进程的额外环境变量。
+   * @param {Function} [options.onLog] 接收 Python stdout/stderr 中非协议日志的回调。
+   */
+  constructor(options = {}) {
+    this.pythonPath = options.pythonPath || process.env.JQTOOLS_PYTHON || 'python';
+    this.scriptPath = options.scriptPath || DEFAULT_ALGORITHM_SCRIPT;
+    this.timeout = options.timeout || 15000;
+    this.env = options.env || {};
+    this.onLog = options.onLog;
+    this.child = null;
+    this.buffer = '';
+    this.nextId = 1;
+    this.pending = new Map();
+    this.stderrTail = '';
+  }
+
+  /**
+   * 调用 Python `server.py` 中暴露的函数。
+   * 请求会写入 Python stdin，响应按 id 从 stdout 的 JSON 行中匹配回来。
+   *
+   * @param {string} fn Python 端函数名，例如 `server`、`getParam`、`setParam`。
+   * @param {Object} [args] 传给 Python 函数的参数对象。
+   * @param {Object} [options]
+   * @param {number} [options.timeout] 覆盖本次 Python 调用超时时间。
+   * @returns {Promise<*>} Python 函数返回的 data。
+   */
+  call(fn, args = {}, options = {}) {
+    this.ensureStarted();
+
+    const id = this.nextId++;
+    const timeout = options.timeout || this.timeout;
+    const payload = JSON.stringify({ id, fn, args }) + '\n';
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new JqToolsError(`Python algorithm timed out after ${timeout}ms`, {
+          stderr: this.stderrTail
+        }));
+      }, timeout);
+
+      this.pending.set(id, { resolve, reject, timer });
+
+      this.child.stdin.write(payload, (error) => {
+        if (!error) return;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new JqToolsError(`Python stdin write failed: ${error.message}`, { cause: error }));
+      });
+    });
+  }
+
+  /**
+   * 确保 Python 算法进程已启动。
+   * 如果尚未启动，会创建子进程并绑定 stdout、stderr、exit、error 事件。
+   */
+  ensureStarted() {
+    if (this.child) return;
+
+    this.child = spawn(this.pythonPath, ['-u', this.scriptPath], {
+      cwd: path.dirname(this.scriptPath),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        ...this.env,
+        PYTHONUNBUFFERED: '1',
+        PYTHONNOUSERSITE: '1'
+      }
+    });
+
+    this.child.stdout.on('data', (chunk) => {
+      this.buffer += chunk.toString();
+      const lines = this.buffer.split(/\r?\n/);
+      this.buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        this.handleStdoutLine(line);
+      }
+    });
+
+    this.child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      this.stderrTail = (this.stderrTail + text).slice(-4000);
+      if (typeof this.onLog === 'function') {
+        this.onLog(text, 'stderr');
+      }
+    });
+
+    this.child.on('exit', (code, signal) => {
+      const error = new JqToolsError(`Python algorithm exited: code=${code} signal=${signal}`, {
+        code,
+        signal,
+        stderr: this.stderrTail
+      });
+
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(error);
+      }
+
+      this.pending.clear();
+      this.child = null;
+      this.buffer = '';
+    });
+
+    this.child.on('error', (error) => {
+      const wrapped = new JqToolsError(`Python algorithm failed to start: ${error.message}`, {
+        cause: error,
+        pythonPath: this.pythonPath,
+        scriptPath: this.scriptPath
+      });
+
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(wrapped);
+      }
+
+      this.pending.clear();
+      this.child = null;
+    });
+  }
+
+  /**
+   * 处理 Python stdout 输出的一行文本。
+   * JSON 协议行会按 id 唤醒对应 Promise；普通 print 日志会转给 onLog。
+   */
+  handleStdoutLine(line) {
+    if (!line.trim()) return;
+
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      if (typeof this.onLog === 'function') {
+        this.onLog(line, 'stdout');
+      }
+      return;
+    }
+
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+
+    clearTimeout(pending.timer);
+    this.pending.delete(message.id);
+
+    if (message.ok === false) {
+      pending.reject(new JqToolsError(message.error || 'Python algorithm returned an error.', {
+        trace: message.trace
+      }));
+    } else {
+      pending.resolve(message.data);
+    }
+  }
+
+  /** 停止当前 Python 算法进程。 */
+  stop() {
+    if (!this.child) return;
+    this.child.kill();
+    this.child = null;
+  }
+}
+
+/**
+ * JQTools 汽车自适应 SDK 客户端。
+ *
+ * 对外业务方法只保留汽车自适应相关能力：
+ * 串口连接、实时算法数据流、本地 Python 算法调用和 Python 参数管理。
+ */
+class JqToolsCarClient {
+  /**
+   * @param {Object} [options]
+   * @param {string} [options.baseUrl] 后端 REST API 基础地址。
+   * @param {string} [options.wsUrl] 实时数据 WebSocket 地址。
+   * @param {number} [options.timeout=15000] HTTP 请求超时时间，单位毫秒。
+   * @param {Function} [options.fetch] 自定义 fetch 实现，用于兼容较旧运行环境。
+   * @param {boolean} [options.unwrap=false] 是否直接返回 HttpResult.data，并在 code 非 0 时抛错。
+   * @param {string} [options.pythonPath] Python 可执行文件路径，默认读取 JQTOOLS_PYTHON 或使用 python。
+   * @param {string} [options.algorithmScriptPath] Python 算法 server.py 路径。
+   * @param {number} [options.pythonTimeout] Python 调用超时时间，单位毫秒。
+   * @param {Function} [options.onPythonLog] 接收算法 stdout/stderr 中非 JSON 的日志。
+   */
+  constructor(options = {}) {
+    this.baseUrl = trimTrailingSlash(options.baseUrl || DEFAULT_BASE_URL);
+    this.wsUrl = options.wsUrl || DEFAULT_WS_URL;
+    this.timeout = options.timeout || 15000;
+    this.fetch = options.fetch || globalThis.fetch;
+    this.unwrap = Boolean(options.unwrap);
+    this.pythonWorker = new PythonAlgorithmWorker({
+      pythonPath: options.pythonPath,
+      scriptPath: options.algorithmScriptPath,
+      timeout: options.pythonTimeout || this.timeout,
+      env: options.pythonEnv,
+      onLog: options.onPythonLog
+    });
+
+    if (typeof this.fetch !== 'function') {
+      throw new JqToolsError('fetch is not available. Use Node.js 18+ or pass a fetch implementation.');
+    }
+  }
+
+  /**
+   * 底层 HTTP 请求方法。
+   * 当后端新增接口还没有封装成具名方法时，可以先用这个方法调用。
+   */
+  async request(method, pathname, options = {}) {
+    const url = buildUrl(this.baseUrl, pathname, options.query);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.timeout);
+    const headers = Object.assign({}, options.headers);
+    const init = {
+      method,
+      headers,
+      signal: options.signal || controller.signal
+    };
+
+    if (options.body !== undefined) {
+      headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+      init.body = headers['Content-Type'].includes('application/json')
+        ? JSON.stringify(options.body)
+        : options.body;
+    }
+
+    try {
+      const response = await this.fetch(url, init);
+      const payload = await parseResponse(response);
+
+      if (!response.ok) {
+        throw new JqToolsError(`JQTools backend returned HTTP ${response.status}`, {
+          status: response.status,
+          payload
+        });
+      }
+
+      return this.unwrapResult(payload, options);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new JqToolsError(`JQTools request timed out after ${options.timeout || this.timeout}ms`, {
+          cause: error
+        });
+      }
+      if (error instanceof JqToolsError) {
+        throw error;
+      }
+      throw new JqToolsError(`JQTools request failed: ${error.message}`, { cause: error });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /** 在开启 unwrap 时，将后端 HttpResult 转换为 data。 */
+  unwrapResult(payload, options = {}) {
+    const shouldUnwrap = options.unwrap !== undefined ? options.unwrap : this.unwrap;
+    if (!shouldUnwrap || !isHttpResult(payload)) {
+      return payload;
+    }
+
+    if (payload.code !== 0) {
+      throw new JqToolsError(payload.message || 'JQTools backend returned an error result.', {
+        code: payload.code,
+        payload
+      });
+    }
+
+    return payload.data;
+  }
+
+  /** 检查后端 REST 服务是否可访问。 */
+  health() {
+    return this.request('GET', '/');
+  }
+
+  /** 获取后端所在机器识别到的串口列表。 */
+  listPorts() {
+    return this.request('GET', '/getPort');
+  }
+
+  /**
+   * 连接后端识别到的串口设备。
+   * 对汽车自适应硬件，后端收到 144 字节帧时会触发自身的 Python 算法链路。
+   */
+  connectPorts() {
+    return this.request('GET', '/connPort');
+  }
+
+  /** 语义化别名，便于客户代码表达“连接汽车自适应串口”。 */
+  connectCarAdaptivePorts() {
+    return this.connectPorts();
+  }
+
+  /**
+   * 提交一帧汽车自适应传感器数据给 SDK 内置 Python 算法。
+   *
+   * @param {number[]} sensorData 144 个传感器值，每个值应在 0-255 范围内。
+   * @param {Object} [options]
+   * @param {boolean} [options.writeSerial=false] 是否将返回的 control_command 写入汽车自适应串口。
+   * @returns {Promise<*>} 本地 Python 算法结果，通常包含 control_command、living_status、body_type、seat_state、frame_count。
+   */
+  async processCarAdaptiveFrame(sensorData, options = {}) {
+    if (!Array.isArray(sensorData) || sensorData.length !== 144) {
+      throw new JqToolsError('sensorData must be an array with 144 numbers.');
+    }
+
+    const result = await this.pythonWorker.call('server', { sensor_data: sensorData }, {
+      timeout: options.timeout
+    });
+
+    if (options.writeSerial && result?.control_command) {
+      await this.writeCarAdaptiveCommand(result.control_command);
+    }
+
+    return result;
+  }
+
+  /**
+   * 通过后端把 Python 算法返回的 control_command 写入汽车自适应串口。
+   * SDK 在本地计算算法结果；硬件串口访问仍由后端负责。
+   */
+  writeCarAdaptiveCommand(controlCommand) {
+    return this.request('POST', '/carAdaptive/writeCommand', {
+      body: { controlCommand }
+    });
+  }
+
+  /** 从 SDK 本地 Python worker 获取算法参数和注释。 */
+  getPythonConfig() {
+    return this.pythonWorker.call('getParam');
+  }
+
+  /**
+   * 修改一个 Python 算法参数。
+   * value 可以是 JavaScript 值，会直接传给 SDK 本地 Python worker。
+   */
+  setPythonParam(path, value) {
+    const obj = {};
+    obj[path] = value;
+    return this.pythonWorker.call('setParam', { obj });
+  }
+
+  /** 调用 SDK 本地 Python server.py 暴露的原始函数。 */
+  callPythonFunction(fn, args = {}, options = {}) {
+    return this.pythonWorker.call(fn, args, options);
+  }
+
+  /** 停止 SDK 本地 Python worker 进程。 */
+  stopPythonAlgorithm() {
+    this.pythonWorker.stop();
+  }
+
+  /**
+   * 连接原始 WebSocket 实时数据流。
+   * 后端可能推送 algorData、algorFeed、sitData、data、macInfo 等诊断消息。
+   */
+  connectStream(handlers = {}) {
+    const WebSocketImpl = resolveWebSocket();
+    const socket = new WebSocketImpl(this.wsUrl);
+
+    socket.onopen = handlers.onOpen || null;
+    socket.onclose = handlers.onClose || null;
+    socket.onerror = handlers.onError || null;
+    socket.onmessage = (event) => {
+      const value = parseStreamMessage(event.data);
+      if (typeof handlers.onMessage === 'function') {
+        handlers.onMessage(value, event);
+      }
+    };
+
+    return socket;
+  }
+
+  /**
+   * 连接 WebSocket 实时数据流，并按汽车自适应消息类型分发回调。
+   *
+   * @param {Object} [handlers]
+   * @param {Function} [handlers.onAlgorithmData] 收到 algorData 消息时触发。
+   * @param {Function} [handlers.onControlFeedback] 收到 algorFeed 消息时触发。
+   * @param {Function} [handlers.onRawMessage] 每条已解析 WebSocket 消息都会触发。
+   * @param {Function} [handlers.onOpen] WebSocket 连接建立回调。
+   * @param {Function} [handlers.onClose] WebSocket 连接关闭回调。
+   * @param {Function} [handlers.onError] WebSocket 错误回调。
+   */
+  connectCarAdaptiveStream(handlers = {}) {
+    return this.connectStream({
+      onOpen: handlers.onOpen,
+      onClose: handlers.onClose,
+      onError: handlers.onError,
+      onMessage: (message, event) => {
+        if (typeof handlers.onRawMessage === 'function') {
+          handlers.onRawMessage(message, event);
+        }
+        if (message && typeof message === 'object' && 'algorData' in message && typeof handlers.onAlgorithmData === 'function') {
+          handlers.onAlgorithmData(message.algorData, event);
+        }
+        if (message && typeof message === 'object' && 'algorFeed' in message && typeof handlers.onControlFeedback === 'function') {
+          handlers.onControlFeedback(message.algorFeed, event);
+        }
+      }
+    });
+  }
+}
+
+/** 创建汽车自适应 SDK 客户端。 */
+function createClient(options) {
+  return new JqToolsCarClient(options);
+}
+
+const JqToolsClient = JqToolsCarClient;
+
+/** 移除 URL 末尾多余的斜杠，避免拼接接口路径时出现双斜杠。 */
+function trimTrailingSlash(value) {
+  return value.replace(/\/+$/, '');
+}
+
+/** 根据基础地址、接口路径和查询参数拼出完整请求 URL。 */
+function buildUrl(baseUrl, pathname, query) {
+  const url = new URL(pathname, `${baseUrl}/`);
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  return url.toString();
+}
+
+/** 解析 HTTP 响应；优先按 JSON 处理，无法解析时返回原始文本。 */
+async function parseResponse(response) {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return JSON.parse(text);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/** 解析 WebSocket 消息；能转 JSON 就返回对象，否则返回原始字符串。 */
+function parseStreamMessage(data) {
+  const text = typeof data === 'string' ? data : data.toString();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/** 判断一个对象是否符合后端 HttpResult 统一响应结构。 */
+function isHttpResult(value) {
+  return value && typeof value === 'object' && 'code' in value && 'data' in value && 'message' in value;
+}
+
+/** 获取 WebSocket 实现；浏览器用全局 WebSocket，Node.js 用 ws 包。 */
+function resolveWebSocket() {
+  if (typeof globalThis.WebSocket === 'function') {
+    return globalThis.WebSocket;
+  }
+  return require('ws');
+}
+
+module.exports = {
+  DEFAULT_BASE_URL,
+  DEFAULT_WS_URL,
+  JqToolsCarClient,
+  JqToolsClient,
+  JqToolsError,
+  createClient
+};

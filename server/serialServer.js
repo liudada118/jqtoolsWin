@@ -108,6 +108,68 @@ currentDb = db
 
 console.log(__dirname, dbPath, '__dirname')
 
+const CAR_ADAPTIVE_TYPE = 'carAir'
+const CAR_ADAPTIVE_COMMAND_INTERVAL = 500
+const adaptiveWritePending = {}
+
+function normalizeControlCommand(command) {
+  if (!Array.isArray(command) || !command.length) {
+    return null
+  }
+
+  const bytes = []
+  for (const value of command) {
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      console.error('[car-adaptive] invalid control byte:', value)
+      return null
+    }
+    bytes.push(value)
+  }
+
+  return Buffer.from(bytes)
+}
+
+function getCarAdaptivePorts() {
+  return Object.keys(parserArr)
+    .map((path) => ({
+      path,
+      port: parserArr[path]?.port,
+      type: dataMap[path]?.type
+    }))
+    .filter((item) => item.type === CAR_ADAPTIVE_TYPE && item.port?.isOpen)
+}
+
+function writeCarAdaptiveCommand(command) {
+  const commandBuffer = normalizeControlCommand(command)
+  if (!commandBuffer) return
+
+  const targetPorts = getCarAdaptivePorts()
+  if (!targetPorts.length) return
+
+  targetPorts.forEach(({ path, port }) => {
+    if (adaptiveWritePending[path]) return
+
+    adaptiveWritePending[path] = true
+    port.write(commandBuffer, (err) => {
+      adaptiveWritePending[path] = false
+      if (err) {
+        console.error(`[car-adaptive] write failed on ${path}:`, err.message)
+      }
+    })
+  })
+}
+
+function getControlFeedback(command) {
+  if (!Array.isArray(command)) return []
+
+  const max = 24
+  const controlArr = []
+  for (let i = 0; i < max; i++) {
+    controlArr.push(command[2 * i + 2])
+  }
+  return controlArr
+}
+
 app.get('/', (req, res) => {
   res.send('Hello World!')
 })
@@ -160,13 +222,18 @@ app.post('/bindKey', (req, res) => {
  * 3. 关闭串口
  * */
 app.post('/selectSystem', (req, res) => {
-  file = req.query.file;
-  const { db } = initDb(file, dbPath)
-  currentDb = db
-  if (blue.includes(file)) {
-    baudRate = 921600
-  } else {
-    baudRate = 1000000
+  try {
+    file = req.query.file;
+    const { db } = initDb(file, dbPath)
+    currentDb = db
+    if (blue.includes(file)) {
+      baudRate = 921600
+    } else {
+      baudRate = 1000000
+    }
+    res.json(new HttpResult(0, { file, baudRate }, 'success'));
+  } catch (err) {
+    res.json(new HttpResult(1, {}, err.message || 'select system failed'));
   }
 })
 
@@ -394,9 +461,13 @@ app.post('/getContrastData', async (req, res) => {
 
 
 app.post('/changeDbDataName', async (req, res) => {
-  const { oldName, newName } = req.body
-
-  changeDbDataName({ db: currentDb, params: [oldName, newName] })
+  try {
+    const { oldName, newName } = req.body
+    await changeDbDataName({ db: currentDb, params: [oldName, newName] })
+    res.json(new HttpResult(0, {}, 'success'));
+  } catch (err) {
+    res.json(new HttpResult(1, {}, err.message || 'change data name failed'));
+  }
 })
 
 // 取消播放
@@ -527,11 +598,15 @@ app.post('/getDbHistoryIndex', async (req, res) => {
 
 // 读取csv
 app.post('/getCsvData', async (req, res) => {
-  const { fileName } = req.body
-  const data = getCsvData(fileName)
-  console.log(data)
-  csvArr = data
-  res.json(new HttpResult(0, data, 'success'));
+  try {
+    const { fileName } = req.body
+    const data = await getCsvData(fileName)
+    console.log(data)
+    csvArr = data
+    res.json(new HttpResult(0, data, 'success'));
+  } catch (err) {
+    res.json(new HttpResult(1, {}, err.message || 'read csv failed'));
+  }
 })
 
 function portWirte(port) {
@@ -597,6 +672,50 @@ app.get('/getPyConfig', async (req, res) => {
 
   const obj = await callPy('getParam',)
   res.json(new HttpResult(0, obj, 'success'));
+})
+
+// Car adaptive: submit a 144-point frame and run the Python algorithm.
+app.post('/carAdaptive/processFrame', async (req, res) => {
+  try {
+    const { sensorData, writeSerial = false } = req.body
+
+    if (!Array.isArray(sensorData) || sensorData.length !== 144) {
+      res.json(new HttpResult(1, {}, 'sensorData must be an array with 144 numbers'));
+      return
+    }
+
+    const result = await callPy('server', { sensor_data: sensorData })
+    algorData = result
+
+    if (result?.control_command) {
+      control_command = result.control_command
+      if (writeSerial) {
+        writeCarAdaptiveCommand(result.control_command)
+      }
+    }
+
+    res.json(new HttpResult(0, result, 'success'));
+  } catch (err) {
+    res.json(new HttpResult(1, {}, err.message || 'car adaptive algorithm failed'));
+  }
+})
+
+// Car adaptive: write an existing Python control_command to the target serial port.
+app.post('/carAdaptive/writeCommand', async (req, res) => {
+  try {
+    const { controlCommand } = req.body
+    const commandBuffer = normalizeControlCommand(controlCommand)
+
+    if (!commandBuffer) {
+      res.json(new HttpResult(1, {}, 'controlCommand must be a byte array'));
+      return
+    }
+
+    writeCarAdaptiveCommand(controlCommand)
+    res.json(new HttpResult(0, { length: commandBuffer.length }, 'success'));
+  } catch (err) {
+    res.json(new HttpResult(1, {}, err.message || 'car adaptive write command failed'));
+  }
 })
 
 app.post('/changePy', async (req, res) => {
@@ -1176,9 +1295,13 @@ async function connectPort() {
           }
 
           oldTimeObj[dataItem.type] = dataItem.stamp
-          algorData = await callPy('server', { sensor_data: pointArr })
-          if (algorData.control_command) {
-            control_command = algorData.control_command
+          try {
+            algorData = await callPy('server', { sensor_data: pointArr })
+            if (algorData.control_command) {
+              control_command = algorData.control_command
+            }
+          } catch (err) {
+            console.error('[car-adaptive] algorithm failed:', err.message)
           }
           // console.log(algorData?.frame_count)
 
@@ -1458,6 +1581,9 @@ setInterval(() => {
 
 
 setInterval(async () => {
+  if (algorData?.control_command && controlMode == ALGOR) {
+    writeCarAdaptiveCommand(algorData.control_command)
+  }
 
   const portArr = Object.keys(parserArr).map((path) => {
     return parserArr[path].port
@@ -1519,7 +1645,7 @@ setInterval(async () => {
   })
 
 
-}, 500)
+}, CAR_ADAPTIVE_COMMAND_INTERVAL)
 
 
 // setInterval(async () => {

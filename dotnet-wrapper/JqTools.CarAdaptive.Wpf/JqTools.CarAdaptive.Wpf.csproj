@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>JqTools.CarAdaptive.Wpf</AssemblyName>
+    <RootNamespace>JqTools.CarAdaptive.Wpf</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>JQTools 汽车自适应调试页面 WPF 自定义控件库。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\mock-sdk\mock-service.js" Link="mock-sdk\mock-service.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\mock-sdk\mock-debug.html" Link="mock-sdk\mock-debug.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\mock-sdk\package.json" Link="mock-sdk\package.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\mock-sdk\README.md" Link="mock-sdk\README.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\node_modules\ws\**\*">
+      <Link>mock-sdk\node_modules\ws\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

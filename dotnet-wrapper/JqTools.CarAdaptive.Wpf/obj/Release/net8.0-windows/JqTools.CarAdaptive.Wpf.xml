@@ -1,0 +1,218 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>JqTools.CarAdaptive.Wpf</name>
+    </assembly>
+    <members>
+        <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl">
+            <summary>
+            可嵌入 WPF 页面或窗口的汽车自适应调试控件。
+            </summary>
+        </member>
+        <member name="E:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.ServiceLogReceived">
+            <summary>
+            服务日志输出。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.Browser">
+            <summary>
+            内部 WebView2 实例，供高级调用方配置 WebView2 行为。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.#ctor">
+            <summary>
+            创建汽车自适应调试控件。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.AutoStartService">
+            <summary>
+            是否在控件加载时自动启动 mock-sdk 服务。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.AutoStartServiceProperty">
+            <summary>
+            AutoStartService 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopServiceOnUnload">
+            <summary>
+            控件卸载时是否停止由控件启动的 Node.js 服务。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopServiceOnUnloadProperty">
+            <summary>
+            StopServiceOnUnload 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopServiceOnApplicationExit">
+            <summary>
+            WPF 应用退出或 Dispatcher 关闭时是否强制停止由控件启动的 Node.js 服务。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopServiceOnApplicationExitProperty">
+            <summary>
+            StopServiceOnApplicationExit 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.Host">
+            <summary>
+            HTTP/WS 服务监听地址。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HostProperty">
+            <summary>
+            Host 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HttpPort">
+            <summary>
+            HTTP 服务端口。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HttpPortProperty">
+            <summary>
+            HttpPort 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.WebSocketPort">
+            <summary>
+            WebSocket 服务端口。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.WebSocketPortProperty">
+            <summary>
+            WebSocketPort 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.NodeExecutablePath">
+            <summary>
+            Node.js 可执行文件路径。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.NodeExecutablePathProperty">
+            <summary>
+            NodeExecutablePath 依赖属性。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.MockSdkDirectory">
+            <summary>
+            mock-sdk 目录；为空时从应用输出目录自动查找。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.MockSdkDirectoryProperty">
+            <summary>
+            MockSdkDirectory 依赖属性。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StartAsync(System.Threading.CancellationToken)">
+            <summary>
+            启动服务并加载调试页面。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopAsync(System.Threading.CancellationToken)">
+            <summary>
+            停止由控件启动的 mock-sdk 服务。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.Reload">
+            <summary>
+            重新加载当前调试页面。
+            </summary>
+        </member>
+        <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions">
+            <summary>
+            汽车自适应调试控件的服务启动配置。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.Host">
+            <summary>
+            假数据 HTTP/WS 服务监听地址，默认只监听本机。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.HttpPort">
+            <summary>
+            假数据 HTTP 服务端口。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.WebSocketPort">
+            <summary>
+            假数据 WebSocket 服务端口。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.NodeExecutablePath">
+            <summary>
+            Node.js 可执行文件路径；如果已加入 PATH，可保持默认值 node。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.MockSdkDirectory">
+            <summary>
+            mock-sdk 目录；为空时从程序输出目录下的 mock-sdk 自动查找。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.StartupTimeout">
+            <summary>
+            等待假数据 HTTP 服务启动成功的最长时间。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.DebugUri">
+            <summary>
+            当前配置对应的调试页面地址。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.ResolveMockSdkDirectory">
+            <summary>
+            解析 mock-sdk 目录，兼容 DLL 输出目录和源码目录两种运行方式。
+            </summary>
+        </member>
+        <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost">
+            <summary>
+            负责启动和停止 mock-sdk 里的 Node.js 假数据服务。
+            </summary>
+        </member>
+        <member name="E:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.OutputReceived">
+            <summary>
+            Node 服务标准输出和错误输出。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.Options">
+            <summary>
+            最近一次启动使用的配置。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.IsRunning">
+            <summary>
+            Node 服务进程是否仍在运行。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.DebugUri">
+            <summary>
+            当前调试页面地址。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.Logs">
+            <summary>
+            已收到的服务日志。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.StartAsync(JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions,System.Threading.CancellationToken)">
+            <summary>
+            启动假数据服务。如果服务已经运行，则直接返回。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.StopAsync(System.Threading.CancellationToken)">
+            <summary>
+            停止由当前实例启动的假数据服务。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.Dispose">
+            <summary>
+            释放服务进程和 HTTP 客户端。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.IsHealthyAsync(System.Threading.CancellationToken)">
+            <summary>
+            检查目标 HTTP 服务是否已经可用。
+            </summary>
+        </member>
+    </members>
+</doc>

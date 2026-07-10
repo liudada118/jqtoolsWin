@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>汽车自适应假数据调试版</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --line: #d8dee8;
+      --text: #1f2937;
+      --muted: #667085;
+      --primary: #0f766e;
+      --primary-dark: #0b5f59;
+      --danger: #b42318;
+      --warn: #936500;
+      --ok: #067647;
+      --code: #101828;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      font-size: 14px;
+    }
+
+    header {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    main {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 420px minmax(520px, 1fr);
+      gap: 16px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .head {
+      height: 44px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .content {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 112px;
+      resize: vertical;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    button {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button.danger {
+      border-color: #f4b1aa;
+      color: var(--danger);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: #eef4f3;
+      color: var(--primary-dark);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .status.warn {
+      background: #fff7e6;
+      color: var(--warn);
+    }
+
+    .status.error {
+      background: #fee4e2;
+      color: var(--danger);
+    }
+
+    .status.ok {
+      background: #ecfdf3;
+      color: var(--ok);
+    }
+
+    .switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .switch input {
+      width: auto;
+    }
+
+    .metric {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      min-width: 0;
+    }
+
+    .metric b {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .metric span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 800;
+    }
+
+    pre {
+      margin: 0;
+      min-height: 180px;
+      max-height: 460px;
+      overflow: auto;
+      padding: 12px;
+      border-radius: 6px;
+      background: var(--code);
+      color: #e5e7eb;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .airbags {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+
+    .airbag {
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .visual-block {
+      display: grid;
+      gap: 10px;
+    }
+
+    .visual-title {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .pressure-grid,
+    .command-grid {
+      display: grid;
+      gap: 3px;
+    }
+
+    .pressure-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .command-grid {
+      grid-template-columns: repeat(17, minmax(0, 1fr));
+    }
+
+    .pressure-cell,
+    .command-cell {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 10px;
+      font-weight: 800;
+      overflow: hidden;
+    }
+
+    .pressure-cell {
+      aspect-ratio: 1 / 1;
+    }
+
+    .command-cell {
+      height: 24px;
+      background: #f8fafc;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .tab.active {
+      border-color: var(--primary);
+      background: #eef4f3;
+      color: var(--primary-dark);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>汽车自适应假数据调试版</h1>
+    <div class="row">
+      <span id="httpStatus" class="status warn">HTTP 未检查</span>
+      <span id="wsStatus" class="status warn">WS 未连接</span>
+      <span id="connStatus" class="status warn">假设备未连接</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <section>
+        <div class="head">
+          <h2>两个服务</h2>
+          <button id="healthBtn">检查服务</button>
+        </div>
+        <div class="content">
+          <div class="grid-2">
+            <label>HTTP 服务
+              <input id="httpBase">
+            </label>
+            <label>WS 服务
+              <input id="wsUrl">
+            </label>
+          </div>
+          <div class="row">
+            <button id="wsConnectBtn" class="primary">连接 WS</button>
+            <button id="wsCloseBtn">断开 WS</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="head">
+          <h2>假连接</h2>
+          <span id="fakeStatus" class="status warn">等待</span>
+        </div>
+        <div class="content">
+          <div class="row">
+            <button id="fakeConnectBtn" class="primary">一键连接假的设备</button>
+            <button id="fakeDisconnectBtn" class="danger">断开假设备</button>
+            <button id="getPortBtn">查看假串口</button>
+          </div>
+          <label class="switch">
+            <input id="adaptiveSwitch" type="checkbox">
+            自适应调节开关
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <div class="head">
+          <h2>气囊控制</h2>
+          <span id="airbagStatus" class="status warn">未发送</span>
+        </div>
+        <div class="content">
+          <div class="grid-2">
+            <label>控制动作
+              <select id="airbagAction">
+                <option value="0">保持</option>
+                <option value="1">充气</option>
+                <option value="2">放气</option>
+              </select>
+            </label>
+            <label>目标气囊
+              <select id="airbagTarget">
+                <option value="all">全部</option>
+                <option value="lumbar">腰托 1-6</option>
+                <option value="left">左侧翼 7-12</option>
+                <option value="right">右侧翼 13-18</option>
+                <option value="leg">腿托 19-24</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button id="sendAirbagBtn" class="primary">发送气囊数据</button>
+            <button id="holdBtn">全部保持</button>
+          </div>
+          <label>自定义 controlCommand
+            <textarea id="commandInput"></textarea>
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section>
+        <div class="head">
+          <h2>状态</h2>
+          <button id="statusBtn">刷新</button>
+        </div>
+        <div class="content">
+          <div class="grid-4">
+            <div class="metric"><b>frameCount</b><span id="mFrame">0</span></div>
+            <div class="metric"><b>seat_state</b><span id="mSeat">-</span></div>
+            <div class="metric"><b>living_status</b><span id="mLiving">-</span></div>
+            <div class="metric"><b>body_type</b><span id="mBody">-</span></div>
+          </div>
+          <div class="airbags" id="airbagGrid"></div>
+          <div class="visual-block">
+            <div class="grid-4">
+              <div class="metric"><b>sensor length</b><span id="mSensorLen">0</span></div>
+              <div class="metric"><b>control length</b><span id="mControlLen">0</span></div>
+              <div class="metric"><b>avg pressure</b><span id="mAvg">-</span></div>
+              <div class="metric"><b>active points</b><span id="mActive">-</span></div>
+            </div>
+            <div class="visual-title">144 点压力数据</div>
+            <div class="pressure-grid" id="sensorGrid"></div>
+            <div class="visual-title">51 字节控制数据</div>
+            <div class="command-grid" id="commandGrid"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="tabs">
+          <button class="tab active" data-tab="ws">实时 WS</button>
+          <button class="tab" data-tab="api">接口结果</button>
+          <button class="tab" data-tab="airbag">气囊回包</button>
+          <button class="tab" data-tab="log">日志</button>
+        </div>
+        <div class="content">
+          <div id="panel-ws" class="panel active"><pre id="wsOutput"></pre></div>
+          <div id="panel-api" class="panel"><pre id="apiOutput"></pre></div>
+          <div id="panel-airbag" class="panel"><pre id="airbagOutput"></pre></div>
+          <div id="panel-log" class="panel"><pre id="logOutput"></pre></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { ws: null };
+
+    $('httpBase').value = window.location.origin;
+    $('wsUrl').value = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:19399`;
+    $('commandInput').value = JSON.stringify(createCommand(0, 'all'));
+    renderAirbags(new Array(24).fill(0));
+    renderSensorGrid(new Array(144).fill(0));
+    renderCommandGrid(new Array(51).fill(0));
+
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => activateTab(tab.dataset.tab));
+    });
+
+    $('healthBtn').addEventListener('click', health);
+    $('wsConnectBtn').addEventListener('click', connectWs);
+    $('wsCloseBtn').addEventListener('click', closeWs);
+    $('fakeConnectBtn').addEventListener('click', fakeConnect);
+    $('fakeDisconnectBtn').addEventListener('click', fakeDisconnect);
+    $('getPortBtn').addEventListener('click', getPort);
+    $('adaptiveSwitch').addEventListener('change', switchAdaptive);
+    $('statusBtn').addEventListener('click', getStatus);
+    $('sendAirbagBtn').addEventListener('click', sendAirbag);
+    $('holdBtn').addEventListener('click', () => {
+      $('airbagAction').value = '0';
+      $('airbagTarget').value = 'all';
+      $('commandInput').value = JSON.stringify(createCommand(0, 'all'));
+      sendAirbag();
+    });
+    $('airbagAction').addEventListener('change', syncCommandInput);
+    $('airbagTarget').addEventListener('change', syncCommandInput);
+
+    async function health() {
+      const data = await api('GET', '/health');
+      setStatus('httpStatus', data.code === 0 ? 'HTTP 正常' : 'HTTP 异常', data.code === 0 ? 'ok' : 'error');
+      updateStatus(data.data);
+      writeJson('apiOutput', data);
+    }
+
+    function connectWs() {
+      if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+      closeWs();
+      const ws = new WebSocket($('wsUrl').value.trim());
+      state.ws = ws;
+      setStatus('wsStatus', 'WS 连接中', 'warn');
+      ws.onopen = () => setStatus('wsStatus', 'WS 已连接', 'ok');
+      ws.onclose = () => setStatus('wsStatus', 'WS 已断开', 'warn');
+      ws.onerror = () => setStatus('wsStatus', 'WS 错误', 'error');
+      ws.onmessage = (event) => handleWs(parseMaybeJson(event.data));
+    }
+
+    function closeWs() {
+      if (!state.ws) return;
+      state.ws.close();
+      state.ws = null;
+    }
+
+    async function fakeConnect() {
+      connectWs();
+      await delay(120);
+      const data = await api('POST', '/fake/connect', {});
+      setStatus('fakeStatus', '假设备已连接', 'ok');
+      updateStatus(data.data);
+      writeJson('apiOutput', data);
+    }
+
+    async function fakeDisconnect() {
+      const data = await api('POST', '/fake/disconnect', {});
+      setStatus('fakeStatus', '假设备已断开', 'warn');
+      updateStatus(data.data);
+      writeJson('apiOutput', data);
+    }
+
+    async function getPort() {
+      const data = await api('GET', '/getPort');
+      writeJson('apiOutput', data);
+      activateTab('api');
+    }
+
+    async function switchAdaptive() {
+      const data = await api('POST', '/adaptive/switch', {
+        enabled: $('adaptiveSwitch').checked
+      });
+      updateStatus(data.data);
+      writeJson('apiOutput', data);
+    }
+
+    async function getStatus() {
+      const data = await api('GET', '/status');
+      updateStatus(data.data);
+      writeJson('apiOutput', data);
+    }
+
+    async function sendAirbag() {
+      const command = parseMaybeJson($('commandInput').value);
+      const data = await api('POST', '/airbag/send', {
+        controlCommand: command,
+        source: 'debug-web'
+      });
+      setStatus('airbagStatus', data.code === 0 ? '已发送并收到回包' : '发送失败', data.code === 0 ? 'ok' : 'error');
+      writeJson('airbagOutput', data);
+      updateAirbag(data.data);
+      activateTab('airbag');
+    }
+
+    function handleWs(message) {
+      appendJson('wsOutput', message);
+      if (message.type === 'serial' || message.serialData || message.sitData || message.data?.carAir) {
+        updateSerial(message);
+      }
+      if (message.type === 'algorithm' || message.algorData) {
+        updateAlgorithm(message.algorData);
+        renderAirbags(message.airbagState || []);
+      }
+      if (message.algorFeed) {
+        renderAirbags(message.algorFeed);
+      }
+      if (message.type === 'airbag' || message.airbagResponse) {
+        writeJson('airbagOutput', message.airbagResponse);
+        updateAirbag(message.airbagResponse);
+      }
+    }
+
+    function updateStatus(data) {
+      if (!data) return;
+      $('adaptiveSwitch').checked = Boolean(data.adaptiveEnabled);
+      setStatus('connStatus', data.connected ? '假设备已连接' : '假设备未连接', data.connected ? 'ok' : 'warn');
+      $('mFrame').textContent = data.frameCount ?? 0;
+      renderAirbags(data.airbagState || []);
+      if (data.lastSerial?.frameData) renderSensorGrid(data.lastSerial.frameData);
+      if (data.lastSerial?.arr) renderSensorGrid(data.lastSerial.arr);
+      if (data.lastAlgorithm) updateAlgorithm(data.lastAlgorithm);
+    }
+
+    function updateSerial(data) {
+      if (!data) return;
+      setStatus('connStatus', '假串口数据推送中', 'ok');
+      setStatus('fakeStatus', '假串口数据推送中', 'ok');
+      $('mFrame').textContent = data.frameCount ?? data.serialData?.frameCount ?? data.sitData?.carAir?.stamp ?? '-';
+      const sensorData = data.sensorData || data.serialData?.frameData || data.sitData?.carAir?.arr || data.data?.carAir?.arr;
+      if (Array.isArray(sensorData)) renderSensorGrid(sensorData);
+    }
+
+    function updateAlgorithm(data) {
+      if (!data) return;
+      $('mFrame').textContent = data.frame_count ?? '-';
+      $('mSeat').textContent = data.seat_state ?? '-';
+      $('mLiving').textContent = data.living_status ?? '-';
+      $('mBody').textContent = data.body_type ?? '-';
+      $('mSensorLen').textContent = data.sensor_length ?? data.sensor_data_144?.length ?? '-';
+      $('mControlLen').textContent = data.control_length ?? data.control_command_51?.length ?? data.control_command?.length ?? '-';
+      $('mAvg').textContent = data.control_decision_data?.averagePressure ?? '-';
+      $('mActive').textContent = data.control_decision_data?.activePoints ?? '-';
+      if (Array.isArray(data.sensor_data_144)) renderSensorGrid(data.sensor_data_144);
+      if (Array.isArray(data.control_command_51 || data.control_command)) {
+        renderCommandGrid(data.control_command_51 || data.control_command);
+      }
+    }
+
+    function updateAirbag(data) {
+      if (!data) return;
+      renderAirbags(data.airbagState || []);
+    }
+
+    function syncCommandInput() {
+      const action = Number($('airbagAction').value);
+      const target = $('airbagTarget').value;
+      $('commandInput').value = JSON.stringify(createCommand(action, target));
+    }
+
+    function createCommand(action, target) {
+      const command = new Array(51).fill(0);
+      command[0] = 31;
+      const range = getTargetRange(target);
+      for (let i = 0; i < 24; i++) {
+        command[2 * i + 1] = i + 1;
+        command[2 * i + 2] = range.includes(i) ? action : 0;
+      }
+      command[49] = $('adaptiveSwitch').checked ? 1 : 0;
+      command[50] = command.slice(0, 50).reduce((sum, value) => (sum + value) % 256, 0);
+      return command;
+    }
+
+    function getTargetRange(target) {
+      if (target === 'lumbar') return [0, 1, 2, 3, 4, 5];
+      if (target === 'left') return [6, 7, 8, 9, 10, 11];
+      if (target === 'right') return [12, 13, 14, 15, 16, 17];
+      if (target === 'leg') return [18, 19, 20, 21, 22, 23];
+      return Array.from({ length: 24 }, (_, index) => index);
+    }
+
+    async function api(method, path, body) {
+      appendLog(`${method} ${path}`);
+      const init = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== undefined) init.body = JSON.stringify(body);
+      const response = await fetch(`${$('httpBase').value.trim()}${path}`, init);
+      const data = await response.json();
+      if (!response.ok) appendLog(`HTTP ${response.status}: ${data.message || 'error'}`);
+      return data;
+    }
+
+    function renderAirbags(values) {
+      const root = $('airbagGrid');
+      root.innerHTML = '';
+      for (let i = 0; i < 24; i++) {
+        const value = Number(values[i] || 0);
+        const node = document.createElement('div');
+        node.className = 'airbag';
+        node.style.background = `linear-gradient(to top, rgba(15,118,110,.22) ${value}%, #f8fafc ${value}%)`;
+        node.textContent = `${i + 1}: ${value}`;
+        root.appendChild(node);
+      }
+    }
+
+    function renderSensorGrid(values) {
+      const data = normalizeArray(values, 144);
+      $('mSensorLen').textContent = data.length;
+      const root = $('sensorGrid');
+      root.innerHTML = '';
+      data.forEach((raw) => {
+        const value = Number(raw || 0);
+        const node = document.createElement('div');
+        node.className = 'pressure-cell';
+        node.style.background = pressureColor(value);
+        node.style.color = value > 120 ? '#fff' : '#1f2937';
+        node.textContent = value;
+        root.appendChild(node);
+      });
+    }
+
+    function renderCommandGrid(values) {
+      const data = normalizeArray(values, 51);
+      $('mControlLen').textContent = data.length;
+      const root = $('commandGrid');
+      root.innerHTML = '';
+      data.forEach((raw, index) => {
+        const value = Number(raw || 0);
+        const node = document.createElement('div');
+        node.className = 'command-cell';
+        node.style.background = commandColor(value, index);
+        node.style.color = value > 100 ? '#fff' : '#1f2937';
+        node.textContent = value;
+        root.appendChild(node);
+      });
+    }
+
+    function normalizeArray(values, length) {
+      const source = Array.isArray(values) ? values : [];
+      const normalized = source.slice(0, length).map((value) => Number(value || 0));
+      while (normalized.length < length) normalized.push(0);
+      return normalized;
+    }
+
+    function pressureColor(value) {
+      const ratio = Math.max(0, Math.min(1, value / 140));
+      const hue = 205 - ratio * 170;
+      const saturation = 70;
+      const lightness = 94 - ratio * 48;
+      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    }
+
+    function commandColor(value, index) {
+      if (index === 0 || index >= 49) return '#475467';
+      if (value === 1) return '#067647';
+      if (value === 2) return '#b42318';
+      if (value > 2) return '#0f766e';
+      return '#f8fafc';
+    }
+
+    function writeJson(id, data) {
+      $(id).textContent = JSON.stringify(data, null, 2);
+    }
+
+    function appendJson(id, data) {
+      const target = $(id);
+      target.textContent = `${JSON.stringify(data, null, 2)}\n\n${target.textContent}`.slice(0, 60000);
+    }
+
+    function appendLog(message) {
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+      $('logOutput').textContent = `${line}\n${$('logOutput').textContent}`.slice(0, 30000);
+    }
+
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.tab === name);
+      });
+      document.querySelectorAll('.panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `panel-${name}`);
+      });
+    }
+
+    function setStatus(id, text, type) {
+      const node = $(id);
+      node.textContent = text;
+      node.className = `status ${type || ''}`.trim();
+    }
+
+    function parseMaybeJson(value) {
+      if (typeof value !== 'string') return value;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+
+    function delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>

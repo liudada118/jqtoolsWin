@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>JqTools.CarAdaptive.ClientWpf</AssemblyName>
+    <RootNamespace>JqTools.CarAdaptive.ClientWpf</RootNamespace>
+    <Description>JQTools 汽车自适应客户调试 WPF 启动程序。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JqTools.CarAdaptive.Wpf\JqTools.CarAdaptive.Wpf.csproj" />
+  </ItemGroup>
+</Project>

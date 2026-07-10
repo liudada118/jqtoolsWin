@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>汽车自适应 SDK 调试台</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #d9dee7;
+      --text: #1d2430;
+      --muted: #657184;
+      --primary: #0f766e;
+      --primary-dark: #0b5f59;
+      --danger: #b42318;
+      --warn: #946200;
+      --code: #111827;
+      --soft: #eef4f3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    header {
+      height: 56px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(360px, 520px) minmax(420px, 1fr);
+      gap: 16px;
+      padding: 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .section-head {
+      height: 44px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .content {
+      padding: 14px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+      outline: none;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, .12);
+    }
+
+    textarea {
+      min-height: 160px;
+      resize: vertical;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    button {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: var(--primary-dark);
+    }
+
+    button:hover {
+      border-color: var(--primary);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--primary-dark);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status.warn {
+      background: #fff7e6;
+      color: var(--warn);
+    }
+
+    .status.error {
+      background: #fee4e2;
+      color: var(--danger);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .toggle input {
+      width: auto;
+    }
+
+    pre {
+      min-height: 180px;
+      max-height: 420px;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      border: 1px solid #cfd6df;
+      border-radius: 6px;
+      background: var(--code);
+      color: #e5e7eb;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .tab {
+      min-height: 30px;
+      padding: 0 10px;
+    }
+
+    .tab.active {
+      border-color: var(--primary);
+      background: var(--soft);
+      color: var(--primary-dark);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .metric b {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    @media (max-width: 960px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>汽车自适应 SDK 调试台</h1>
+    <div class="row">
+      <span id="httpStatus" class="status warn">HTTP 未检查</span>
+      <span id="wsStatus" class="status warn">WS 未连接</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <section>
+        <div class="section-head">
+          <h2>服务</h2>
+          <button id="healthBtn">检查</button>
+        </div>
+        <div class="content stack">
+          <div class="grid-2">
+            <label>HTTP 地址
+              <input id="httpBase" value="">
+            </label>
+            <label>WebSocket 地址
+              <input id="wsUrl" value="">
+            </label>
+          </div>
+          <div class="row">
+            <button id="wsBtn" class="primary">连接 WS</button>
+            <button id="wsCloseBtn">断开 WS</button>
+            <button id="clearBtn">清空输出</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>串口</h2>
+          <span id="serialStatus" class="status warn">未操作</span>
+        </div>
+        <div class="content stack">
+          <div class="row">
+            <button id="portsBtn">获取串口</button>
+            <button id="connectPortsBtn" class="primary">连接串口</button>
+          </div>
+          <pre id="portsOutput"></pre>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Python 参数</h2>
+          <span id="pyStatus" class="status warn">未读取</span>
+        </div>
+        <div class="content stack">
+          <div class="row">
+            <button id="getPyConfigBtn">读取参数</button>
+          </div>
+          <div class="grid-2">
+            <label>参数路径
+              <input id="paramPath" placeholder="lumbar.back_total_threshold">
+            </label>
+            <label>参数值 JSON
+              <input id="paramValue" placeholder="500">
+            </label>
+          </div>
+          <div class="row">
+            <button id="setParamBtn" class="primary">写入参数</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section>
+        <div class="section-head">
+          <h2>算法帧</h2>
+          <span id="frameCount" class="status">144 点</span>
+        </div>
+        <div class="content stack">
+          <div class="grid-3">
+            <label>填充值
+              <input id="fillValue" type="number" min="0" max="255" value="50">
+            </label>
+            <label>随机最小
+              <input id="randomMin" type="number" min="0" max="255" value="20">
+            </label>
+            <label>随机最大
+              <input id="randomMax" type="number" min="0" max="255" value="90">
+            </label>
+          </div>
+          <div class="row">
+            <button id="fillBtn">生成常量帧</button>
+            <button id="randomBtn">生成随机帧</button>
+            <button id="validateBtn">校验</button>
+            <label class="toggle"><input id="writeSerial" type="checkbox"> 写串口</label>
+            <button id="processBtn" class="primary">调用算法</button>
+          </div>
+          <label>sensorData
+            <textarea id="sensorInput"></textarea>
+          </label>
+          <div class="metric-row">
+            <div class="metric"><b>frame_count</b><span id="mFrame">-</span></div>
+            <div class="metric"><b>seat_state</b><span id="mSeat">-</span></div>
+            <div class="metric"><b>living_status</b><span id="mLiving">-</span></div>
+            <div class="metric"><b>body_type</b><span id="mBody">-</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="tabs">
+          <button class="tab active" data-tab="result">结果</button>
+          <button class="tab" data-tab="ws">WS</button>
+          <button class="tab" data-tab="config">配置</button>
+          <button class="tab" data-tab="log">日志</button>
+        </div>
+        <div class="content">
+          <div id="tab-result" class="tab-panel active"><pre id="resultOutput"></pre></div>
+          <div id="tab-ws" class="tab-panel"><pre id="wsOutput"></pre></div>
+          <div id="tab-config" class="tab-panel"><pre id="configOutput"></pre></div>
+          <div id="tab-log" class="tab-panel"><pre id="logOutput"></pre></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { ws: null };
+
+    $('httpBase').value = window.location.origin;
+    $('wsUrl').value = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:19999`;
+
+    setFrame(new Array(144).fill(50));
+
+    document.querySelectorAll('.tab').forEach((button) => {
+      button.addEventListener('click', () => activateTab(button.dataset.tab));
+    });
+
+    $('healthBtn').addEventListener('click', checkHealth);
+    $('wsBtn').addEventListener('click', connectWs);
+    $('wsCloseBtn').addEventListener('click', closeWs);
+    $('clearBtn').addEventListener('click', clearOutputs);
+    $('portsBtn').addEventListener('click', getPorts);
+    $('connectPortsBtn').addEventListener('click', connectPorts);
+    $('fillBtn').addEventListener('click', fillFrame);
+    $('randomBtn').addEventListener('click', randomFrame);
+    $('validateBtn').addEventListener('click', validateFrameAction);
+    $('processBtn').addEventListener('click', processFrame);
+    $('getPyConfigBtn').addEventListener('click', getPyConfig);
+    $('setParamBtn').addEventListener('click', setPythonParam);
+
+    async function checkHealth() {
+      const data = await api('GET', '/health');
+      setStatus('httpStatus', data.code === 0 ? 'HTTP 正常' : 'HTTP 异常', data.code === 0 ? '' : 'error');
+      writeJson('resultOutput', data);
+    }
+
+    function connectWs() {
+      closeWs();
+      const ws = new WebSocket($('wsUrl').value.trim());
+      state.ws = ws;
+      setStatus('wsStatus', 'WS 连接中', 'warn');
+
+      ws.onopen = () => setStatus('wsStatus', 'WS 已连接', '');
+      ws.onclose = () => setStatus('wsStatus', 'WS 已断开', 'warn');
+      ws.onerror = () => setStatus('wsStatus', 'WS 错误', 'error');
+      ws.onmessage = (event) => {
+        const data = parseMaybeJson(event.data);
+        appendJson('wsOutput', data);
+      };
+    }
+
+    function closeWs() {
+      if (state.ws) {
+        state.ws.close();
+        state.ws = null;
+      }
+    }
+
+    async function getPorts() {
+      const data = await api('GET', '/getPort');
+      setStatus('serialStatus', data.code === 0 ? '串口已读取' : '串口不可用', data.code === 0 ? '' : 'error');
+      writeJson('portsOutput', data);
+    }
+
+    async function connectPorts() {
+      const data = await api('GET', '/connPort');
+      setStatus('serialStatus', data.code === 0 ? '连接已发送' : '连接失败', data.code === 0 ? '' : 'error');
+      writeJson('portsOutput', data);
+    }
+
+    async function processFrame() {
+      const sensorData = getFrame();
+      const data = await api('POST', '/carAdaptive/processFrame', {
+        sensorData,
+        writeSerial: $('writeSerial').checked
+      });
+      writeJson('resultOutput', data);
+      updateMetrics(data.data || data);
+      activateTab('result');
+    }
+
+    async function getPyConfig() {
+      const data = await api('GET', '/getPyConfig');
+      setStatus('pyStatus', data.code === 0 ? '参数已读取' : '读取失败', data.code === 0 ? '' : 'error');
+      writeJson('configOutput', data);
+      activateTab('config');
+    }
+
+    async function setPythonParam() {
+      const path = $('paramPath').value.trim();
+      const rawValue = $('paramValue').value.trim();
+      if (!path) throw new Error('参数路径不能为空');
+
+      const data = await api('POST', '/changePy', {
+        path,
+        value: parseMaybeJson(rawValue)
+      });
+      setStatus('pyStatus', data.code === 0 ? '参数已写入' : '写入失败', data.code === 0 ? '' : 'error');
+      writeJson('configOutput', data);
+      activateTab('config');
+    }
+
+    function fillFrame() {
+      const value = clampByte(Number($('fillValue').value || 0));
+      setFrame(new Array(144).fill(value));
+    }
+
+    function randomFrame() {
+      const min = clampByte(Number($('randomMin').value || 0));
+      const max = clampByte(Number($('randomMax').value || 255));
+      const low = Math.min(min, max);
+      const high = Math.max(min, max);
+      setFrame(Array.from({ length: 144 }, () => low + Math.floor(Math.random() * (high - low + 1))));
+    }
+
+    function validateFrameAction() {
+      const frame = getFrame();
+      setStatus('frameCount', `${frame.length} 点`, frame.length === 144 ? '' : 'error');
+      appendLog(`帧校验通过：${frame.length} 点`);
+    }
+
+    async function api(method, path, body) {
+      const init = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== undefined) init.body = JSON.stringify(body);
+
+      try {
+        appendLog(`${method} ${path}`);
+        const response = await fetch(`${$('httpBase').value.trim()}${path}`, init);
+        const data = await response.json();
+        if (!response.ok) {
+          appendLog(`HTTP ${response.status}: ${data.message || 'error'}`);
+        }
+        return data;
+      } catch (error) {
+        appendLog(error.message);
+        throw error;
+      }
+    }
+
+    function getFrame() {
+      const data = parseMaybeJson($('sensorInput').value);
+      if (!Array.isArray(data)) throw new Error('sensorData 必须是数组');
+      if (data.length !== 144) throw new Error(`sensorData 必须是 144 点，当前 ${data.length} 点`);
+      const invalid = data.find((value) => !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 255);
+      if (invalid !== undefined) throw new Error('sensorData 只能包含 0-255 数字');
+      return data.map((value) => Number(value));
+    }
+
+    function setFrame(frame) {
+      $('sensorInput').value = JSON.stringify(frame);
+      setStatus('frameCount', `${frame.length} 点`, frame.length === 144 ? '' : 'error');
+    }
+
+    function updateMetrics(data) {
+      $('mFrame').textContent = valueOrDash(data.frame_count);
+      $('mSeat').textContent = valueOrDash(data.seat_state);
+      $('mLiving').textContent = valueOrDash(data.living_status);
+      $('mBody').textContent = valueOrDash(data.body_type);
+    }
+
+    function parseMaybeJson(value) {
+      if (typeof value !== 'string') return value;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+
+    function writeJson(id, data) {
+      $(id).textContent = JSON.stringify(data, null, 2);
+    }
+
+    function appendJson(id, data) {
+      const target = $(id);
+      target.textContent = `${JSON.stringify(data, null, 2)}\n\n${target.textContent}`.slice(0, 50000);
+    }
+
+    function appendLog(message) {
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+      $('logOutput').textContent = `${line}\n${$('logOutput').textContent}`.slice(0, 30000);
+    }
+
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach((button) => {
+        button.classList.toggle('active', button.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `tab-${name}`);
+      });
+    }
+
+    function setStatus(id, text, type) {
+      const node = $(id);
+      node.textContent = text;
+      node.className = `status ${type || ''}`.trim();
+    }
+
+    function clearOutputs() {
+      ['resultOutput', 'wsOutput', 'configOutput', 'logOutput', 'portsOutput'].forEach((id) => {
+        $(id).textContent = '';
+      });
+    }
+
+    function clampByte(value) {
+      if (!Number.isFinite(value)) return 0;
+      return Math.max(0, Math.min(255, Math.round(value)));
+    }
+
+    function valueOrDash(value) {
+      return value === undefined || value === null || value === '' ? '-' : String(value);
+    }
+  </script>
+</body>
+</html>

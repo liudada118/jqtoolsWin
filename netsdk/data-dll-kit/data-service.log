@@ -1,0 +1,7 @@
+
+> @jqtools/car-adaptive-mock-sdk@1.0.0 start
+> node mock-service.js
+
+[mock] HTTP service listening at http://127.0.0.1:19345
+[mock] WebSocket service listening at ws://127.0.0.1:19399
+[mock] Debug page: http://127.0.0.1:19345/debug

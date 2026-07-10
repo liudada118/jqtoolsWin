@@ -1,0 +1,205 @@
+# ========================================
+# 座椅控制系统配置文件
+# ========================================
+
+system:
+  hz: 13  # 系统采样频率（帧/秒），传感器数据更新频率
+
+
+control:
+  check_interval_frames: 4  # 控制逻辑检查间隔（帧数），每4帧执行一次气囊调节判断
+
+# ========================================
+# 气囊控制参数
+# ========================================
+
+lumbar:
+  back_total_threshold: 20.0  # 背部总压力阈值，低于此值不调节腰托
+  upper_lower_ratio_inflate: 1.5  # 上部/下部压力比 > 1.5 时充气腰托
+  upper_lower_ratio_deflate: 0.7  # 上部/下部压力比 < 0.7 时放气腰托
+  airbags:  # 腰托气囊编号
+  - 5
+  - 6
+
+side_wings:
+  left_right_ratio_inflate_left: 0.7  # 左/右压力比 < 0.5 时左侧放气、右侧充气
+  left_right_ratio_deflate_left: 1.3 # 左/右压力比 > 2 时左侧充气、右侧放气
+  left_airbags:  # 左侧翼气囊编号
+  - 2
+  - 4
+  right_airbags:  # 右侧翼气囊编号
+  - 1
+  - 3
+
+leg_support:
+  # 左侧腿托阈值
+  left_leg_butt_ratio_inflate: 0.7  # 左侧腿/臀压力比 < 0.7 时充气左腿托
+  left_leg_butt_ratio_deflate: 0.85 # 左侧腿/臀压力比 > 1.3 时放气左腿托
+  # 右侧腿托阈值
+  right_leg_butt_ratio_inflate: 0.7  # 右侧腿/臀压力比 < 0.7 时充气右腿托
+  right_leg_butt_ratio_deflate: 0.85 # 右侧腿/臀压力比 > 1.3 时放气右腿托
+  left_airbags:  # 左腿托气囊编号
+  - 10
+  right_airbags:  # 右腿托气囊编号
+  - 9
+
+# ========================================
+# 传感器矩阵配置
+# ========================================
+
+matrix:
+  total_size: 144  # 传感器总数（靠背72 + 坐垫72）
+  backrest_size: 72  # 靠背传感器数量
+  cushion_size: 72  # 坐垫传感器数量
+  side_rect_size: 6  # 左右侧小矩形的传感器数量（每侧6个）
+  center_matrix_rows: 10  # 中间大矩阵的行数
+  center_matrix_cols: 6  # 中间大矩阵的列数
+  # 靠背压力分区（行索引范围）
+  backrest_upper_rows:  # 靠背上部（肩部区域）行范围
+  - 0
+  - 5
+  backrest_lower_rows:  # 靠背下部（腰部区域）行范围
+  - 5
+  - 10
+  # 坐垫压力分区（行索引范围）
+  cushion_butt_rows:  # 臀部区域行范围
+  - 5
+  - 10
+  cushion_leg_rows:  # 腿部区域行范围
+  - 2
+  - 5
+
+# ========================================
+# 通信协议配置
+# ========================================
+
+protocol:
+  frame_header: 31  # 协议帧头（0x1F）
+  frame_tail:  # 协议帧尾（4字节）
+  - 170  # 0xAA
+  - 85   # 0x55
+  - 3    # 0x03
+  - 153  # 0x99
+  mode_auto: 0  # 自动模式标识
+  mode_manual: 1  # 手动模式标识
+  direction_download: 0  # 下行方向（控制器→气囊）
+  direction_upload: 1  # 上行方向（气囊→控制器）
+  gear_stop: 0  # 停止档位（保持当前状态）
+  gear_1: 1  # 1档（慢速充气/放气）
+  gear_2: 2  # 2档（中速充气/放气）
+  gear_3: 3  # 3档（快速充气）
+  gear_initial: 4  # 初始档位（快速放气）
+
+# ========================================
+# 气囊编号映射（仅用于显示）
+# ========================================
+
+airbag_mapping:
+  1: 右侧翼上
+  2: 左侧翼上
+  3: 右侧翼下
+  4: 左侧翼下
+  5: 腰托1
+  6: 腰托2
+  9: 腿托1
+  10: 腿托2
+
+# ========================================
+# 活体检测配置
+# ========================================
+
+living_detection:
+  enabled: true  # 是否启用活体检测
+  window_size_frames: 13  # 检测窗口大小（帧数），1秒数据量
+  detection_interval_frames: 13  # 检测间隔（帧数），完成一次检测后的等待时间
+  queue_size: 3  # 状态机队列长度（对称切换所需连续次数），默认3次检测结果一致才确认
+  sad:  # SAD算法参数（Sum of Absolute Differences）
+    energy_threshold: 30.0  # 能量阈值，低于此值认为无有效压力
+    min_changes_ratio: 0.05  # 最小变化率，变化点占比需大于5%才认为是活体
+    normalize_scale: 30.0  # 归一化缩放因子，用于将SAD值归一化到[0,1]
+  sad_threshold: 0.6  # SAD判定阈值，归一化后的SAD > 0.6 认为是活体
+  debug:
+    print_every_n_detections: 1  # 每N次检测打印一次日志（0=不打印）
+    log_features: true  # 是否记录特征数据
+
+# ========================================
+# 体型检测配置
+# ========================================
+
+body_type_detection:
+  enabled: true  # 是否启用体型检测
+  detection_interval_frames: 13  # 检测间隔（帧），与活体检测同频
+  queue_size: 2  # 体型锁定队列长度（2次连续一致则锁定）
+  threshold: 20  # 二值化阈值，压力值 > 20 认为有效
+  min_component_size: 6  # 最小连通域大小，过滤噪点
+  body_size_adult_threshold: 4500.0  # 成人体型阈值，体型得分 > 2000 为成人
+  body_size_child_threshold: 3000.0 # 儿童体型阈值，体型得分 > 750 为儿童，否则为未判断
+  debug:
+    print_every_n_detections: 0  # 每N次检测打印一次日志（0=不打印）
+
+# ========================================
+# 集成座椅系统配置
+# ========================================
+
+integrated_system:
+  enabled: true  # 是否启用集成系统
+  # 压力判定阈值
+  cushion_sum_threshold: 2500.0 # 坐垫压力总和阈值，判定为有人坐下（推荐400-600）
+  backrest_sum_threshold: 1500.0  # 靠背压力总和阈值，判定为靠背有压力（推荐200-400）
+  # 时间窗口参数（帧数）
+  cushion_frames_threshold: 65  # [已废弃] 原用于坐垫持续帧数判定，现已改为立即判定
+  full_seat_frames_threshold: 130  # [已废弃] 原用于全座持续帧数判定，现已改为立即判定
+  off_seat_frames_threshold: 14  # 离座判定防抖时间（帧数），约1秒（推荐10-20帧）
+  reset_frames_threshold: 130  # 气囊复位总持续时间（帧数），约5秒（推荐50-80帧）
+  reset_deflate_frames: 65  # 复位放气阶段时长（帧数），约2.5秒，之后切换为保持阶段
+  backrest_buffer_frames: 13  # 靠背压力消失的缓冲时间，1秒防误解锁（推荐10-20帧）
+  # 数据处理
+  use_filtered_sum: true  # 是否使用滤波后的压力总和（推荐开启，减少噪声）
+  # 放气冷却锁配置
+  deflate_cooldown:
+    enabled: true  # 是否启用放气冷却锁
+    max_continuous_commands: 16  # 最大连续放气指令次数（约5秒，因为每4帧发1条指令：5秒×13帧÷4≈16次）
+    reset_on_no_deflate: true  # 无放气指令时是否重置计数（true=连续放气计数，false=累计放气计数）
+  # 初始化充气配置
+  init_inflate:
+    enabled: true  # 是否启用初始化充气（入座时自动充气支撑气囊）
+    cycles: 26  # 初始化充气周期数（每周期发送一次充气指令）
+    airbags:  # 需要初始化充气的气囊编号
+    - 5  # 腰托1
+    - 6  # 腰托2
+    - 7  # 臀托1
+    - 8  # 臀托2
+    - 1  # 右侧翼上
+    - 2  # 左侧翼上
+    - 3  # 右侧翼下
+    - 4  # 左侧翼下
+
+# ========================================
+# 拍打按摩检测配置
+# ========================================
+
+tap_massage:
+  enabled: true  # 是否启用拍打按摩功能
+  window_size_frames: 78  # 检测窗口大小（帧数），约6秒
+  tap_threshold: 35.0  # 拍打峰值阈值，压力变化 > 35 认为是拍打
+  min_peak_distance: 3  # 峰值间最小距离（帧数），防止误检测
+  required_taps: 2  # 需要连续检测到的拍打次数才触发
+  backrest_airbags:  # 靠背按摩气囊编号
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  cushion_airbags:  # 坐垫按摩气囊编号
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  visualization:  # 可视化配置（仅GUI使用）
+    signal_display_window: 78  # 信号显示窗口大小（帧数）
+    event_history_count: 10  # 事件历史记录数量

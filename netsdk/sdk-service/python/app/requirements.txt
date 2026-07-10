@@ -1,0 +1,23 @@
+# Seat Pressure Sensor Control System - Dependencies
+
+# Core dependencies
+numpy>=1.20.0
+PyYAML>=5.4.0
+scipy>=1.16.1
+ruamel.yaml>=0.18.0
+
+# Optional dependencies for development and testing
+# Uncomment if needed for your development environment
+
+# Testing
+# pytest>=7.0.0
+# pytest-cov>=3.0.0
+
+# Serial communication (if you need to communicate with hardware)
+# pyserial>=3.5
+
+# Data visualization (for debugging/monitoring)
+# matplotlib>=3.5.0
+
+# Logging (enhanced logging capabilities)
+# loguru>=0.6.0

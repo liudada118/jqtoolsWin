@@ -1,0 +1,30 @@
+{
+  "name": "@jqtools/client-sdk",
+  "version": "1.0.0",
+  "description": "Car adaptive client SDK for the JQTools local backend service.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "jqtools-car-sdk-service": "service.js"
+  },
+  "scripts": {
+    "start": "node service.js"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.2"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "service.js",
+    "debug.html",
+    "README.md",
+    "python/app/*.py",
+    "python/app/*.yaml",
+    "python/app/requirements.txt"
+  ]
+}

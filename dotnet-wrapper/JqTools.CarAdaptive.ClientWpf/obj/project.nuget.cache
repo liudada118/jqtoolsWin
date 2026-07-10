@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "9q+CW2l2lc8=",
+  "success": true,
+  "projectFilePath": "D:\\jqtoolsWin1\\dotnet-wrapper\\JqTools.CarAdaptive.ClientWpf\\JqTools.CarAdaptive.ClientWpf.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\23823\\.nuget\\packages\\microsoft.web.webview2\\1.0.2792.45\\microsoft.web.webview2.1.0.2792.45.nupkg.sha512"
+  ],
+  "logs": []
+}

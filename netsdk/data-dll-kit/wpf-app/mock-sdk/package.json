@@ -1,0 +1,19 @@
+{
+  "name": "@jqtools/car-adaptive-mock-sdk",
+  "version": "1.0.0",
+  "description": "Mock debug services for JQTools car adaptive integration.",
+  "main": "mock-service.js",
+  "bin": {
+    "jqtools-car-mock-service": "mock-service.js"
+  },
+  "scripts": {
+    "start": "node mock-service.js"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.2"
+  }
+}

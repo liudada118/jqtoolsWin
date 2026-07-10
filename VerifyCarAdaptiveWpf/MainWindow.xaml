@@ -1,0 +1,16 @@
+﻿<Window x:Class="VerifyCarAdaptiveWpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:jq="clr-namespace:JqTools.CarAdaptive.Wpf;assembly=JqTools.CarAdaptive.Wpf"
+        Title="验证汽车自适应调试控件"
+        Width="1200"
+        Height="800">
+    <Grid>
+        <jq:CarAdaptiveDebugControl
+            AutoStartService="True"
+            StopServiceOnUnload="True"
+            Host="127.0.0.1"
+            HttpPort="19345"
+            WebSocketPort="19399" />
+    </Grid>
+</Window>
