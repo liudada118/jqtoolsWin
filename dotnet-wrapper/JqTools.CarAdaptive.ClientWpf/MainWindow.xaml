@@ -15,7 +15,8 @@
             StopServiceOnUnload="True"
             StopServiceOnApplicationExit="True"
             Host="127.0.0.1"
-            HttpPort="19345"
-            WebSocketPort="19399" />
+            HttpPort="19245"
+            WebSocketPort="19999"
+            PagePath="/app" />
     </Grid>
 </Window>

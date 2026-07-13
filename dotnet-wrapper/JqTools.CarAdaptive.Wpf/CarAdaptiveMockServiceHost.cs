@@ -75,6 +75,7 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         startInfo.Environment["JQTOOLS_MOCK_HOST"] = Options.Host;
         startInfo.Environment["JQTOOLS_MOCK_HTTP_PORT"] = Options.HttpPort.ToString();
         startInfo.Environment["JQTOOLS_MOCK_WS_PORT"] = Options.WebSocketPort.ToString();
+        startInfo.Environment["JQTOOLS_MOCK_FRONTEND_DIR"] = Options.ResolveFrontendBuildDirectory(mockSdkDirectory);
 
         _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Node.js 假数据服务启动失败。");
         _process.OutputDataReceived += HandleOutput;

@@ -10,23 +10,24 @@ const fs = require('fs');
 let isPackaged = process.env.isPackaged == 'true'
 // isPackaged = isPackaged == 'true'
 // isPackaged = true
-console.log(process.resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(process.resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
+const resourcesPath = process.resourcesPath || __dirname
+console.log(resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
 function pythonBin() {
   const isDev = !isPackaged;
   if (process.platform === 'win32') {
     return isDev
       ? path.join(__dirname,  'python', 'Python311', 'python.exe')
-      : path.join(process.resourcesPath, 'python', 'Python311', 'python.exe');
+      : path.join(resourcesPath, 'python', 'Python311', 'python.exe');
   }
   return isDev
     ? path.join(__dirname,  'python', 'venv', 'bin', 'python')
-    : path.join(process.resourcesPath, 'python', 'venv', 'bin', 'python');
+    : path.join(resourcesPath, 'python', 'venv', 'bin', 'python');
 }
 function serverPy() {
   const isDev = !isPackaged;
   return isDev
     ? path.join(__dirname,  'python', 'app', 'server.py')
-    : path.join(process.resourcesPath, 'python', 'app', 'server.py');
+    : path.join(resourcesPath, 'python', 'app', 'server.py');
 }
 
 let child = null;

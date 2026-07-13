@@ -135,6 +135,27 @@ std::wstring ResolveMockSdkDirectory(const wchar_t* mockSdkDirectory)
     return cwdCandidate.wstring();
 }
 
+std::wstring ResolveFrontendBuildDirectory(const std::wstring& mockSdkDirectory)
+{
+    const std::vector<std::filesystem::path> candidates = {
+        std::filesystem::path(mockSdkDirectory) / L"frontend-build",
+        std::filesystem::path(mockSdkDirectory) / L".." / L"frontend-build",
+        std::filesystem::path(mockSdkDirectory) / L".." / L".." / L"frontend-build",
+        std::filesystem::path(GetDllDirectory()) / L"frontend-build"
+    };
+
+    for (const auto& candidate : candidates)
+    {
+        const auto fullPath = std::filesystem::absolute(candidate);
+        if (FileExists((fullPath / L"index.html").wstring()))
+        {
+            return fullPath.wstring();
+        }
+    }
+
+    return std::filesystem::absolute(candidates.front()).wstring();
+}
+
 bool IsOwnProcessRunning()
 {
     if (!g_hasProcess)
@@ -166,7 +187,7 @@ void CloseProcessHandles()
 std::wstring MakeDebugUrl()
 {
     std::wstringstream stream;
-    stream << L"http://" << g_host << L":" << g_httpPort << L"/debug";
+    stream << L"http://" << g_host << L":" << g_httpPort << L"/app";
     return stream.str();
 }
 
@@ -196,7 +217,7 @@ bool IsEnvironmentKey(const std::wstring& entry, const std::wstring& key)
     return true;
 }
 
-std::vector<wchar_t> BuildEnvironmentBlock(const std::wstring& host, int httpPort, int webSocketPort)
+std::vector<wchar_t> BuildEnvironmentBlock(const std::wstring& host, int httpPort, int webSocketPort, const std::wstring& frontendBuildDirectory)
 {
     std::vector<std::wstring> entries;
     LPWCH rawEnvironment = GetEnvironmentStringsW();
@@ -209,6 +230,7 @@ std::vector<wchar_t> BuildEnvironmentBlock(const std::wstring& host, int httpPor
             if (!IsEnvironmentKey(entry, L"JQTOOLS_MOCK_HOST") &&
                 !IsEnvironmentKey(entry, L"JQTOOLS_MOCK_HTTP_PORT") &&
                 !IsEnvironmentKey(entry, L"JQTOOLS_MOCK_WS_PORT") &&
+                !IsEnvironmentKey(entry, L"JQTOOLS_MOCK_FRONTEND_DIR") &&
                 !IsEnvironmentKey(entry, L"PORT"))
             {
                 entries.push_back(entry);
@@ -220,6 +242,7 @@ std::vector<wchar_t> BuildEnvironmentBlock(const std::wstring& host, int httpPor
     entries.push_back(L"JQTOOLS_MOCK_HOST=" + host);
     entries.push_back(L"JQTOOLS_MOCK_HTTP_PORT=" + std::to_wstring(httpPort));
     entries.push_back(L"JQTOOLS_MOCK_WS_PORT=" + std::to_wstring(webSocketPort));
+    entries.push_back(L"JQTOOLS_MOCK_FRONTEND_DIR=" + frontendBuildDirectory);
 
     std::sort(entries.begin(), entries.end(), [](const std::wstring& left, const std::wstring& right) {
         return _wcsicmp(left.c_str(), right.c_str()) < 0;
@@ -383,7 +406,8 @@ JQTOOLS_NATIVE_API int __stdcall JqCarAdaptiveStart(
     std::vector<wchar_t> commandLineBuffer(commandLine.begin(), commandLine.end());
     commandLineBuffer.push_back(L'\0');
 
-    auto environment = BuildEnvironmentBlock(g_host, g_httpPort, g_webSocketPort);
+    const std::wstring resolvedFrontendBuildDirectory = ResolveFrontendBuildDirectory(resolvedMockSdkDirectory);
+    auto environment = BuildEnvironmentBlock(g_host, g_httpPort, g_webSocketPort, resolvedFrontendBuildDirectory);
 
     STARTUPINFOW startupInfo{};
     startupInfo.cb = sizeof(startupInfo);

@@ -104,6 +104,16 @@
             MockSdkDirectory 依赖属性。
             </summary>
         </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.PagePath">
+            <summary>
+            WebView2 加载的页面路径；/debug 为 SDK 调试页，/app 为项目当前真实前端。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.PagePathProperty">
+            <summary>
+            PagePath 依赖属性。
+            </summary>
+        </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StartAsync(System.Threading.CancellationToken)">
             <summary>
             启动服务并加载调试页面。
@@ -149,6 +159,16 @@
             mock-sdk 目录；为空时从程序输出目录下的 mock-sdk 自动查找。
             </summary>
         </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.FrontendBuildDirectory">
+            <summary>
+            真实前端 build 目录；为空时会从 SDK 根目录的 frontend-build 自动查找。
+            </summary>
+        </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.PagePath">
+            <summary>
+            WebView2 加载的页面路径；默认加载 SDK 调试页，可设置为 /app 加载项目真实前端。
+            </summary>
+        </member>
         <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.StartupTimeout">
             <summary>
             等待假数据 HTTP 服务启动成功的最长时间。
@@ -162,6 +182,11 @@
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.ResolveMockSdkDirectory">
             <summary>
             解析 mock-sdk 目录，兼容 DLL 输出目录和源码目录两种运行方式。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.ResolveFrontendBuildDirectory(System.String)">
+            <summary>
+            解析真实前端 build 目录，兼容 app/mock-sdk、mock-service 和 wpf-control/mock-sdk 等运行位置。
             </summary>
         </member>
         <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost">

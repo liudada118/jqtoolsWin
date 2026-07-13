@@ -9,6 +9,7 @@ const { WebSocketServer } = require('ws');
 const DEFAULT_HTTP_PORT = 19345;
 const DEFAULT_WS_PORT = 19399;
 const DEBUG_HTML_PATH = path.join(__dirname, 'mock-debug.html');
+const FRONTEND_BUILD_DIR = path.resolve(process.env.JQTOOLS_MOCK_FRONTEND_DIR || path.join(__dirname, 'frontend-build'));
 const WS_OPEN = 1;
 
 const host = process.env.JQTOOLS_MOCK_HOST || '127.0.0.1';
@@ -77,6 +78,11 @@ async function routeHttp(req, res) {
     return;
   }
 
+  if ((req.method === 'GET' || req.method === 'HEAD') && isFrontendRequest(url.pathname)) {
+    sendFrontendAsset(req, res, url.pathname);
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/status') {
     sendJson(res, 200, ok(getStatus()));
     return;
@@ -141,6 +147,65 @@ async function routeHttp(req, res) {
   sendJson(res, 404, fail(`not found: ${req.method} ${url.pathname}`));
 }
 
+/** 判断请求是否属于内置真实前端。 */
+function isFrontendRequest(pathname) {
+  return pathname === '/app' ||
+    pathname === '/app/' ||
+    pathname.startsWith('/static/') ||
+    pathname.startsWith('/model/') ||
+    [
+      '/asset-manifest.json',
+      '/favicon.ico',
+      '/logo192.png',
+      '/logo512.png',
+      '/manifest.json',
+      '/robots.txt',
+      '/circle.png',
+      '/disc.png'
+    ].includes(pathname);
+}
+
+/** 托管项目当前 build/ 前端，供 WPF SDK 直接加载。 */
+function sendFrontendAsset(req, res, pathname) {
+  if (!fs.existsSync(FRONTEND_BUILD_DIR)) {
+    sendJson(res, 404, fail('frontend-build directory not found'));
+    return;
+  }
+
+  const relativePath = pathname === '/app' || pathname === '/app/'
+    ? 'index.html'
+    : decodeURIComponent(pathname.replace(/^\/+/, ''));
+  const filePath = path.resolve(FRONTEND_BUILD_DIR, relativePath);
+  const frontendRoot = path.resolve(FRONTEND_BUILD_DIR);
+
+  if (!filePath.startsWith(frontendRoot) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    sendJson(res, 404, fail(`frontend asset not found: ${pathname}`));
+    return;
+  }
+
+  const headers = {
+    'Content-Type': getContentType(filePath),
+    'Content-Length': fs.statSync(filePath).size,
+    'Access-Control-Allow-Origin': '*'
+  };
+
+  if (req.method === 'HEAD') {
+    res.writeHead(200, headers);
+    res.end();
+    return;
+  }
+
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      sendJson(res, 500, fail(error.message));
+      return;
+    }
+
+    res.writeHead(200, headers);
+    res.end(data);
+  });
+}
+
 /** 建立假连接，并开始推送假传感器和算法数据。 */
 function connectFake() {
   if (state.connected) {
@@ -168,7 +233,7 @@ function pushFakeFrame() {
   emitFakeSerialFrame();
 }
 
-/** 生成并广播一帧假串口数据，字段结构尽量贴近真实后端 WebSocket 推送。 */
+/** 生成并广播一帧真实后端协议风格的假串口数据。 */
 function emitFakeSerialFrame() {
   const sensorData = createFakeSensorData();
   const payload = createFakeSerialPayload(sensorData);
@@ -470,6 +535,41 @@ function sendHtml(res, html) {
     'Access-Control-Allow-Origin': '*'
   });
   res.end(html);
+}
+
+/** 根据文件扩展名返回静态资源 Content-Type。 */
+function getContentType(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.ico':
+      return 'image/x-icon';
+    case '.glb':
+      return 'model/gltf-binary';
+    case '.gltf':
+      return 'model/gltf+json';
+    case '.fbx':
+      return 'application/octet-stream';
+    case '.obj':
+      return 'text/plain; charset=utf-8';
+    case '.ttf':
+      return 'font/ttf';
+    default:
+      return 'application/octet-stream';
+  }
 }
 
 /** 生成成功响应结构。 */

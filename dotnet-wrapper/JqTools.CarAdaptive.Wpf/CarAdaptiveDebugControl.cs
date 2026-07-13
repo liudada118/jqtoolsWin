@@ -161,6 +161,21 @@ public sealed class CarAdaptiveDebugControl : UserControl
         DependencyProperty.Register(nameof(MockSdkDirectory), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata(null));
 
     /// <summary>
+    /// WebView2 加载的页面路径；/debug 为 SDK 调试页，/app 为项目当前真实前端。
+    /// </summary>
+    public string PagePath
+    {
+        get => (string)GetValue(PagePathProperty);
+        set => SetValue(PagePathProperty, value);
+    }
+
+    /// <summary>
+    /// PagePath 依赖属性。
+    /// </summary>
+    public static readonly DependencyProperty PagePathProperty =
+        DependencyProperty.Register(nameof(PagePath), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata("/debug"));
+
+    /// <summary>
     /// 启动服务并加载调试页面。
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -226,7 +241,8 @@ public sealed class CarAdaptiveDebugControl : UserControl
             HttpPort = HttpPort,
             WebSocketPort = WebSocketPort,
             NodeExecutablePath = NodeExecutablePath,
-            MockSdkDirectory = MockSdkDirectory
+            MockSdkDirectory = MockSdkDirectory,
+            PagePath = PagePath
         };
     }
 

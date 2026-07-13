@@ -1,14 +1,14 @@
-# JQTools 汽车自适应 SDK
+# JQTools 汽车自适应客户 SDK
 
-这是交付版目录，不需要源码工程即可验证链路。默认启动入口是 WPF 程序，WPF 内部会自动启动真实协议假数据服务，并在退出时关闭服务。
+这是客户交付版目录，客户不需要源码工程即可验证链路。默认启动入口是 WPF 程序，WPF 内部会自动启动真实协议假数据服务，并加载项目当前真实前端；Three.js 模型资源已随 SDK 一起输出。
 
 ## 目录结构
 
 ```text
 customer-sdk/
-  app/                       # 直接运行的 WPF 程序
-  mock-service/              # 真实协议假数据服务，HTTP + WebSocket
-  wpf-control/               # WPF 自定义控件 DLL，自己的 WPF 项目可引用
+  app/                       # 客户直接运行的 WPF 程序，默认加载 /app 真实前端
+  mock-service/              # 真实协议假数据服务，HTTP + WebSocket + 当前前端静态资源
+  wpf-control/               # WPF 自定义控件 DLL，客户自己的 WPF 项目可引用
   native-dll/                # 标准 C/C++ Native DLL 和 WPF P/Invoke 示例
   docs/FAKE_API.md           # 假数据接口和真实 WS 协议说明
   scripts/start-wpf.ps1      # 启动 WPF
@@ -17,7 +17,7 @@ customer-sdk/
   scripts/verify-sdk.ps1     # 本地验收脚本
 ```
 
-## 怎么启动
+## 客户怎么启动
 
 直接双击：
 
@@ -35,8 +35,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-wpf.ps1
 默认端口：
 
 ```text
-HTTP: http://127.0.0.1:19345
-WebSocket: ws://127.0.0.1:19399
+HTTP: http://127.0.0.1:19245
+WebSocket: ws://127.0.0.1:19999
+真实前端: http://127.0.0.1:19245/app
 ```
 
 ## 本地怎么验证
@@ -66,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1 -IncludeWpfSmo
 
 ## WPF 控件 DLL 引用
 
-自己的 WPF 项目可引用：
+客户自己的 WPF 项目可引用：
 
 ```text
 wpf-control\JqTools.CarAdaptive.Wpf.dll
@@ -131,3 +132,33 @@ native-dll\wpf-loader\JqToolsCarAdaptiveNative.cs
 ```text
 docs\FAKE_API.md
 ```
+
+## 前端和 Three.js 资源
+
+当前项目的 `build/` 前端已复制到各个内置服务目录：
+
+```text
+frontend-build\
+```
+
+其中包含：
+
+```text
+frontend-build\static\
+frontend-build\model\
+```
+
+说明：SDK 只保留这一份真实前端资源，WPF 程序、WPF 控件和独立 mock-service 都会共用它，避免 Three.js 模型文件被重复复制。
+
+所以 Three.js 的 `.glb`、`.fbx`、贴图等模型资源会跟随 SDK 一起交付。WPF 默认加载 `/app`，不是之前的 `/debug` 简化调试页。
+# 当前默认：真实数据模式
+
+当前 `customer-sdk` 默认启动真实后端链路：WPF 会启动 `server/serialServer.js`，读取真实串口，调用 `pyWorker.js / Python` 算法，并把算法返回的 `control_command` 写回气囊串口。
+
+详细说明见：
+
+```text
+docs\REAL_DATA_SDK.md
+```
+
+`docs\FAKE_API.md` 只保留为早期假数据调试协议参考，不代表当前默认启动模式。

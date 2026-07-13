@@ -33,6 +33,16 @@ public sealed class CarAdaptiveDebugOptions
     public string? MockSdkDirectory { get; set; }
 
     /// <summary>
+    /// 真实前端 build 目录；为空时会从 SDK 根目录的 frontend-build 自动查找。
+    /// </summary>
+    public string? FrontendBuildDirectory { get; set; }
+
+    /// <summary>
+    /// WebView2 加载的页面路径；默认加载 SDK 调试页，可设置为 /app 加载项目真实前端。
+    /// </summary>
+    public string PagePath { get; set; } = "/debug";
+
+    /// <summary>
     /// 等待假数据 HTTP 服务启动成功的最长时间。
     /// </summary>
     public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(8);
@@ -40,7 +50,17 @@ public sealed class CarAdaptiveDebugOptions
     /// <summary>
     /// 当前配置对应的调试页面地址。
     /// </summary>
-    public Uri DebugUri => new($"http://{Host}:{HttpPort}/debug");
+    public Uri DebugUri => new($"http://{Host}:{HttpPort}{NormalizePagePath(PagePath)}");
+
+    private static string NormalizePagePath(string pagePath)
+    {
+        if (string.IsNullOrWhiteSpace(pagePath))
+        {
+            return "/debug";
+        }
+
+        return pagePath.StartsWith("/", StringComparison.Ordinal) ? pagePath : $"/{pagePath}";
+    }
 
     /// <summary>
     /// 解析 mock-sdk 目录，兼容 DLL 输出目录和源码目录两种运行方式。
@@ -65,5 +85,35 @@ public sealed class CarAdaptiveDebugOptions
         }
 
         return outputCandidate;
+    }
+
+    /// <summary>
+    /// 解析真实前端 build 目录，兼容 app/mock-sdk、mock-service 和 wpf-control/mock-sdk 等运行位置。
+    /// </summary>
+    public string ResolveFrontendBuildDirectory(string mockSdkDirectory)
+    {
+        if (!string.IsNullOrWhiteSpace(FrontendBuildDirectory))
+        {
+            return Path.GetFullPath(FrontendBuildDirectory);
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(mockSdkDirectory, "frontend-build"),
+            Path.Combine(mockSdkDirectory, "..", "frontend-build"),
+            Path.Combine(mockSdkDirectory, "..", "..", "frontend-build"),
+            Path.Combine(AppContext.BaseDirectory, "frontend-build")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var fullPath = Path.GetFullPath(candidate);
+            if (File.Exists(Path.Combine(fullPath, "index.html")))
+            {
+                return fullPath;
+            }
+        }
+
+        return Path.GetFullPath(candidates[0]);
     }
 }

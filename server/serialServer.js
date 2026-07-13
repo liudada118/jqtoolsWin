@@ -56,6 +56,99 @@ app.use(express.json());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+const FRONTEND_BUILD_DIR = path.resolve(
+  process.env.JQTOOLS_FRONTEND_BUILD_DIR ||
+  process.env.JQTOOLS_MOCK_FRONTEND_DIR ||
+  path.join(__dirname, '..', 'build')
+)
+
+function isFrontendRequest(pathname) {
+  return pathname === '/app' ||
+    pathname === '/app/' ||
+    pathname === '/asset-manifest.json' ||
+    pathname === '/favicon.ico' ||
+    pathname === '/logo192.png' ||
+    pathname === '/logo512.png' ||
+    pathname === '/manifest.json' ||
+    pathname === '/robots.txt' ||
+    pathname === '/circle.png' ||
+    pathname === '/disc.png' ||
+    pathname.startsWith('/static/') ||
+    pathname.startsWith('/model/')
+}
+
+function getStaticContentType(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.html':
+      return 'text/html; charset=utf-8'
+    case '.js':
+      return 'text/javascript; charset=utf-8'
+    case '.css':
+      return 'text/css; charset=utf-8'
+    case '.json':
+      return 'application/json; charset=utf-8'
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.ico':
+      return 'image/x-icon'
+    case '.glb':
+      return 'model/gltf-binary'
+    case '.gltf':
+      return 'model/gltf+json'
+    case '.fbx':
+      return 'application/octet-stream'
+    case '.obj':
+      return 'text/plain; charset=utf-8'
+    case '.ttf':
+      return 'font/ttf'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+function sendFrontendAsset(req, res) {
+  if (!fs.existsSync(path.join(FRONTEND_BUILD_DIR, 'index.html'))) {
+    res.status(404).json(new HttpResult(1, {}, `frontend-build not found: ${FRONTEND_BUILD_DIR}`))
+    return
+  }
+
+  const relativePath = req.path === '/app' || req.path === '/app/'
+    ? 'index.html'
+    : decodeURIComponent(req.path.replace(/^\/+/, ''))
+  const filePath = path.resolve(FRONTEND_BUILD_DIR, relativePath)
+
+  if (!filePath.startsWith(FRONTEND_BUILD_DIR)) {
+    res.status(403).json(new HttpResult(1, {}, 'forbidden'))
+    return
+  }
+
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    res.status(404).json(new HttpResult(1, {}, 'frontend asset not found'))
+    return
+  }
+
+  res.setHeader('Content-Type', getStaticContentType(filePath))
+  if (req.method === 'HEAD') {
+    res.status(200).end()
+    return
+  }
+
+  fs.createReadStream(filePath).pipe(res)
+}
+
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') && isFrontendRequest(req.path)) {
+    sendFrontendAsset(req, res)
+    return
+  }
+  next()
+})
+
 let dbPath = __dirname + '/../db'
 
 console.log(isPackaged, appPath, 'app.isPackaged')
@@ -82,7 +175,8 @@ if (isPackaged) {
 
 }
 
-const port = 19245
+const port = Number(process.env.JQTOOLS_HTTP_PORT || process.env.JQTOOLS_MOCK_HTTP_PORT || 19245)
+const wsPort = Number(process.env.JQTOOLS_WS_PORT || process.env.JQTOOLS_MOCK_WS_PORT || 19999)
 
 const config = fs.readFileSync('./config.txt', 'utf-8',)
 const result = JSON.parse(decryptStr(config))
@@ -172,6 +266,16 @@ function getControlFeedback(command) {
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
+})
+
+app.get('/health', (req, res) => {
+  res.json(new HttpResult(0, {
+    service: 'jqtools-real-serial-service',
+    mode: 'real',
+    httpPort: port,
+    webSocketPort: wsPort,
+    frontendBuildDir: FRONTEND_BUILD_DIR
+  }, 'success'))
 })
 
 // async function demo(matrix) {
@@ -755,7 +859,7 @@ app.listen(port, () => {
 })
 
 
-const server = new WebSocket.Server({ port: 19999 });
+const server = new WebSocket.Server({ port: wsPort });
 
 server.on("open", function open() {
   console.log("connected");

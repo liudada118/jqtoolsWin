@@ -1,7 +1,7 @@
 param(
     [string]$HostName = "127.0.0.1",
-    [int]$HttpPort = 19345,
-    [int]$WsPort = 19399,
+    [int]$HttpPort = 19245,
+    [int]$WsPort = 19999,
     [switch]$OpenDebugPage
 )
 
@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 
 $sdkRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceDir = Join-Path $sdkRoot "mock-service"
+$frontendDir = Join-Path $sdkRoot "frontend-build"
 $pidFile = Join-Path $sdkRoot ".mock-service.pid"
 $logFile = Join-Path $sdkRoot "mock-service.log"
 
@@ -35,7 +36,7 @@ if ($owners.Count -gt 0) {
     exit 1
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $serviceDir "node_modules"))) {
+if ((Test-Path -LiteralPath (Join-Path $serviceDir "package.json")) -and -not (Test-Path -LiteralPath (Join-Path $serviceDir "node_modules"))) {
     Push-Location $serviceDir
     try {
         npm install
@@ -45,7 +46,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $serviceDir "node_modules"))) {
     }
 }
 
-$command = "cd /d `"$serviceDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && npm start > `"$logFile`" 2>&1"
+$startCommand = if (Test-Path -LiteralPath (Join-Path $serviceDir "package.json")) { "npm start" } else { "node mock-service.js" }
+$command = "cd /d `"$serviceDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && set `"JQTOOLS_MOCK_FRONTEND_DIR=$frontendDir`" && $startCommand > `"$logFile`" 2>&1"
 $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $command -WindowStyle Hidden -PassThru
 $process.Id | Set-Content -LiteralPath $pidFile -Encoding ASCII
 
@@ -57,5 +59,5 @@ Write-Host "HTTP: http://${HostName}:${HttpPort}"
 Write-Host "WS: ws://${HostName}:${WsPort}"
 
 if ($OpenDebugPage) {
-    Start-Process "http://${HostName}:${HttpPort}/debug"
+    Start-Process "http://${HostName}:${HttpPort}/app"
 }

@@ -3,8 +3,9 @@
 ## 服务地址
 
 ```text
-HTTP: http://127.0.0.1:19345
-WebSocket: ws://127.0.0.1:19399
+HTTP: http://127.0.0.1:19245
+WebSocket: ws://127.0.0.1:19999
+真实前端: http://127.0.0.1:19245/app
 ```
 
 WPF 客户端会自动启动服务。也可以单独启动：
@@ -42,6 +43,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-mock-service.ps1
 | `POST` | `/airbag/send` | 发送 51 字节气囊控制命令 |
 | `POST` | `/carAdaptive/processFrame` | 输入 144 点数据并返回假算法结果 |
 | `GET` | `/debug` | 调试页面 |
+| `GET` | `/app` | 项目当前真实前端 |
 
 ## WebSocket 推送
 

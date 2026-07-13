@@ -1,3 +1,2 @@
-2026/07/08-15:35:24.813 a7ec Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Session Storage/MANIFEST-000001
-2026/07/08-15:35:24.814 a7ec Recovering log #3
-2026/07/08-15:35:24.815 a7ec Reusing old log D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Session Storage/000003.log 
+2026/07/13-19:37:15.183 8810 Creating DB D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Session Storage since it was missing.
+2026/07/13-19:37:15.188 8810 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Session Storage/MANIFEST-000001

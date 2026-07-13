@@ -207,3 +207,10 @@ flowchart LR
 | 2026-07-07 | 文档更新 | 新增 `netsdk/data-dll-kit/FAKE_API.md`，记录假数据 HTTP 接口、WebSocket 推送、144 点压力数据和 51 字节控制命令格式。 |
 | 2026-07-07 | 协议修正 | 将假数据 WebSocket 推送改为真实后端协议格式：连接初始 `{}`，串口 `{ sitData }`，算法 `{ algorData }`，反馈 `{ algorFeed }`。 |
 | 2026-07-07 | 配置变更 | 新增 `netsdk/build-customer-sdk.ps1` 和 `netsdk/customer-sdk/`，输出客户可直接运行的 WPF SDK、真实协议假数据服务、WPF/Native DLL、接口文档和验收脚本。 |
+# 2026-07-10 更新
+
+- `netsdk/customer-sdk/` 已集成当前 `build/` 真实前端和 Three.js 模型资源。
+- 前端资源统一输出到 `netsdk/customer-sdk/frontend-build/`，避免 `.glb`、`.fbx` 等大模型被重复复制。
+- WPF 启动程序、WPF 控件、独立 `mock-service` 和 Native DLL 都通过共享前端目录加载 `/app`，继续使用真实协议假数据服务。
+- 新增 `netsdk/customer-sdk/docs/REAL_ARCHITECTURE.md`，说明真实项目架构、客户 SDK 架构，以及真实前端、真实协议、WPF、Native DLL 的转换关系。
+- `netsdk/customer-sdk/` 默认启动入口已切换为真实数据模式：兼容旧文件名 `mock-service.js`，实际 fork `server/serialServer.js`，读取真实串口、调用 `pyWorker.js/Python`，并通过 `/app` 加载真实前端。

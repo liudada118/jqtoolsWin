@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("JQTools 汽车自适应调试页面 WPF 自定义控件库。")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+738df5304088e5827872095b1c7e0f24c65bb45f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ccdde2209d3559a524ec25108fbd688fe2e937b7")]
 [assembly: System.Reflection.AssemblyProductAttribute("JqTools.CarAdaptive.Wpf")]
 [assembly: System.Reflection.AssemblyTitleAttribute("JqTools.CarAdaptive.Wpf")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -31,10 +31,32 @@ function Reset-OutputDirectory {
             throw "Refusing to delete unexpected path: $($resolved.Path)"
         }
 
-        Remove-Item -LiteralPath $resolved.Path -Recurse -Force
+        Get-ChildItem -LiteralPath $resolved.Path -Force | ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        }
+
+        try {
+            Remove-Item -LiteralPath $resolved.Path -Force
+        }
+        catch {
+            Write-Warning "Output root is still in use, reusing existing empty directory: $($resolved.Path)"
+        }
     }
 
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+function Copy-FrontendBuild {
+    param([Parameter(Mandatory = $true)][string]$Destination)
+
+    $frontendSource = Join-Path $repoRoot "build"
+    if (-not (Test-Path -LiteralPath (Join-Path $frontendSource "index.html"))) {
+        throw "Frontend build not found. Expected: $frontendSource"
+    }
+
+    Invoke-Robocopy `
+        -Source $frontendSource `
+        -Destination $Destination
 }
 
 Push-Location $repoRoot
@@ -59,20 +81,23 @@ try {
     $nativeOut = Join-Path $outRoot "native-dll"
     $docsOut = Join-Path $outRoot "docs"
     $scriptsOut = Join-Path $outRoot "scripts"
+    $frontendOut = Join-Path $outRoot "frontend-build"
 
-    New-Item -ItemType Directory -Force -Path $appOut, $serviceOut, $wpfControlOut, $nativeOut, $docsOut, $scriptsOut | Out-Null
+    New-Item -ItemType Directory -Force -Path $appOut, $serviceOut, $wpfControlOut, $nativeOut, $docsOut, $scriptsOut, $frontendOut | Out-Null
+
+    Copy-FrontendBuild -Destination $frontendOut
 
     Invoke-Robocopy `
         -Source (Join-Path $repoRoot "dotnet-wrapper\JqTools.CarAdaptive.ClientWpf\bin\Release\net8.0-windows") `
         -Destination $appOut
 
     Invoke-Robocopy `
-        -Source (Join-Path $repoRoot "mock-sdk") `
+        -Source (Join-Path $repoRoot "real-service") `
         -Destination (Join-Path $appOut "mock-sdk") `
         -ExtraArgs @("/XD", ".git")
 
     Invoke-Robocopy `
-        -Source (Join-Path $repoRoot "mock-sdk") `
+        -Source (Join-Path $repoRoot "real-service") `
         -Destination $serviceOut `
         -ExtraArgs @("/XD", ".git")
 
@@ -81,7 +106,7 @@ try {
         -Destination $wpfControlOut
 
     Invoke-Robocopy `
-        -Source (Join-Path $repoRoot "mock-sdk") `
+        -Source (Join-Path $repoRoot "real-service") `
         -Destination (Join-Path $wpfControlOut "mock-sdk") `
         -ExtraArgs @("/XD", ".git")
 
@@ -90,7 +115,7 @@ try {
         -Destination $nativeOut
 
     Invoke-Robocopy `
-        -Source (Join-Path $repoRoot "mock-sdk") `
+        -Source (Join-Path $repoRoot "real-service") `
         -Destination (Join-Path $nativeOut "mock-sdk") `
         -ExtraArgs @("/XD", ".git")
 
@@ -100,6 +125,8 @@ try {
 
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\README.md") -Destination (Join-Path $outRoot "README.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\FAKE_API.md") -Destination (Join-Path $docsOut "FAKE_API.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_ARCHITECTURE.md") -Destination (Join-Path $docsOut "REAL_ARCHITECTURE.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_DATA_SDK.md") -Destination (Join-Path $docsOut "REAL_DATA_SDK.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-wpf.ps1") -Destination (Join-Path $scriptsOut "start-wpf.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-mock-service.ps1") -Destination (Join-Path $scriptsOut "start-mock-service.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\stop-mock-service.ps1") -Destination (Join-Path $scriptsOut "stop-mock-service.ps1") -Force
