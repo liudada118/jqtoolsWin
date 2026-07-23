@@ -1,0 +1,27 @@
+.equipsStatusContent {
+    display: flex;
+}
+
+.equipStatusContent {
+    display: flex;
+    align-items: center;
+    margin-right: 1.6rem;
+    .equipName{
+       margin-right: 0.5rem;
+       line-height: 1rem;
+    }
+}
+
+.equipOfflineStatus {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    border: 1px solid #778592;
+}
+
+.equipOnlineStatus {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #0072EF;
+}

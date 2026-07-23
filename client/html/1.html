@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Three.js GLB Loader - 3 Point Lighting</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b12; }
+    #tips {
+      position: fixed; left: 12px; bottom: 12px;
+      padding: 10px 12px; border-radius: 10px;
+      background: rgba(0,0,0,.45); color: #fff; font: 12px/1.4 system-ui;
+      max-width: 520px;
+    }
+    a { color: #9ad; }
+  </style>
+
+  <!-- Import maps：直接用 CDN 模块 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="tips">
+    鼠标左键旋转 / 右键平移 / 滚轮缩放。<br/>
+    修改代码里的 <b>MODEL_URL</b> 指向你的 .glb。<br/>
+    如果太黑：调 <b>toneMappingExposure</b> 或 <b>environmentIntensity</b>。<br/>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+    import { RectAreaLightUniformsLib } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/lights/RectAreaLightUniformsLib.js';
+
+
+    // ====== 你只需要改这里 ======
+    const MODEL_URL = "./seat.glb";          // ← 改成你的 glb 路径
+    const HDR_URL   = "./studio.hdr";        // ← 可选：有就放同目录；没有就不加载
+    const USE_HDRI  = true;                  // ← 没有 hdr 就改成 false
+    // ============================
+
+    const scene = new THREE.Scene();
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // 色彩管理（接近 Blender Filmic 的观感）
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.8; // 太黑就 1.6；太亮就 1.2
+    renderer.physicallyCorrectLights = true;
+
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    document.body.appendChild(renderer.domElement);
+
+    const camera = new THREE.PerspectiveCamera(
+      45,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      5000
+    );
+    camera.position.set(0, 120, 260);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 80, 0);
+
+    // 地面（可选）
+    // const grid = new THREE.GridHelper(1000, 50, 0x334455, 0x223344);
+    // grid.position.y = 0;
+    // scene.add(grid);
+
+    // const ground = new THREE.Mesh(
+    //   new THREE.PlaneGeometry(4000, 4000),
+    //   new THREE.MeshStandardMaterial({ color: 0x0b0b12, roughness: 1, metalness: 0 })
+    // );
+    // ground.rotation.x = -Math.PI / 2;
+    // ground.receiveShadow = true;
+    // ground.visible = false; // 不想要地面就保持 false
+    // scene.add(ground);
+
+// HDR 环境光
+new RGBELoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/equirectangular/royal_esplanade_1k.hdr', (tex) => {
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = tex;
+    scene.background = tex;
+});
+
+// 平面光（摄影棚柔光）
+RectAreaLightUniformsLib.init();
+const fillLight = new THREE.RectAreaLight(0xffffff, 5, 10, 4);
+fillLight.position.set(0, 5, 6);
+fillLight.lookAt(0, 0, 0);
+scene.add(fillLight);
+
+// 主光（Directional）
+const keyLight = new THREE.DirectionalLight(0xffffff, 1);
+keyLight.position.set(4, 8, 3);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+scene.add(keyLight);
+
+// 环境填充光
+scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+    // HDRI（强烈推荐，有的话质感立刻上来）
+    if (USE_HDRI) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+
+      new RGBELoader().load(
+        HDR_URL,
+        (hdr) => {
+          const envMap = pmrem.fromEquirectangular(hdr).texture;
+          scene.environment = envMap;
+          scene.environmentIntensity = 1.8; // 太暗就 2.2；太亮就 1.2
+          hdr.dispose();
+          pmrem.dispose();
+        },
+        undefined,
+        (err) => {
+          console.warn("HDR 加载失败（可忽略）：", err);
+          pmrem.dispose();
+        }
+      );
+    }
+
+    // 加载模型
+    const loader = new GLTFLoader();
+    let model = null;
+
+    loader.load(
+      MODEL_URL,
+      (gltf) => {
+        model = gltf.scene;
+        scene.add(model);
+
+        // 打开阴影
+        model.traverse((o) => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          o.receiveShadow = true;
+          // 若发现贴图发灰：通常是贴图色彩空间不对，但 glTF 一般没问题
+          // 如果你自己处理过纹理，可以在这里强制：
+          // if (o.material?.map) o.material.map.colorSpace = THREE.SRGBColorSpace;
+        });
+
+        // 让相机/控制器自动对准模型
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        const center = new THREE.Vector3();
+        box.getSize(size);
+        box.getCenter(center);
+
+        controls.target.copy(center);
+
+        // 相机距离：按模型尺寸自适应
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const dist = maxDim * 1.6;
+        camera.position.set(center.x, center.y + maxDim * 0.6, center.z + dist);
+        camera.near = Math.max(0.1, dist / 1000);
+        camera.far = dist * 20;
+        camera.updateProjectionMatrix();
+
+        console.log("Model size:", size, "center:", center);
+      },
+      (xhr) => {
+        if (xhr.total) console.log(`Loading: ${((xhr.loaded / xhr.total) * 100).toFixed(1)}%`);
+      },
+      (err) => {
+        console.error("模型加载失败：", err);
+      }
+    );
+
+    // 渲染循环
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

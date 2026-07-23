@@ -1,6 +1,6 @@
 # 项目架构
 
-最后更新于：2026-07-07
+最后更新于：2026-07-14
 
 ## 概览
 
@@ -12,6 +12,8 @@
 - 汽车自适应数据帧（144 字节）会调用 Python 算法包，并将 `control_command` 写回对应的 `carAir` 串口。
 - 新增 `dotnet-wrapper/` WPF 自定义控件库，编译后输出 DLL，客户 WPF 程序可直接嵌入现有调试页面。
 - 新增 `native-dll/` 标准 C/C++ Native DLL 方案，WPF 可通过 P/Invoke 启动调试服务并加载调试页面。
+- `netsdk/customer-sdk/` 已改为独立真实数据交付包，内置 Node.js、Python 3.11、汽车算法、生产依赖和当前前端，不再依赖项目根目录。
+- 汽车前端新增算法参数抽屉，通过 HTTP 批量修改 YAML 参数并重建常驻 Python 算法实例。
 
 ## 技术栈
 
@@ -27,6 +29,7 @@
 - WebView2 WPF 控件
 - C++17 Native DLL
 - WinHTTP / ShellExecute Windows API
+- 客户 SDK 内置 Node.js 与 Python 3.11 运行时
 
 ## 目录结构
 
@@ -51,6 +54,10 @@ D:\jqtoolsWin1
     └── JqTools.CarAdaptive.Wpf/ # WPF Custom Control Library，输出 DLL 并嵌入调试页
 └── native-dll/
     └── JqToolsCarAdaptiveNative/ # 标准 C/C++ Native DLL，供 WPF P/Invoke 加载
+└── netsdk/customer-sdk/          # 可直接交付的独立真实数据 SDK
+    ├── runtime/node/             # 内置 Node.js
+    ├── real-backend/             # Node 串口后端、Python 算法和生产依赖
+    └── frontend-build/           # 当前 React/Three.js 前端与模型
 ```
 
 ## 运行时组件
@@ -99,6 +106,13 @@ D:\jqtoolsWin1
    - WPF 使用 `DllImport` 调用 Native DLL，启动 `mock-sdk` 服务后用 WebView2 加载返回的调试页 URL。
    - CMake 构建后会复制 `mock-sdk` 页面、Node 服务和 `ws` 依赖到 DLL 输出目录。
 
+7. 独立客户 SDK
+   - `runtime/node/node.exe` 提供 Node.js 运行时。
+   - `real-backend/server/serialServer.js` 提供真实串口、REST 和 WebSocket 服务。
+   - `real-backend/python/` 包含 Python 3.11、汽车算法和 `sensor_config.yaml`。
+   - WPF、Native DLL 和独立脚本共享同一份后端、算法与 `frontend-build/`。
+   - WPF 使用 `Process.Kill(entireProcessTree: true)`，Native DLL 使用 Job Object，脚本使用 `taskkill /T`，退出时统一关闭 Node、后端和 Python 子进程。
+
 ## API 端点
 
 REST API（`server/serialServer.js`）：
@@ -129,6 +143,8 @@ REST API（`server/serialServer.js`）：
 - `POST /getSysconfig`
 - `GET /getPyConfig`
 - `POST /changePy`
+- `GET /algorithm/config`
+- `POST /algorithm/config`
 - `POST /carAdaptive/processFrame`
 - SDK 注释：`sdk/index.js` 和 `sdk/index.d.ts` 的客户侧 API 说明已改为中文注释。
 - SDK 注释：`PythonAlgorithmWorker` 和 SDK 内部工具函数已补充中文说明，确保每个函数都有注释。
@@ -158,6 +174,8 @@ flowchart LR
   WS --> SDK
   SDK --> Customer["客户应用"]
   Serial --> UI["Electron UI"]
+  UI --> ConfigApi["/algorithm/config"]
+  ConfigApi --> PyConfig["sensor_config.yaml / 重建算法实例"]
 ```
 
 ## 环境与配置
@@ -165,11 +183,29 @@ flowchart LR
 - `config.txt`：AES-ECB 加密配置，由 `server/serialServer.js` 读取解密。
 - `util/config.js`：运行时常量（波特率、类型映射、帧分隔符等）。
 - 打包模式下资源路径位于 `resources/db`、`resources/data`、`resources/python`。
+- `JQTOOLS_REAL_BACKEND_ROOT`：真实服务启动器使用的独立后端根目录。
+- `JQTOOLS_MOCK_FRONTEND_DIR`：WPF/Native DLL 共享的前端构建目录。
 
 ## 更新日志
 
 | 日期 | 类型 | 说明 |
 | --- | --- | --- |
+| 2026-07-14 | 修复缺陷 | 修正全屏画布层级，恢复成人/儿童、在座/离座、自适应和气囊面板，并禁用座椅画布鼠标拖动 |
+| 2026-07-14 | 配置变更 | WPF 控件默认页面由 `/debug` 改为 `/app`，默认端口统一为真实协议 `19245/19999`，避免客户直接引用 DLL 时加载或连接错误页面 |
+| 2026-07-14 | 修复缺陷 | 修复全屏模式下 Three.js 行内画布和视口尺寸差异引起的横向、纵向页面滚动条 |
+| 2026-07-14 | 界面优化 | 顶部工具栏统一收纳预压力置零、可视化调节、视图调节、算法调节和采集，移除算法与视图的独立浮动入口 |
+| 2026-07-14 | 修复缺陷 | WPF 客户程序增加 HTTP/WS 端口冲突预检和可重试错误页，服务启动失败时不再因未处理异步异常秒退 |
+| 2026-07-14 | 新增功能 | 客户 SDK 独立打包 Node、真实串口后端、Python 运行时和汽车算法，并新增可拉出的算法参数调节抽屉 |
+| 2026-07-14 | 优化重构 | WPF、Native DLL 和 PowerShell 脚本统一按进程树关闭服务，避免退出后残留 Node/Python 进程 |
+| 2026-07-14 | 配置变更 | 客户交付界面默认收起视图调节面板，仅在右上角保留手动打开入口 |
+| 2026-07-14 | 界面优化 | 将视图调节面板及收起按钮固定到窗口右上角，减少对中央座椅模型的遮挡 |
+| 2026-07-14 | 新增功能 | 整体视图新增 RX/RY/RZ 旋转调节，座椅与全部压力点图同步旋转 |
+| 2026-07-14 | 修复缺陷 | 提升单点调节点图下拉层级，修复选项展开后被视图调节面板遮挡的问题 |
+| 2026-07-14 | 配置变更 | 将单点调节的 4 个点图分类修正为坐垫、靠背、左侧翼和右侧翼 |
+| 2026-07-14 | 新增功能 | 重新打开视图调节，支持 4 个压力点图分别调整位置、旋转和缩放 |
+| 2026-07-14 | 配置变更 | 将整体 3D 视图默认坐标设为 X=167、Y=-36、Z=-69，并隐藏视图调节面板 |
+| 2026-07-14 | 新增功能 | 视图调节面板新增整体 3D 视图 X/Y/Z 移动，支持座椅和压力点图同步平移 |
+| 2026-07-13 | 配置变更 | 将汽车座椅模型默认位置调整为 X=3、Y=-112、Z=17，并升级视图配置存储版本 |
 | 2026-07-06 | 新增功能 | 新增客户侧 `sdk/` 包，封装后端 REST API 与 WebSocket 实时数据流 |
 | 2026-07-06 | 修复缺陷 | 补齐 `/selectSystem`、`/changeDbDataName`、`/getCsvData` 的响应和异步处理，避免 SDK 调用超时或返回空对象 |
 | 2026-07-06 | 新增功能 | 接通汽车自适应算法输出到串口写入链路，将 `control_command` 写回 `carAir` 设备串口 |
@@ -178,11 +214,30 @@ flowchart LR
 | 2026-07-06 | 新增功能 | 扩展 `mock-sdk/` 假算法推送，补充 144 点压力数据、51 字节控制数据和调试页可视化 |
 | 2026-07-07 | 新增功能 | 新增 WPF 自定义控件库封装，输出 DLL 后可在客户 WPF 程序中嵌入汽车自适应调试页面 |
 | 2026-07-07 | 新增功能 | 新增标准 C/C++ Native DLL 封装，WPF 可通过 P/Invoke 启动调试服务并加载现有前端页面 |
+| 2026-07-13 | 修复缺陷 | 修复 Electron 在 Windows 下直接启动 `npm.cmd` 导致 `spawn EINVAL`，并补充开发服务启动失败处理 |
+| 2026-07-13 | 优化重构 | Electron 开发模式改为前端、后端、Python 和硬件校验并行启动，并默认跳过 webpack ESLint 全量扫描 |
+| 2026-07-13 | 新增功能 | 汽车自适应前端新增座椅模型位置、压力点图位置和压力点图缩放调节面板 |
+| 2026-07-13 | 配置变更 | 客户 SDK 构建改为编译并复制 `client/build`，确保交付包使用当前前端源码 |
 
 ## 项目进度
 
 | 日期 | 工作 | 说明 |
 | --- | --- | --- |
+| 2026-07-14 | 业务面板图层恢复 | Three.js 保持底层全屏渲染，汽车状态面板固定在其上方，座椅位置仅通过视图调节工具修改 |
+| 2026-07-14 | WPF 默认业务前端 | 客户仅引用 `CarAdaptiveDebugControl` 而不配置页面和端口时，默认显示并连接在/离座、成人/儿童、自适应和气囊调节界面 |
+| 2026-07-14 | 全屏视口适配 | 根页面固定为单屏尺寸，3D 渲染器按画布容器实际宽高更新，同时保留调节抽屉内部滚动 |
+| 2026-07-14 | 汽车调试工具栏 | 工具栏默认展开，五项常用操作集中显示并提供激活状态，三个调节面板互斥打开以减少遮挡 |
+| 2026-07-14 | WPF 启动容错 | 固定协议端口被占用或 WebView2 初始化失败时保留客户窗口，显示原因并支持释放端口后直接重试 |
+| 2026-07-14 | 独立真实数据 SDK | `customer-sdk` 可脱离项目根目录运行，基础验收实际调用包内 `/health`、`/getPort` 和 `/algorithm/config` |
+| 2026-07-14 | 算法参数抽屉 | 按 YAML 配置段展示中文注释和类型化控件，支持搜索、撤销、批量保存及算法实例即时重载 |
+| 2026-07-14 | SDK 调节面板默认收起 | WPF 与客户 SDK 启动后不显示调节面板，保留设置入口供调试使用 |
+| 2026-07-14 | 视图调节面板定位 | 展开面板和收起入口统一固定在右上角并保留 1rem 安全边距 |
+| 2026-07-14 | 整体视图旋转 | 根场景支持 RX/RY/RZ 弧度调节、持久化与整体重置，默认角度为 -6.5/-6.9/-6.35 |
+| 2026-07-14 | 单点下拉框显示修复 | 将 Ant Design Select 弹层提升到 z-index 1300，兼容 Electron、WebView2 和浏览器 |
+| 2026-07-14 | 单点图独立变换 | 坐垫、靠背、左侧翼和右侧翼点图支持独立 X/Y/Z、RX/RY/RZ 与缩放调节 |
+| 2026-07-14 | 整体视图坐标定稿 | 固定根场景坐标为 X=167、Y=-36、Z=-69，客户界面不再显示调节工具 |
+| 2026-07-14 | 整体 3D 视图移动 | 视图调节继续显示，新增根场景 X/Y/Z 调节和独立重置，座椅与压力点图同步移动 |
+| 2026-07-13 | 座椅默认位置校准 | 根据前端实测位置将座椅模型默认坐标设为 X=3、Y=-112、Z=17 |
 | 2026-07-06 | 客户端 SDK 输出 | 创建 `@jqtools/client-sdk`，支持系统、串口、采集、历史、回放、配置和实时订阅调用 |
 | 2026-07-06 | 后端 SDK 适配 | 修复客户调用链路中的无响应接口和 CSV 异步读取问题 |
 | 2026-07-06 | 汽车自适应串口控制 | 144 字节汽车自适应帧触发 Python 算法，后端定时将算法控制指令写入目标串口 |
@@ -192,6 +247,10 @@ flowchart LR
 | 2026-07-07 | WPF DLL 封装 | 创建 `JqTools.CarAdaptive.Wpf` 控件库，提供 `CarAdaptiveDebugControl` 和 `CarAdaptiveMockServiceHost` |
 | 2026-07-07 | Native DLL 封装 | 创建 `JqToolsCarAdaptiveNative` 标准 C/C++ DLL，提供 C ABI 导出函数和 WPF P/Invoke 示例 |
 | 2026-07-07 | WPF 客户启动程序 | 创建 `JqTools.CarAdaptive.ClientWpf`，客户可直接运行 EXE，自动启动内置数据服务并加载调试界面 |
+| 2026-07-13 | Electron 前端热启动 | Windows 下通过 `cmd.exe` 启动 `client/npm start`，支持错误捕获、进程退出检测和应用退出清理 |
+| 2026-07-13 | Electron 冷启动优化 | 增加即时启动页，服务并行初始化，并移除硬件指纹模块导入时的重复检测 |
+| 2026-07-13 | 汽车场景视图调节 | 座椅模型与压力点图改为独立 Three.js 变换层，支持 X/Y/Z、点图缩放、重置和本地持久化 |
+| 2026-07-13 | 客户 SDK 前端同步 | `build-customer-sdk.ps1` 使用 `client/build` 生成 `frontend-build`，不再复制根目录旧构建 |
 ## 环境安装记录
 
 | 日期 | 类型 | 说明 |
@@ -214,3 +273,25 @@ flowchart LR
 - WPF 启动程序、WPF 控件、独立 `mock-service` 和 Native DLL 都通过共享前端目录加载 `/app`，继续使用真实协议假数据服务。
 - 新增 `netsdk/customer-sdk/docs/REAL_ARCHITECTURE.md`，说明真实项目架构、客户 SDK 架构，以及真实前端、真实协议、WPF、Native DLL 的转换关系。
 - `netsdk/customer-sdk/` 默认启动入口已切换为真实数据模式：兼容旧文件名 `mock-service.js`，实际 fork `server/serialServer.js`，读取真实串口、调用 `pyWorker.js/Python`，并通过 `/app` 加载真实前端。
+
+# 2026-07-13 更新
+
+- 汽车座椅模型默认坐标已校准为 `X=3`、`Y=-112`、`Z=17`；视图配置存储键升级为 `jqtools.carAir.sceneTransform.v2`，旧默认值不会覆盖新位置。
+- Electron 开发模式现在直接加载 `client` 热更新前端：`index.js` 会自动启动 `client/npm start`，并加载 `http://127.0.0.1:3000`。
+- `client/public` 静态资源在开发模式下已支持替换后自动刷新，座椅模型等 `glb/gltf/fbx/obj` 文件变化会触发 Electron `reloadIgnoringCache()`，同时 webpack dev server 对静态资源返回 `no-store`。
+- Electron 打包模式仍然沿用原来的 `build/` 静态资源加载方式，不影响客户 SDK、WPF 控件和 Native DLL 的静态页面交付。
+- 新增开发环境变量：`JQTOOLS_CLIENT_DEV_HOST` 可覆盖前端热更新主机，`JQTOOLS_CLIENT_DEV_PORT` 可覆盖前端热更新端口。
+- 修复 Node.js 22/Electron 在 Windows 上直接 `spawn('npm.cmd')` 返回 `EINVAL` 的问题；前端进程启动失败或就绪前退出时不再产生未处理的 Promise 拒绝。
+- 优化开发模式冷启动：窗口立即显示启动状态，webpack、串口后端、Python 算法和硬件校验并行执行；开发编译默认设置 `DISABLE_ESLINT_PLUGIN=true`，需要 ESLint 时可显式设置为 `false`。
+- 新增汽车场景“视图调节”工具：座椅模型和压力点图可分别调整 X/Y/Z，压力点图支持 `0.25x` 至 `2.5x` 缩放；配置保存到 `localStorage`，支持按对象重置和面板收起。
+- 客户 SDK 构建流程已切换到 `client`：非 `-SkipBuild` 模式会先执行前端依赖安装和生产构建，输出时统一从 `client/build` 复制到 `netsdk/customer-sdk/frontend-build`。
+- 客户 SDK 重建时会先清空 WPF 应用、WPF 控件和 Native DLL 内嵌的 `mock-sdk` 目录，再写入 `real-service`，避免旧假数据服务文件与真实服务混合。
+
+# 2026-07-14 更新
+
+- 汽车自适应页面继续显示“视图调节”面板，并新增“整体视图”页签；整体 `X/Y/Z` 直接调整 Three.js 根分组，使座椅模型与压力点图同步移动，默认根坐标为 `167/-41/-78`。
+- 根据最终校准结果，整体视图默认坐标调整为 `X=167`、`Y=-36`、`Z=-69`，并从正式页面隐藏“视图调节”面板；调节组件源码继续保留。
+- 视图调节重新打开并新增“单点调节”：4 个实际渲染点图可分别调整 `X/Y/Z`、`RX/RY/RZ` 和 `0.25x-2.5x` 缩放，配置通过 `jqtools.carAir.sceneTransform.v4` 独立持久化。
+- 单点调节选项按座椅结构重新命名和排序为“坐垫、靠背、左侧翼、右侧翼”，底层点图与数据映射保持不变。
+- 修复单点调节下拉选项被面板遮挡：点图选择弹层使用独立样式并固定为 `z-index: 1300`，高于视图调节面板。
+- 整体视图新增 `RX/RY/RZ` 旋转调节，直接作用于 Three.js 根分组；默认角度为 `-6.5/-6.9/-6.35`，配置升级到 `jqtools.carAir.sceneTransform.v5`。

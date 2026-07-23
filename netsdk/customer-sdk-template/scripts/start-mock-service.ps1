@@ -10,6 +10,8 @@ $ErrorActionPreference = "Stop"
 $sdkRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceDir = Join-Path $sdkRoot "mock-service"
 $frontendDir = Join-Path $sdkRoot "frontend-build"
+$realBackendDir = Join-Path $sdkRoot "real-backend"
+$nodeExe = Join-Path $sdkRoot "runtime\node\node.exe"
 $pidFile = Join-Path $sdkRoot ".mock-service.pid"
 $logFile = Join-Path $sdkRoot "mock-service.log"
 
@@ -21,6 +23,12 @@ function Get-PortOwner {
 
 if (-not (Test-Path -LiteralPath (Join-Path $serviceDir "mock-service.js"))) {
     throw "Mock service is missing: $serviceDir"
+}
+if (-not (Test-Path -LiteralPath $nodeExe)) {
+    throw "Bundled Node.js is missing: $nodeExe"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $realBackendDir "server\serialServer.js"))) {
+    throw "Standalone real backend is missing: $realBackendDir"
 }
 
 $owners = @()
@@ -36,18 +44,7 @@ if ($owners.Count -gt 0) {
     exit 1
 }
 
-if ((Test-Path -LiteralPath (Join-Path $serviceDir "package.json")) -and -not (Test-Path -LiteralPath (Join-Path $serviceDir "node_modules"))) {
-    Push-Location $serviceDir
-    try {
-        npm install
-    }
-    finally {
-        Pop-Location
-    }
-}
-
-$startCommand = if (Test-Path -LiteralPath (Join-Path $serviceDir "package.json")) { "npm start" } else { "node mock-service.js" }
-$command = "cd /d `"$serviceDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && set `"JQTOOLS_MOCK_FRONTEND_DIR=$frontendDir`" && $startCommand > `"$logFile`" 2>&1"
+$command = "cd /d `"$serviceDir`" && set `"JQTOOLS_REAL_BACKEND_ROOT=$realBackendDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && set `"JQTOOLS_MOCK_FRONTEND_DIR=$frontendDir`" && `"$nodeExe`" mock-service.js > `"$logFile`" 2>&1"
 $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $command -WindowStyle Hidden -PassThru
 $process.Id | Set-Content -LiteralPath $pidFile -Encoding ASCII
 

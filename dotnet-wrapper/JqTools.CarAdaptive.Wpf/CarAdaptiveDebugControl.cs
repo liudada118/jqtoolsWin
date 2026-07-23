@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace JqTools.CarAdaptive.Wpf;
@@ -9,7 +10,10 @@ namespace JqTools.CarAdaptive.Wpf;
 /// </summary>
 public sealed class CarAdaptiveDebugControl : UserControl
 {
+    private readonly Grid _root = new();
     private readonly WebView2 _webView = new();
+    private readonly Border _errorPanel;
+    private readonly TextBlock _errorMessage;
     private CarAdaptiveMockServiceHost? _serviceHost;
     private bool _isLoading;
     private bool _isStopping;
@@ -29,7 +33,17 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// </summary>
     public CarAdaptiveDebugControl()
     {
-        Content = _webView;
+        _errorMessage = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 18)
+        };
+        _errorPanel = CreateErrorPanel();
+        _root.Children.Add(_webView);
+        _root.Children.Add(_errorPanel);
+        Content = _root;
         Loaded += HandleLoaded;
         Unloaded += HandleUnloaded;
         Dispatcher.ShutdownStarted += HandleDispatcherShutdownStarted;
@@ -113,7 +127,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// HttpPort 依赖属性。
     /// </summary>
     public static readonly DependencyProperty HttpPortProperty =
-        DependencyProperty.Register(nameof(HttpPort), typeof(int), typeof(CarAdaptiveDebugControl), new PropertyMetadata(19345));
+        DependencyProperty.Register(nameof(HttpPort), typeof(int), typeof(CarAdaptiveDebugControl), new PropertyMetadata(19245));
 
     /// <summary>
     /// WebSocket 服务端口。
@@ -128,7 +142,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// WebSocketPort 依赖属性。
     /// </summary>
     public static readonly DependencyProperty WebSocketPortProperty =
-        DependencyProperty.Register(nameof(WebSocketPort), typeof(int), typeof(CarAdaptiveDebugControl), new PropertyMetadata(19399));
+        DependencyProperty.Register(nameof(WebSocketPort), typeof(int), typeof(CarAdaptiveDebugControl), new PropertyMetadata(19999));
 
     /// <summary>
     /// Node.js 可执行文件路径。
@@ -161,7 +175,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
         DependencyProperty.Register(nameof(MockSdkDirectory), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata(null));
 
     /// <summary>
-    /// WebView2 加载的页面路径；/debug 为 SDK 调试页，/app 为项目当前真实前端。
+    /// WebView2 加载的页面路径；默认 /app 为项目真实业务前端，/debug 仅用于简化调试页。
     /// </summary>
     public string PagePath
     {
@@ -173,7 +187,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// PagePath 依赖属性。
     /// </summary>
     public static readonly DependencyProperty PagePathProperty =
-        DependencyProperty.Register(nameof(PagePath), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata("/debug"));
+        DependencyProperty.Register(nameof(PagePath), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata("/app"));
 
     /// <summary>
     /// 启动服务并加载调试页面。
@@ -186,6 +200,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
         }
 
         _isLoading = true;
+        HideStartupError();
         try
         {
             var options = CreateOptions();
@@ -233,6 +248,9 @@ public sealed class CarAdaptiveDebugControl : UserControl
         _webView.Reload();
     }
 
+    /// <summary>
+    /// 根据控件依赖属性创建当前服务启动配置。
+    /// </summary>
     private CarAdaptiveDebugOptions CreateOptions()
     {
         return new CarAdaptiveDebugOptions
@@ -246,6 +264,9 @@ public sealed class CarAdaptiveDebugControl : UserControl
         };
     }
 
+    /// <summary>
+    /// 创建服务宿主并转发服务日志。
+    /// </summary>
     private CarAdaptiveMockServiceHost CreateServiceHost()
     {
         var host = new CarAdaptiveMockServiceHost();
@@ -253,11 +274,17 @@ public sealed class CarAdaptiveDebugControl : UserControl
         return host;
     }
 
+    /// <summary>
+    /// 控件加载后安全启动服务和页面，失败时保留窗口并显示错误。
+    /// </summary>
     private async void HandleLoaded(object sender, RoutedEventArgs e)
     {
-        await StartAsync().ConfigureAwait(true);
+        await TryStartAsync().ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 控件卸载时按配置停止由当前控件启动的服务。
+    /// </summary>
     private async void HandleUnloaded(object sender, RoutedEventArgs e)
     {
         if (StopServiceOnUnload)
@@ -266,16 +293,25 @@ public sealed class CarAdaptiveDebugControl : UserControl
         }
     }
 
+    /// <summary>
+    /// 应用退出时同步清理后台服务进程树。
+    /// </summary>
     private void HandleApplicationExit(object sender, ExitEventArgs e)
     {
         StopServiceForApplicationExit();
     }
 
+    /// <summary>
+    /// Dispatcher 关闭时同步清理后台服务进程树。
+    /// </summary>
     private void HandleDispatcherShutdownStarted(object? sender, EventArgs e)
     {
         StopServiceForApplicationExit();
     }
 
+    /// <summary>
+    /// 在应用退出阶段执行不抛异常的服务停止操作。
+    /// </summary>
     private void StopServiceForApplicationExit()
     {
         if (!StopServiceOnApplicationExit || _serviceHost == null || _isStopping)
@@ -296,5 +332,99 @@ public sealed class CarAdaptiveDebugControl : UserControl
         {
             _isStopping = false;
         }
+    }
+
+    /// <summary>
+    /// 捕获启动异常并切换到可重试的错误界面。
+    /// </summary>
+    private async Task TryStartAsync()
+    {
+        try
+        {
+            await StartAsync().ConfigureAwait(true);
+        }
+        catch (Exception error)
+        {
+            ServiceLogReceived?.Invoke(this, $"[wpf] start failed: {error}");
+            ShowStartupError(error);
+        }
+    }
+
+    /// <summary>
+    /// 创建启动失败提示面板和重试按钮。
+    /// </summary>
+    private Border CreateErrorPanel()
+    {
+        var title = new TextBlock
+        {
+            Text = "汽车自适应服务启动失败",
+            Foreground = Brushes.White,
+            FontSize = 20,
+            FontWeight = FontWeights.SemiBold
+        };
+        var retryButton = new Button
+        {
+            Content = "重试",
+            Width = 96,
+            Height = 34,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        retryButton.Click += HandleRetryClick;
+
+        var content = new StackPanel();
+        content.Children.Add(title);
+        content.Children.Add(_errorMessage);
+        content.Children.Add(retryButton);
+
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(31, 35, 41)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(78, 86, 96)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(24),
+            MaxWidth = 680,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = content,
+            Visibility = Visibility.Collapsed
+        };
+    }
+
+    /// <summary>
+    /// 点击重试后重新启动服务并加载页面。
+    /// </summary>
+    private async void HandleRetryClick(object sender, RoutedEventArgs e)
+    {
+        await TryStartAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 显示适合客户查看的启动错误，避免输出过长的 Node 日志撑开界面。
+    /// </summary>
+    private void ShowStartupError(Exception error)
+    {
+        var message = error.Message;
+        if (message.Contains("EADDRINUSE", StringComparison.OrdinalIgnoreCase))
+        {
+            message = $"端口 {HttpPort} 或 {WebSocketPort} 已被其他程序占用。请关闭占用程序后点击重试。";
+        }
+        else if (message.Length > 1200)
+        {
+            message = $"{message[..1200]}...";
+        }
+
+        _errorMessage.Text = message;
+        _webView.Visibility = Visibility.Collapsed;
+        _errorPanel.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// 开始新一轮启动前隐藏旧错误并恢复浏览器区域。
+    /// </summary>
+    private void HideStartupError()
+    {
+        _errorPanel.Visibility = Visibility.Collapsed;
+        _webView.Visibility = Visibility.Visible;
     }
 }

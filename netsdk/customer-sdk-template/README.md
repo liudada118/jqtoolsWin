@@ -1,6 +1,6 @@
 # JQTools 汽车自适应客户 SDK
 
-这是客户交付版目录，客户不需要源码工程即可验证链路。默认启动入口是 WPF 程序，WPF 内部会自动启动真实协议假数据服务，并加载项目当前真实前端；Three.js 模型资源已随 SDK 一起输出。
+这是可独立交付的客户版目录。客户不需要安装 Node.js、Python，也不需要保留原项目源码即可运行。默认入口是 WPF 程序，它会启动真实串口后端、内置 Python 算法并加载当前 Three.js 前端。
 
 ## 目录结构
 
@@ -10,6 +10,9 @@ customer-sdk/
   mock-service/              # 真实协议假数据服务，HTTP + WebSocket + 当前前端静态资源
   wpf-control/               # WPF 自定义控件 DLL，客户自己的 WPF 项目可引用
   native-dll/                # 标准 C/C++ Native DLL 和 WPF P/Invoke 示例
+  real-backend/              # 真实 Node 串口后端、Python 算法和生产依赖
+  runtime/node/node.exe      # 随 SDK 交付的 Node.js 运行时
+  frontend-build/            # 当前前端和 Three.js 模型资源
   docs/FAKE_API.md           # 假数据接口和真实 WS 协议说明
   scripts/start-wpf.ps1      # 启动 WPF
   scripts/start-mock-service.ps1
@@ -40,6 +43,8 @@ WebSocket: ws://127.0.0.1:19999
 真实前端: http://127.0.0.1:19245/app
 ```
 
+`19245` 或 `19999` 被其他程序占用时，WPF 程序会保留窗口并显示端口冲突。关闭占用程序后点击“重试”即可，不需要重启 WPF。
+
 ## 本地怎么验证
 
 执行：
@@ -53,11 +58,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1
 
 - 必要文件是否存在
 - HTTP `/health`
-- HTTP `/fake/connect`
-- WebSocket 是否按真实协议推送
-- `{ sitData }` 中 144 点压力数据长度
-- `{ algorFeed }` 中 24 路反馈长度
-- `{ algorData }` 中 144 点压力数据和 51 字节控制命令长度
+- HTTP `/getPort` 真实串口后端
+- HTTP `/algorithm/config` 内置 Python 算法与参数
+- 当前前端和 Three.js 座椅模型资源
 
 需要顺便验证 WPF 能否启动时：
 
@@ -87,8 +90,9 @@ XAML 示例：
             StopServiceOnUnload="True"
             StopServiceOnApplicationExit="True"
             Host="127.0.0.1"
-            HttpPort="19345"
-            WebSocketPort="19399" />
+            HttpPort="19245"
+            WebSocketPort="19999"
+            PagePath="/app" />
     </Grid>
 </Window>
 ```
@@ -151,6 +155,16 @@ frontend-build\model\
 说明：SDK 只保留这一份真实前端资源，WPF 程序、WPF 控件和独立 mock-service 都会共用它，避免 Three.js 模型文件被重复复制。
 
 所以 Three.js 的 `.glb`、`.fbx`、贴图等模型资源会跟随 SDK 一起交付。WPF 默认加载 `/app`，不是之前的 `/debug` 简化调试页。
+
+## 算法参数调节
+
+进入汽车自适应页面后，点击右上角的滑杆图标可拉出“算法参数”抽屉。参数按功能分组并显示 YAML 中文注释，支持搜索、数字/开关/数组编辑、撤销修改和批量保存。保存后配置写入：
+
+```text
+real-backend\python\app\sensor_config.yaml
+```
+
+后端会重建常驻 Python 算法实例，因此修改立即作用于后续压力帧。
 # 当前默认：真实数据模式
 
 当前 `customer-sdk` 默认启动真实后端链路：WPF 会启动 `server/serialServer.js`，读取真实串口，调用 `pyWorker.js / Python` 算法，并把算法返回的 `control_command` 写回气囊串口。

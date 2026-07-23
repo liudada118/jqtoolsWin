@@ -39,8 +39,9 @@ dotnet build -c Release
     <Grid>
         <jq:CarAdaptiveDebugControl
             Host="127.0.0.1"
-            HttpPort="19345"
-            WebSocketPort="19399"
+            HttpPort="19245"
+            WebSocketPort="19999"
+            PagePath="/app"
             AutoStartService="True" />
     </Grid>
 </Window>
@@ -52,9 +53,10 @@ dotnet build -c Release
 var host = new CarAdaptiveMockServiceHost();
 await host.StartAsync(new CarAdaptiveDebugOptions
 {
-    HttpPort = 19345,
-    WebSocketPort = 19399
+    HttpPort = 19245,
+    WebSocketPort = 19999,
+    PagePath = "/app"
 });
 
-// 打开 host.DebugUri 即可访问调试页面。
+// 默认打开 host.DebugUri 即可访问 /app 真实业务页面；需要简化调试页时显式设置 PagePath = "/debug"。
 ```

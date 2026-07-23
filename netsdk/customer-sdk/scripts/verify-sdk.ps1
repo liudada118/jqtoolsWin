@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 $sdkRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceDir = Join-Path $sdkRoot "mock-service"
 $frontendDir = Join-Path $sdkRoot "frontend-build"
+$realBackendDir = Join-Path $sdkRoot "real-backend"
+$nodeExe = Join-Path $sdkRoot "runtime\node\node.exe"
 $appExe = Join-Path $sdkRoot "app\JqTools.CarAdaptive.ClientWpf.exe"
 $wpfDll = Join-Path $sdkRoot "wpf-control\JqTools.CarAdaptive.Wpf.dll"
 $nativeDll = Join-Path $sdkRoot "native-dll\JqToolsCarAdaptiveNative.dll"
@@ -28,7 +30,8 @@ function Assert-File {
 function Stop-TestPorts {
     Get-NetTCPConnection -LocalPort $HttpPort,$WsPort -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty OwningProcess -Unique |
-        ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+        Where-Object { $_ -gt 0 } |
+        ForEach-Object { Start-Process -FilePath taskkill.exe -ArgumentList "/PID", $_, "/T", "/F" -WindowStyle Hidden -Wait | Out-Null }
 }
 
 Write-Host "Checking customer SDK files..."
@@ -39,12 +42,18 @@ Assert-File (Join-Path $serviceDir "mock-service.js")
 Assert-File (Join-Path $frontendDir "index.html")
 Assert-File (Join-Path $frontendDir "model\seat2.glb")
 Assert-File $apiDoc
+Assert-File $nodeExe
+Assert-File (Join-Path $realBackendDir "server\serialServer.js")
+Assert-File (Join-Path $realBackendDir "pyWorker.js")
+Assert-File (Join-Path $realBackendDir "python\Python311\python.exe")
+Assert-File (Join-Path $realBackendDir "python\app\server.py")
+Assert-File (Join-Path $realBackendDir "node_modules\express\package.json")
 
 Stop-TestPorts
 
 $process = $null
 try {
-    $command = "cd /d `"$serviceDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && set `"JQTOOLS_MOCK_FRONTEND_DIR=$frontendDir`" && node mock-service.js > `"$logFile`" 2>&1"
+    $command = "cd /d `"$serviceDir`" && set `"JQTOOLS_REAL_BACKEND_ROOT=$realBackendDir`" && set `"JQTOOLS_MOCK_HOST=$HostName`" && set `"JQTOOLS_MOCK_HTTP_PORT=$HttpPort`" && set `"JQTOOLS_MOCK_WS_PORT=$WsPort`" && set `"JQTOOLS_MOCK_FRONTEND_DIR=$frontendDir`" && `"$nodeExe`" mock-service.js > `"$logFile`" 2>&1"
     $process = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $command -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 1
 
@@ -72,6 +81,12 @@ try {
     }
     Write-Host "[OK] HTTP /getPort real serial backend"
 
+    $algorithmConfig = Invoke-RestMethod "http://${HostName}:${HttpPort}/algorithm/config"
+    if ($algorithmConfig.code -ne 0 -or -not $algorithmConfig.data.'system.hz') {
+        throw "Python algorithm config verification failed."
+    }
+    Write-Host "[OK] HTTP /algorithm/config bundled Python algorithm"
+
     if ($ConnectSerial) {
         $connect = Invoke-RestMethod "http://${HostName}:${HttpPort}/connPort"
         if ($connect.code -ne 0) {
@@ -95,7 +110,7 @@ try {
 }
 finally {
     Stop-TestPorts
-    if ($process) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    if ($process -and (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath taskkill.exe -ArgumentList "/PID", $process.Id, "/T", "/F" -WindowStyle Hidden -Wait | Out-Null
     }
 }

@@ -1,0 +1,98 @@
+.chartAndDataContent {
+    background: #1A1C20;
+    box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.4);
+    border-radius: 1rem;
+    padding: 1.5rem 0.625rem;
+
+    .chartTitle {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .chartName {
+        font-size: 1.125rem;
+        font-weight: 600;
+        line-height: normal;
+        color: #FFFFFF;
+    }
+
+    .chartType {
+        font-size: 0.75rem;
+        font-weight: normal;
+        line-height: normal;
+        color: #E6EBF0;
+        display: flex;
+
+        .chartTypeItem {
+            display: flex;
+            align-items: center;
+        }
+    }
+
+    .cirlce {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        margin-right: 6px;
+    }
+
+    .chartTypeContent {
+        display: flex;
+    }
+
+    .chartData {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #E6EBF0;
+        display: flex;
+        justify-content: space-between;
+        padding: 0.625rem;
+        background: #23262C;
+        border-radius: 8px;
+        margin-bottom: 4px;
+    }
+
+    .chartData:last-child {
+        margin: 0;
+    }
+
+    .chartTypeItem {
+        display: flex;
+        align-items: center;
+       
+    }
+
+    .chartType {
+
+
+        .chartTypeItem {
+        
+            width: 3rem;
+        }
+    }
+
+    .chartData {
+        .chartTypeItem {
+           
+            width: 5rem;
+            // text-align: right;
+        }
+    }
+
+
+    margin-bottom: 1.25rem;
+}
+
+.chartAndDataContent {}
+
+.chartAndDataContent:last-child {
+    margin: 0;
+}
+
+.leftChairContent {
+
+    position: fixed;
+    top: calc(4.5rem);
+
+    padding: 1.5rem 1.25rem;
+}

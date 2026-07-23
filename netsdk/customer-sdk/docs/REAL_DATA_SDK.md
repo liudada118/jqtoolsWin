@@ -7,7 +7,7 @@
 ```text
 WPF 启动程序
   -> app/mock-sdk/mock-service.js
-  -> fork 项目真实后端 server/serialServer.js
+  -> fork customer-sdk/real-backend/server/serialServer.js
   -> 读取真实串口
   -> 调用 pyWorker.js / Python 算法
   -> 写入气囊串口 control_command
@@ -66,6 +66,32 @@ python/app/server.py
 
 通信方式保持原来的 stdin/stdout JSON 行协议。
 
+客户包内的实际位置为：
+
+```text
+real-backend/python/Python311/python.exe
+real-backend/python/app/server.py
+real-backend/python/app/sensor_config.yaml
+```
+
+算法参数接口：
+
+```text
+GET  /algorithm/config
+POST /algorithm/config
+```
+
+批量保存示例：
+
+```json
+{
+  "changes": {
+    "system.hz": 15,
+    "living_detection.enabled": true
+  }
+}
+```
+
 ## 5. 前端资源
 
 真实前端资源在：
@@ -118,28 +144,20 @@ GET /connPort
 
 如果返回 `[OK] HTTP /connPort real serial connect`，说明 SDK 已经走真实串口连接。
 
-## 7. 注意事项
+## 7. 独立运行内容
 
-当前为了避免重复复制巨大的 Python 运行时和 Node 依赖，SDK 真实服务启动器会优先查找当前项目根目录：
-
-```text
-D:\jqtoolsWin1
-```
-
-也就是说当前版本适合本机真实链路验证。
-
-如果要交付给客户独立运行，需要继续把以下内容一起打进客户包：
+当前客户包已经包含完整运行依赖：
 
 ```text
-server/
-util/
-pyWorker.js
-python/
-config.txt
-db/
-data/
-node_modules/
+runtime/node/node.exe
+real-backend/server/
+real-backend/util/
+real-backend/pyWorker.js
+real-backend/python/
+real-backend/node_modules/
+real-backend/config.txt
+real-backend/db/
 ```
 
-或者把 Node 后端、Python 算法分别封装成 exe，再由 WPF 启动。
+启动器显式指向 `customer-sdk/real-backend`，不会回退到原项目目录。整个 `customer-sdk` 文件夹可复制到另一台 Windows x64 机器进行验证和交付。
 

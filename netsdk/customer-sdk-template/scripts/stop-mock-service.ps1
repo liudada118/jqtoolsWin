@@ -9,6 +9,16 @@ $sdkRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $pidFile = Join-Path $sdkRoot ".mock-service.pid"
 $processIds = @()
 
+function Stop-ProcessTree {
+    param([int]$ProcessId)
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($process) {
+        Write-Host "Stopping PID $ProcessId ($($process.ProcessName)) and child processes"
+        Start-Process -FilePath taskkill.exe -ArgumentList "/PID", $ProcessId, "/T", "/F" -WindowStyle Hidden -Wait | Out-Null
+    }
+}
+
 if (Test-Path -LiteralPath $pidFile) {
     $savedPid = Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($savedPid -match "^\d+$") {
@@ -29,11 +39,7 @@ foreach ($port in $portList) {
 $processIds = $processIds | Where-Object { $_ } | Select-Object -Unique
 
 foreach ($processId in $processIds) {
-    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-    if ($process) {
-        Write-Host "Stopping PID $processId ($($process.ProcessName))"
-        Stop-Process -Id $processId -Force
-    }
+    Stop-ProcessTree -ProcessId $processId
 }
 
 if (Test-Path -LiteralPath $pidFile) {

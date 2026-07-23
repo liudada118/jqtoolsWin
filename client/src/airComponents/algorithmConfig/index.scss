@@ -1,0 +1,126 @@
+.algorithm-config-toggle {
+    position: fixed;
+    top: 4.7rem;
+    right: 4.25rem;
+    z-index: 1200;
+    width: 2.5rem;
+    height: 2.5rem;
+    background: #087ea4;
+}
+
+.algorithm-config-drawer {
+    z-index: 1400;
+
+    .ant-drawer-content,
+    .ant-drawer-header,
+    .ant-drawer-footer {
+        background: #202327;
+        color: #e6ebf0;
+    }
+
+    .ant-drawer-header,
+    .ant-drawer-footer {
+        border-color: #424852;
+    }
+
+    .ant-drawer-title,
+    .ant-drawer-close {
+        color: #e6ebf0;
+    }
+
+    .ant-drawer-body {
+        padding: 0.8rem;
+    }
+
+    .ant-collapse {
+        border-color: #424852;
+        background: transparent;
+    }
+
+    .ant-collapse-item,
+    .ant-collapse-content {
+        border-color: #424852;
+    }
+
+    .ant-collapse-header,
+    .ant-collapse-content-box {
+        color: #e6ebf0 !important;
+        background: #202327;
+    }
+}
+
+.algorithm-config-search {
+    margin-bottom: 0.75rem;
+}
+
+.algorithm-config-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.algorithm-config-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 10rem;
+    align-items: center;
+    gap: 0.8rem;
+    min-height: 3.5rem;
+    padding-left: 0.6rem;
+    border-left: 2px solid transparent;
+
+    &.is-dirty {
+        border-left-color: #2fbf71;
+    }
+}
+
+.algorithm-config-meta {
+    min-width: 0;
+}
+
+.algorithm-config-path {
+    overflow-wrap: anywhere;
+    color: #e6ebf0;
+    font-size: 0.78rem;
+}
+
+.algorithm-config-comment {
+    margin-top: 0.15rem;
+    color: #98a5b1;
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.algorithm-config-editor {
+    .ant-input-number,
+    .ant-input {
+        width: 100%;
+    }
+}
+
+.algorithm-config-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    color: #aeb9c3;
+
+    > div {
+        display: flex;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 620px) {
+    .algorithm-config-drawer .ant-drawer-content-wrapper {
+        width: calc(100vw - 1rem) !important;
+    }
+
+    .algorithm-config-row {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+
+    .algorithm-config-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.IO;
 using System.Text;
 
 namespace JqTools.CarAdaptive.Wpf;
 
 /// <summary>
-/// 负责启动和停止 mock-sdk 里的 Node.js 假数据服务。
+/// 负责启动和停止 SDK 里的 Node.js 真实数据服务。
 /// </summary>
 public sealed class CarAdaptiveMockServiceHost : IDisposable
 {
@@ -40,7 +41,7 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
     public string Logs => _logBuffer.ToString();
 
     /// <summary>
-    /// 启动假数据服务。如果服务已经运行，则直接返回。
+    /// 启动真实数据服务。如果当前 SDK 服务已经运行，则直接复用。
     /// </summary>
     public async Task StartAsync(CarAdaptiveDebugOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -62,9 +63,11 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
             return;
         }
 
+        await EnsurePortsAvailableAsync(cancellationToken).ConfigureAwait(false);
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = Options.NodeExecutablePath,
+            FileName = Options.ResolveNodeExecutablePath(),
             Arguments = "mock-service.js",
             WorkingDirectory = mockSdkDirectory,
             UseShellExecute = false,
@@ -77,7 +80,7 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         startInfo.Environment["JQTOOLS_MOCK_WS_PORT"] = Options.WebSocketPort.ToString();
         startInfo.Environment["JQTOOLS_MOCK_FRONTEND_DIR"] = Options.ResolveFrontendBuildDirectory(mockSdkDirectory);
 
-        _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Node.js 假数据服务启动失败。");
+        _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Node.js 真实数据服务启动失败。");
         _process.OutputDataReceived += HandleOutput;
         _process.ErrorDataReceived += HandleOutput;
         _process.BeginOutputReadLine();
@@ -138,7 +141,7 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         {
             if (_process is { HasExited: true })
             {
-                throw new InvalidOperationException($"Node.js 假数据服务已退出，退出码：{_process.ExitCode}。{Environment.NewLine}{Logs}");
+                throw new InvalidOperationException($"Node.js 真实数据服务已退出，退出码：{_process.ExitCode}。{Environment.NewLine}{Logs}");
             }
 
             try
@@ -166,7 +169,48 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
             }
         }
 
-        throw new TimeoutException($"等待汽车自适应假数据服务启动超时：{Options.DebugUri}");
+        throw new TimeoutException($"等待汽车自适应真实数据服务启动超时：{Options.DebugUri}");
+    }
+
+    /// <summary>
+    /// 确认 HTTP 和 WebSocket 端口均未被其他程序占用。
+    /// </summary>
+    private async Task EnsurePortsAvailableAsync(CancellationToken cancellationToken)
+    {
+        var occupiedPorts = new List<int>();
+        if (await IsPortInUseAsync(Options.HttpPort, cancellationToken).ConfigureAwait(false))
+        {
+            occupiedPorts.Add(Options.HttpPort);
+        }
+
+        if (Options.WebSocketPort != Options.HttpPort &&
+            await IsPortInUseAsync(Options.WebSocketPort, cancellationToken).ConfigureAwait(false))
+        {
+            occupiedPorts.Add(Options.WebSocketPort);
+        }
+
+        if (occupiedPorts.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"端口 {string.Join("、", occupiedPorts)} 已被其他程序占用。请关闭占用程序后重试。");
+        }
+    }
+
+    /// <summary>
+    /// 通过 TCP 连接探测指定端口是否已有监听程序。
+    /// </summary>
+    private async Task<bool> IsPortInUseAsync(int port, CancellationToken cancellationToken)
+    {
+        using var client = new TcpClient();
+        try
+        {
+            await client.ConnectAsync(Options.Host, port, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

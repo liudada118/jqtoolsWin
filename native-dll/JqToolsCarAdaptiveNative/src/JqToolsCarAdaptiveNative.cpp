@@ -31,6 +31,7 @@ constexpr int kWinApiFailed = -6;
 
 std::mutex g_mutex;
 PROCESS_INFORMATION g_process{};
+HANDLE g_job = nullptr;
 bool g_hasProcess = false;
 std::wstring g_host = L"127.0.0.1";
 int g_httpPort = 19345;
@@ -156,6 +157,33 @@ std::wstring ResolveFrontendBuildDirectory(const std::wstring& mockSdkDirectory)
     return std::filesystem::absolute(candidates.front()).wstring();
 }
 
+std::wstring ResolveNodeExecutablePath(const wchar_t* nodeExecutablePath)
+{
+    const std::wstring configured = EmptyToDefault(nodeExecutablePath, L"node");
+    if (_wcsicmp(configured.c_str(), L"node") != 0 && _wcsicmp(configured.c_str(), L"node.exe") != 0)
+    {
+        return std::filesystem::absolute(std::filesystem::path(configured)).wstring();
+    }
+
+    const auto dllDirectory = std::filesystem::path(GetDllDirectory());
+    const std::vector<std::filesystem::path> candidates = {
+        dllDirectory / L"runtime" / L"node" / L"node.exe",
+        dllDirectory / L".." / L"runtime" / L"node" / L"node.exe",
+        dllDirectory / L".." / L".." / L"runtime" / L"node" / L"node.exe"
+    };
+
+    for (const auto& candidate : candidates)
+    {
+        const auto fullPath = std::filesystem::absolute(candidate);
+        if (FileExists(fullPath.wstring()))
+        {
+            return fullPath.wstring();
+        }
+    }
+
+    return configured;
+}
+
 bool IsOwnProcessRunning()
 {
     if (!g_hasProcess)
@@ -178,6 +206,11 @@ void CloseProcessHandles()
     {
         CloseHandle(g_process.hProcess);
         g_process.hProcess = nullptr;
+    }
+    if (g_job != nullptr)
+    {
+        CloseHandle(g_job);
+        g_job = nullptr;
     }
     g_process.dwProcessId = 0;
     g_process.dwThreadId = 0;
@@ -401,7 +434,7 @@ JQTOOLS_NATIVE_API int __stdcall JqCarAdaptiveStart(
     g_httpPort = httpPort;
     g_webSocketPort = webSocketPort;
 
-    const std::wstring nodePath = EmptyToDefault(nodeExecutablePath, L"node");
+    const std::wstring nodePath = ResolveNodeExecutablePath(nodeExecutablePath);
     std::wstring commandLine = Quote(nodePath) + L" mock-service.js";
     std::vector<wchar_t> commandLineBuffer(commandLine.begin(), commandLine.end());
     commandLineBuffer.push_back(L'\0');
@@ -433,6 +466,25 @@ JQTOOLS_NATIVE_API int __stdcall JqCarAdaptiveStart(
         return kStartFailed;
     }
 
+    g_job = CreateJobObjectW(nullptr, nullptr);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jobInfo{};
+    jobInfo.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (g_job == nullptr ||
+        !SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &jobInfo, sizeof(jobInfo)) ||
+        !AssignProcessToJobObject(g_job, processInfo.hProcess))
+    {
+        SetLastErrorMessage(GetLastWin32Message(L"创建服务进程组失败。"));
+        TerminateProcess(processInfo.hProcess, 1);
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+        if (g_job != nullptr)
+        {
+            CloseHandle(g_job);
+            g_job = nullptr;
+        }
+        return kStartFailed;
+    }
+
     g_process = processInfo;
     g_hasProcess = true;
 
@@ -440,7 +492,14 @@ JQTOOLS_NATIVE_API int __stdcall JqCarAdaptiveStart(
     {
         if (IsOwnProcessRunning())
         {
-            TerminateProcess(g_process.hProcess, 1);
+            if (g_job != nullptr)
+            {
+                TerminateJobObject(g_job, 1);
+            }
+            else
+            {
+                TerminateProcess(g_process.hProcess, 1);
+            }
             WaitForSingleObject(g_process.hProcess, 3000);
         }
         CloseProcessHandles();
@@ -466,7 +525,10 @@ JQTOOLS_NATIVE_API int __stdcall JqCarAdaptiveStop()
 
     if (IsOwnProcessRunning())
     {
-        if (!TerminateProcess(g_process.hProcess, 0))
+        const BOOL terminated = g_job != nullptr
+            ? TerminateJobObject(g_job, 0)
+            : TerminateProcess(g_process.hProcess, 0);
+        if (!terminated)
         {
             SetLastErrorMessage(GetLastWin32Message(L"停止 Node.js 假数据服务失败。"));
             return kWinApiFailed;

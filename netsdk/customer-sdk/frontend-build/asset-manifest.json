@@ -1,7 +1,7 @@
 {
   "files": {
-    "main.css": "/static/css/main.cd71f4f8.css",
-    "main.js": "/static/js/main.85d9c2d9.js",
+    "main.css": "/static/css/main.d734a5ab.css",
+    "main.js": "/static/js/main.0f9939d0.js",
     "static/js/206.af0889e2.chunk.js": "/static/js/206.af0889e2.chunk.js",
     "static/media/苹方黑体-中粗-简.ttf": "/static/media/苹方黑体-中粗-简.bda8497740da22c876ab.ttf",
     "static/media/history.png": "/static/media/history.942608bca56ec1d2b146.png",
@@ -23,7 +23,7 @@
     "index.html": "/index.html"
   },
   "entrypoints": [
-    "static/css/main.cd71f4f8.css",
-    "static/js/main.85d9c2d9.js"
+    "static/css/main.d734a5ab.css",
+    "static/js/main.0f9939d0.js"
   ]
 }

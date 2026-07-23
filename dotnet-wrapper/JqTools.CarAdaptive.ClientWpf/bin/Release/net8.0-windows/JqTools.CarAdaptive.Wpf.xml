@@ -106,7 +106,7 @@
         </member>
         <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.PagePath">
             <summary>
-            WebView2 加载的页面路径；/debug 为 SDK 调试页，/app 为项目当前真实前端。
+            WebView2 加载的页面路径；默认 /app 为项目真实业务前端，/debug 仅用于简化调试页。
             </summary>
         </member>
         <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.PagePathProperty">
@@ -127,6 +127,66 @@
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.Reload">
             <summary>
             重新加载当前调试页面。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateOptions">
+            <summary>
+            根据控件依赖属性创建当前服务启动配置。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateServiceHost">
+            <summary>
+            创建服务宿主并转发服务日志。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleLoaded(System.Object,System.Windows.RoutedEventArgs)">
+            <summary>
+            控件加载后安全启动服务和页面，失败时保留窗口并显示错误。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleUnloaded(System.Object,System.Windows.RoutedEventArgs)">
+            <summary>
+            控件卸载时按配置停止由当前控件启动的服务。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleApplicationExit(System.Object,System.Windows.ExitEventArgs)">
+            <summary>
+            应用退出时同步清理后台服务进程树。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleDispatcherShutdownStarted(System.Object,System.EventArgs)">
+            <summary>
+            Dispatcher 关闭时同步清理后台服务进程树。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StopServiceForApplicationExit">
+            <summary>
+            在应用退出阶段执行不抛异常的服务停止操作。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.TryStartAsync">
+            <summary>
+            捕获启动异常并切换到可重试的错误界面。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateErrorPanel">
+            <summary>
+            创建启动失败提示面板和重试按钮。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleRetryClick(System.Object,System.Windows.RoutedEventArgs)">
+            <summary>
+            点击重试后重新启动服务并加载页面。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.ShowStartupError(System.Exception)">
+            <summary>
+            显示适合客户查看的启动错误，避免输出过长的 Node 日志撑开界面。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HideStartupError">
+            <summary>
+            开始新一轮启动前隐藏旧错误并恢复浏览器区域。
             </summary>
         </member>
         <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions">
@@ -166,7 +226,7 @@
         </member>
         <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.PagePath">
             <summary>
-            WebView2 加载的页面路径；默认加载 SDK 调试页，可设置为 /app 加载项目真实前端。
+            WebView2 加载的页面路径；默认加载 /app 项目真实业务前端。
             </summary>
         </member>
         <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.StartupTimeout">
@@ -184,6 +244,11 @@
             解析 mock-sdk 目录，兼容 DLL 输出目录和源码目录两种运行方式。
             </summary>
         </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.ResolveNodeExecutablePath">
+            <summary>
+            解析 Node.js 可执行文件；客户 SDK 优先使用随包交付的 runtime/node/node.exe。
+            </summary>
+        </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions.ResolveFrontendBuildDirectory(System.String)">
             <summary>
             解析真实前端 build 目录，兼容 app/mock-sdk、mock-service 和 wpf-control/mock-sdk 等运行位置。
@@ -191,7 +256,7 @@
         </member>
         <member name="T:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost">
             <summary>
-            负责启动和停止 mock-sdk 里的 Node.js 假数据服务。
+            负责启动和停止 SDK 里的 Node.js 真实数据服务。
             </summary>
         </member>
         <member name="E:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.OutputReceived">
@@ -221,7 +286,7 @@
         </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.StartAsync(JqTools.CarAdaptive.Wpf.CarAdaptiveDebugOptions,System.Threading.CancellationToken)">
             <summary>
-            启动假数据服务。如果服务已经运行，则直接返回。
+            启动真实数据服务。如果当前 SDK 服务已经运行，则直接复用。
             </summary>
         </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.StopAsync(System.Threading.CancellationToken)">
@@ -232,6 +297,16 @@
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.Dispose">
             <summary>
             释放服务进程和 HTTP 客户端。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.EnsurePortsAvailableAsync(System.Threading.CancellationToken)">
+            <summary>
+            确认 HTTP 和 WebSocket 端口均未被其他程序占用。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.IsPortInUseAsync(System.Int32,System.Threading.CancellationToken)">
+            <summary>
+            通过 TCP 连接探测指定端口是否已有监听程序。
             </summary>
         </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveMockServiceHost.IsHealthyAsync(System.Threading.CancellationToken)">

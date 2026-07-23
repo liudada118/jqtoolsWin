@@ -1,0 +1,38 @@
+.iconAndSelect {
+    position: relative;
+    display: flex;
+    justify-content: center;
+
+    .iconContent {
+        // margin-right: 2.7rem;    
+
+    }
+
+    .dropDown {
+        position: absolute;
+        width: 100%;
+        top: calc(4rem);
+        padding: 15px 9px 9px;
+        border: 1px solid #3E444C;
+        opacity: 0;
+        transition: all 0.4s ease-in-out;
+        overflow: hidden;
+        background: #202327;
+        border-radius: 6px;
+
+    }
+
+    .dropItem {
+         padding: 3px 0px;
+        text-align: center;
+        border-radius: 3px;
+    }
+
+    .dropItem:hover{
+        background-color: #3E444C;
+    }
+
+    .dropItem:first-child{
+        margin-bottom: 9px;
+    }
+}

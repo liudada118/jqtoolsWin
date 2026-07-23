@@ -15,12 +15,12 @@ public sealed class CarAdaptiveDebugOptions
     /// <summary>
     /// 假数据 HTTP 服务端口。
     /// </summary>
-    public int HttpPort { get; set; } = 19345;
+    public int HttpPort { get; set; } = 19245;
 
     /// <summary>
     /// 假数据 WebSocket 服务端口。
     /// </summary>
-    public int WebSocketPort { get; set; } = 19399;
+    public int WebSocketPort { get; set; } = 19999;
 
     /// <summary>
     /// Node.js 可执行文件路径；如果已加入 PATH，可保持默认值 node。
@@ -38,9 +38,9 @@ public sealed class CarAdaptiveDebugOptions
     public string? FrontendBuildDirectory { get; set; }
 
     /// <summary>
-    /// WebView2 加载的页面路径；默认加载 SDK 调试页，可设置为 /app 加载项目真实前端。
+    /// WebView2 加载的页面路径；默认加载 /app 项目真实业务前端。
     /// </summary>
-    public string PagePath { get; set; } = "/debug";
+    public string PagePath { get; set; } = "/app";
 
     /// <summary>
     /// 等待假数据 HTTP 服务启动成功的最长时间。
@@ -56,7 +56,7 @@ public sealed class CarAdaptiveDebugOptions
     {
         if (string.IsNullOrWhiteSpace(pagePath))
         {
-            return "/debug";
+            return "/app";
         }
 
         return pagePath.StartsWith("/", StringComparison.Ordinal) ? pagePath : $"/{pagePath}";
@@ -85,6 +85,37 @@ public sealed class CarAdaptiveDebugOptions
         }
 
         return outputCandidate;
+    }
+
+    /// <summary>
+    /// 解析 Node.js 可执行文件；客户 SDK 优先使用随包交付的 runtime/node/node.exe。
+    /// </summary>
+    public string ResolveNodeExecutablePath()
+    {
+        if (!string.IsNullOrWhiteSpace(NodeExecutablePath) &&
+            !string.Equals(NodeExecutablePath, "node", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(NodeExecutablePath, "node.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(NodeExecutablePath);
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "runtime", "node", "node.exe"),
+            Path.Combine(AppContext.BaseDirectory, "..", "runtime", "node", "node.exe"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "runtime", "node", "node.exe")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var fullPath = Path.GetFullPath(candidate);
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(NodeExecutablePath) ? "node" : NodeExecutablePath;
     }
 
     /// <summary>

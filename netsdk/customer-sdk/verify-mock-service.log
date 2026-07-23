@@ -1,0 +1,53 @@
+[real-service] backend root: D:\jqtoolsWin1\netsdk\customer-sdk\real-backend
+[real-service] HTTP: http://127.0.0.1:19545
+[real-service] WS: ws://127.0.0.1:19599
+[real-service] frontend: D:\jqtoolsWin1\netsdk\customer-sdk\frontend-build
+D:\jqtoolsWin1\netsdk\customer-sdk\real-backend D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\python\app\server.py D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\python\app\server.py true false isPackaged
+userData from env: string
+false D:\jqtoolsWin1\netsdk\customer-sdk\real-backend app.isPackaged
+{
+  value: 'carAir',
+  typeArr: [],
+  optimalObj: {
+    bed: { gauss: 2.6, color: 355, filter: 6, height: 2.02, coherent: 1 },
+    car: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 },
+    endi: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 },
+    carAir: { gauss: 2, color: 495, filter: 0, height: 0.1, coherent: 1 }
+  },
+  maxObj: {
+    bed: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },
+    car: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },
+    endi: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },
+    carAir: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 }
+  }
+}
+D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\server/../db/carAir.db
+true
+D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\server D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\server/../db __dirname
+[real-service] serial service ready on port 19545
+Example app listening on port 19545
+[PY] start: D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\python\Python311\python.exe D:\jqtoolsWin1\netsdk\customer-sdk\real-backend\python\app\server.py
+[PY] bad JSON line: [��������] ��ʼ�����
+[PY] bad JSON line:   - ʱ�䴰��: 13 ֡
+[PY] bad JSON line:   - �������: 13 ֡
+[PY] bad JSON line:   - SAD�ж���ֵ: 0.6
+[PY] bad JSON line: [���ͼ����] ��ʼ�����
+[PY] bad JSON line:   - �����: 13 ֡
+[PY] bad JSON line:   - ѹ����ֵ: 20
+[PY] bad JSON line:   - ��С��ͨ����: 6 ��
+[PY] bad JSON line:   - �����ж�: ����>=4500.0, С��>=3000.0
+[PY] bad JSON line: [�Ĵ�Ħ] �������ʼ�����
+[PY] bad JSON line:   - ���ڴ�С: 78֡
+[PY] bad JSON line:   - �Ĵ���ֵ: 35.0
+[PY] bad JSON line:   - ����: 3֡
+[PY] bad JSON line:   - ��Ҫ�Ĵ�: 2��
+[PY] bad JSON line: [����ϵͳ] ��ʼ�����
+[PY] bad JSON line:   - ������ֵ: 2500.0
+[PY] bad JSON line:   - ������ֵ: 1500.0
+[PY] bad JSON line:   - ����֡��: 14
+[PY] bad JSON line:   - ��λ��֡��: 130 | �����׶�: 65֡
+[PY] bad JSON line:   - ʹ���˲�sum: True
+[PY] bad JSON line:   - ��ʼ������: ���� | ������=26 | ����=[5, 6, 7, 8, 1, 2, 3, 4]
+[PY] bad JSON line:   - ������ȴ��: ���ã���������� | �������ָ����=16 | ��=[lumbar, left_side_wing, right_side_wing, left_leg, right_leg]
+[PY] ready
+[real-service] serial service exited: code=1 signal=null

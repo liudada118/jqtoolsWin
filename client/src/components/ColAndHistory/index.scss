@@ -1,0 +1,348 @@
+.colAndHContent {
+    position: fixed;
+    bottom: 5%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+
+    .colAndHistory {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .colInfo {
+        color: #778592;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        // font-size: 0.85rem;
+    }
+
+    .changeColInfo {
+        position: relative;
+    }
+
+    .changeColInfoModal {
+        position: absolute;
+        bottom: 2.5rem;
+        right: -40px;
+        width: 340px;
+        height: 230px;
+        background-color: #32373E;
+        padding: 20px 20px 20px 20px;
+        box-sizing: border-box;
+        border-radius: 5px;
+        color: #E6EBF0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+
+        .ant-input {
+            border: 1px solid #4E565F;
+            background-color: #32373E;
+            width: 5rem;
+            color: #B4C0CA;
+        }
+
+        .changeColInfoModalTitle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+        }
+
+        .changeColInfoModalButton {
+            display: flex;
+            justify-content: end;
+        }
+
+
+
+        .titleInfo {
+            // font-size: 18px;
+            font-weight: bold;
+        }
+
+        .modalCancalButton {
+            border: 1px solid #8794A1;
+            padding: 5px 16px;
+            border-radius: 6px;
+            margin-right: 12px;
+        }
+
+        .modalConfirmButton {
+            padding: 5px 16px;
+            background: #0072EF;
+            border-radius: 6px;
+        }
+
+    }
+
+    .changeColInfoModalTriang {
+        width: 0;
+        height: 0;
+        border: 6px solid transparent;
+        border-top: 6px solid #32373E;
+        position: absolute;
+        // bottom: -px;
+        left: 50%;
+        transform: translateX(-6px);
+        bottom: calc(2.5rem - 12px);
+    }
+
+    .colButton {
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .colTime {
+        text-align: center;
+    }
+
+    .colTimeAndHistory {
+        position: relative;
+        width: 100%;
+        color: #8794A1;
+
+        .historyButton {
+            // top: 0;
+            position: absolute;
+            right: -3rem;
+            display: flex;
+            align-items: center;
+            padding: 7px;
+            border-radius: 4px;
+            bottom: -7px;
+
+            // line-height: 1rem;
+            .iconfont {
+                margin-right: 0.2rem;
+            }
+        }
+
+        .historyButton:hover {
+            background-color: #202327;
+        }
+    }
+}
+
+.colChangeItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .ant-input {
+        flex: 1;
+    }
+}
+
+.navTitle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .navTitleChange {
+        display: flex;
+    }
+
+    .navTitleItem {
+        padding: 0.6rem 1rem;
+        box-sizing: border-box;
+    }
+
+    .onNavItem {
+        border-width: 2px 2px 0px 2px;
+        border-style: solid;
+        border-color: #3E444C;
+        background: #1D1F23;
+        color: #1677FF;
+        border-radius: 6px 6px 0px 0px;
+    }
+
+    .offNavItem {
+        color: #E6EBF0;
+        // border-width: 2px 2px 0px 2px;
+        // border-style: none;
+        margin: 2px 2px 0px;
+    }
+}
+
+.playbackContent {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+
+    .playbackItemContent {
+        // display: flex;
+        padding: 0.65rem 1.2rem;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        // align-items: first baseline;
+        border: 1px solid #3E444C;
+        flex: 1;
+        overflow-y: scroll;
+
+
+        .playbackItems {
+            display: flex;
+            width: 100%;
+            flex-wrap: wrap;
+            // justify-content: space-between;
+        }
+
+        .playbackItem {
+            flex: 0 0 30%;
+            // height: 5rem;
+            // background-color: #fff;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            margin-right: 5%;
+            // aspect-ratio: 1 / 1;
+        }
+
+        .playbackItem:nth-child(3n) {
+            margin-right: 0;
+        }
+
+        .playbackItemCard {
+            // height: 6rem;
+            background-color: #fff;
+            border-radius: 10px;
+            position: relative;
+            aspect-ratio: 1 / 1;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+        }
+
+        .cardSelect {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            border: 1px solid #0072EF;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            img {
+                width: 100%;
+                height: 100%;
+                transition: all 0.3s ease-in-out;
+            }
+        }
+
+        .playbackItemInfo {
+            width: 100%;
+            overflow: hidden; //超出的文本隐藏
+            text-overflow: ellipsis; //溢出用省略号显示
+            white-space: nowrap; //溢出不换行
+            color: #E6EBF0;
+            font-size: 0.625rem;
+        }
+    }
+
+    .playbackItemContent::-webkit-scrollbar {
+        display: none;
+    }
+
+    .playbackFunction {
+        display: flex;
+        margin-top: 1rem;
+        margin-bottom: 3.5rem;
+
+
+    }
+
+    .navOperate {
+        display: flex;
+        align-items: center;
+
+        .modalConfirmButton {
+            padding: 4px 8px;
+            background: #0072EF;
+            border-radius: 6px;
+            color: #E6EBF0;
+        }
+
+        .iconfont {
+            color: #0072EF;
+            margin-left: 0.8rem;
+        }
+    }
+
+
+}
+
+.playbackButton {
+    padding: 0.1rem 0.4rem;
+    border: 1px solid #0072EF;
+    border-radius: 5px;
+    color: #0072EF;
+    margin-right: 0.7rem;
+}
+
+.colDate {
+    color: #E6EBF0;
+}
+
+.playContent {
+    width: 37.5rem;
+    color: #E6EBF0;
+
+    .playControl {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .ant-slider-rail {
+        background-color: #6C7784 !important;
+    }
+}
+
+.playLeftContent {
+    display: flex;
+    align-items: center;
+
+    .playOrStop {
+        margin-right: 1.5rem;
+    }
+}
+
+.playRightContent {
+    display: flex;
+    align-items: center;
+
+    .playSpeed {
+        margin-right: 1.5rem;
+    }
+}
+
+.rightClickModal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0);
+    z-index: 400;
+
+    .rightClickMenu {
+        position: absolute;
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #202327;
+        color: #fff;
+    }
+}

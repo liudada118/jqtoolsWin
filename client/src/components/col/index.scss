@@ -1,0 +1,30 @@
+.colContent {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    border: 2px solid #B4C0CA;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    .colIcon {
+        
+        transition: all 0.3s ease-in-out;
+    }
+
+    .colInitIcon {
+        background-color:#B4C0CA;
+        width: 85%;
+        height: 85%;
+        border-radius: 50%;
+
+    }
+
+    .colIngIcon {
+        background-color: #0072EF;
+        width: 45%;
+        height: 45%;
+        border-radius: 5px;
+    }
+
+}

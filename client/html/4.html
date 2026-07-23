@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Point Light Example</title>
+    <style>
+        body {
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/"
+      }
+    }
+  </script>
+    <script type="module">
+        import * as THREE from "three";
+        import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+        import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+        import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+        import { RectAreaLightUniformsLib } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/lights/RectAreaLightUniformsLib.js';
+
+        // 场景
+        const scene = new THREE.Scene();
+
+        // 渲染器
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // 相机
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(5, 4, 6);
+
+        // 控制器
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // 添加点光源
+        // 点光源
+        // const light = new THREE.PointLight(0xffffff, 2, 20);
+        // light.position.set(2, 3, 2);
+        // light.castShadow = true;
+        // light.shadow.mapSize.set(1024, 1024);
+        // scene.add(light);
+
+        const lightGroup = new THREE.Group();
+        const coordinates = [5, 0, -5];
+
+        scene.add(lightGroup);
+        for (let x of coordinates) {
+            for (let y of coordinates) {
+                for (let z of coordinates) {
+                    // points.push([x, y, z]);
+                    const pointlight5 = new THREE.PointLight(0xffffff, 2, 0);
+                    pointlight5.position.set(x, y, z);
+                    lightGroup.add(pointlight5);
+
+
+                    const sphereSize = 1;
+                    const pointLightHelper = new THREE.PointLightHelper(pointlight5, sphereSize);
+                    lightGroup.add(pointLightHelper);
+                }
+            }
+        }
+
+        // 小球表示光源位置
+
+
+        // 环境光（轻微填充）
+        // scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+        // 材质球体
+
+
+        // 地面
+        const plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(20, 20),
+            new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 })
+        );
+        plane.rotation.x = -Math.PI / 2;
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+        // 渲染循环
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        const MODEL_URL = "./Adaptive Seat_20251223.glb";
+        const loader = new GLTFLoader();
+        let model = null;
+
+        loader.load(
+            MODEL_URL,
+            (gltf) => {
+                model = gltf.scene;
+                scene.add(model);
+
+                // 打开阴影
+                model.traverse((o) => {
+                    if (!o.isMesh) return;
+                    o.castShadow = true;
+                    o.receiveShadow = true;
+                    child.material = new THREE.MeshBasicMaterial({
+                        map: child.material.map || null,  // 保留贴图
+                        color: 0xffffff                    // 保持原本颜色
+                    });
+                    // 若发现贴图发灰：通常是贴图色彩空间不对，但 glTF 一般没问题
+                    // 如果你自己处理过纹理，可以在这里强制：
+                    // if (o.material?.map) o.material.map.colorSpace = THREE.SRGBColorSpace;
+                });
+
+                // 让相机/控制器自动对准模型
+                const box = new THREE.Box3().setFromObject(model);
+                const size = new THREE.Vector3();
+                const center = new THREE.Vector3();
+                box.getSize(size);
+                box.getCenter(center);
+
+                controls.target.copy(center);
+
+                // 相机距离：按模型尺寸自适应
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const dist = maxDim * 1.6;
+                camera.position.set(center.x, center.y + maxDim * 0.6, center.z + dist);
+                camera.near = Math.max(0.1, dist / 1000);
+                camera.far = dist * 20;
+                camera.updateProjectionMatrix();
+
+                console.log("Model size:", size, "center:", center);
+            },
+            (xhr) => {
+                if (xhr.total) console.log(`Loading: ${((xhr.loaded / xhr.total) * 100).toFixed(1)}%`);
+            },
+            (err) => {
+                console.error("模型加载失败：", err);
+            }
+        );
+
+
+        // 自适应窗口
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>

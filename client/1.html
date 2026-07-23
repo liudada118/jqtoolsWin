@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>数字矩阵 Debug Demo</title>
+  <style>body { margin: 0 } canvas { display: block }</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+<script>
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+  camera.position.set(0, 0, 30);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  function generateDigitSpriteSheet() {
+    const size = 512, grid = 16;
+    const tile = size / grid;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = tile;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, tile);
+    ctx.font = `${tile * 0.8}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'white';
+    for (let i = 0; i < grid; i++) {
+      ctx.fillText(i.toString(), i * tile + tile / 2, tile / 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.NearestFilter;
+    return tex;
+  }
+
+  const spriteSheet = generateDigitSpriteSheet();
+
+  const cols = 10, rows = 10;
+  const count = cols * rows;
+
+  const geometry = new THREE.PlaneGeometry(2, 2);
+  const uvOffsets = new Float32Array(count * 2);
+  const attr = new THREE.InstancedBufferAttribute(uvOffsets, 2);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      map: { value: spriteSheet },
+      tileSize: { value: 1.0 / 16.0 }
+    },
+    vertexShader: `
+      attribute vec2 uvOffset;
+      uniform float tileSize;
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * tileSize + uvOffset;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D map;
+      varying vec2 vUv;
+      void main() {
+        vec4 c = texture2D(map, vUv);
+        if (c.a < 0.1) discard;
+        gl_FragColor = c;
+      }
+    `,
+    transparent: true
+  });
+
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  geometry.setAttribute('uvOffset', attr);
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const i = y * cols + x;
+      const mx = new THREE.Matrix4().makeTranslation(x - cols / 2, y - rows / 2, 0);
+      mesh.setMatrixAt(i, mx);
+      const digit = (x + y) % 16;
+      uvOffsets[i * 2] = digit / 16;
+      uvOffsets[i * 2 + 1] = 0;
+    }
+  }
+
+  scene.add(mesh);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  }
+  animate();
+</script>
+</body>
+</html>
