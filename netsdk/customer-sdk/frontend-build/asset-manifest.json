@@ -1,13 +1,11 @@
 {
   "files": {
-    "main.css": "/static/css/main.d734a5ab.css",
-    "main.js": "/static/js/main.0f9939d0.js",
+    "main.css": "/static/css/main.19a54777.css",
+    "main.js": "/static/js/main.f96d6442.js",
     "static/js/206.af0889e2.chunk.js": "/static/js/206.af0889e2.chunk.js",
     "static/media/苹方黑体-中粗-简.ttf": "/static/media/苹方黑体-中粗-简.bda8497740da22c876ab.ttf",
     "static/media/history.png": "/static/media/history.942608bca56ec1d2b146.png",
-    "static/media/onAdaptiveText.png": "/static/media/onAdaptiveText.60f4211e1532df791c22.png",
-    "static/media/seat.png": "/static/media/seat.d85cb29da08679bb8719.png",
-    "static/media/onAdaptiveIcon.png": "/static/media/onAdaptiveIcon.9c6ab5e6e86965e04633.png",
+    "static/media/seat.png": "/static/media/seat.fa45b16e9bd00550c2a1.png",
     "static/media/onchild.png": "/static/media/onchild.1e4453bc62f39f76e164.png",
     "static/media/onadmit.png": "/static/media/onadmit.f6f26b5b948ddd6c8364.png",
     "static/media/ononseatText.png": "/static/media/ononseatText.0feb172888826e785b76.png",
@@ -23,7 +21,7 @@
     "index.html": "/index.html"
   },
   "entrypoints": [
-    "static/css/main.d734a5ab.css",
-    "static/js/main.0f9939d0.js"
+    "static/css/main.19a54777.css",
+    "static/js/main.f96d6442.js"
   ]
 }

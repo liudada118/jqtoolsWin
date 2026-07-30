@@ -52,10 +52,67 @@ export interface CarAdaptiveStreamHandlers {
   onAlgorithmData?: (data: unknown, event: unknown) => void;
   /** 接收从 control_command 中提取的 algorFeed 控制反馈。 */
   onControlFeedback?: (data: unknown, event: unknown) => void;
+  /** 接收主副传感器选择变化，sensorId=1 为主，sensorId=2 为副。 */
+  onSensorChange?: (data: CarAdaptiveSensorSelection, event: unknown) => void;
+  /** 接收主副两路在线状态、频率和算法帧计数。 */
+  onSensorStatus?: (data: CarAdaptiveSensorStatus[], event: unknown) => void;
+  /** 同时接收主副两套完整数据，调用方可在本地选择展示通道。 */
+  onSensorData?: (data: CarAdaptiveSensorSnapshot[], event: unknown) => void;
+}
+
+/** 汽车自适应前端展示通道。 */
+export interface CarAdaptiveSensorSelection {
+  /** 1 为主传感器，2 为副传感器。 */
+  sensorId: 1 | 2;
+  /** 当前传感器的中文角色。 */
+  role: '主' | '副';
+  /** 表示该选择只影响前端显示，不影响两路算法运行。 */
+  displayOnly: true;
+}
+
+/** 一路传感器的实时算法运行摘要。 */
+export interface CarAdaptiveSensorStatus {
+  /** 1 为主传感器，2 为副传感器。 */
+  sensorId: 1 | 2;
+  /** 传感器中文角色。 */
+  role: '主' | '副';
+  /** 最近一秒是否收到该路串口帧。 */
+  online: boolean;
+  /** 最近一帧的毫秒时间戳。 */
+  stamp: number;
+  /** 当前接收频率。 */
+  HZ?: number;
+  /** 是否已经得到该路算法结果。 */
+  algorithmReady: boolean;
+  /** 该路算法内部帧计数。 */
+  frameCount: number;
+}
+
+/** 一路传感器的完整前端数据快照。 */
+export interface CarAdaptiveSensorSnapshot {
+  sensorId: 1 | 2;
+  role: '主' | '副';
+  /** 与现有前端兼容的压力数据结构。 */
+  sitData: {
+    carAir: {
+      type: 'carAir';
+      sensorId: 1 | 2;
+      status: 'online' | 'offline';
+      arr?: number[];
+      stamp: number;
+      HZ?: number;
+    };
+  };
+  /** 对应传感器的独立 Python 算法结果。 */
+  algorData?: unknown;
+  /** 从该路 control_command 提取的 24 路气囊反馈。 */
+  algorFeed: number[];
 }
 
 /** 单次显式 Python 算法调用配置。 */
 export interface ProcessCarAdaptiveFrameOptions {
+  /** 指定主或副传感器的独立算法实例，默认主传感器 1。 */
+  sensorId?: 1 | 2;
   /** 为 true 时，后端会把返回的 control_command 写入汽车自适应串口。 */
   writeSerial?: boolean;
   /** 覆盖本次调用的 unwrap 行为。 */
@@ -97,6 +154,15 @@ export class JqToolsCarClient {
   /** connectPorts 的语义化别名，用于客户汽车自适应场景。 */
   connectCarAdaptivePorts(): Promise<HttpResult | unknown>;
 
+  /** 获取后端旧版单路兼容投影。 */
+  getCarAdaptiveSensor(): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
+
+  /** 获取主、副两路实时算法运行摘要。 */
+  getCarAdaptiveSensors(): Promise<HttpResult<CarAdaptiveSensorStatus[]> | CarAdaptiveSensorStatus[]>;
+
+  /** 选择后端旧版单路兼容投影，不停止任何一路算法。 */
+  selectCarAdaptiveSensor(sensorId: 1 | 2): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
+
   /**
    * 提交一帧 144 点汽车自适应传感器数据给 SDK 本地 Python 算法。
    * 设置 writeSerial=true 时，会把返回的 control_command 写入汽车自适应串口。
@@ -104,7 +170,7 @@ export class JqToolsCarClient {
   processCarAdaptiveFrame(sensorData: number[], options?: ProcessCarAdaptiveFrameOptions): Promise<unknown>;
 
   /** 通过后端把已有的 Python control_command 写入汽车自适应串口。 */
-  writeCarAdaptiveCommand(controlCommand: number[]): Promise<HttpResult | unknown>;
+  writeCarAdaptiveCommand(controlCommand: number[], sensorId?: 1 | 2): Promise<HttpResult | unknown>;
 
   /** 获取 SDK 本地 Python 算法参数和注释。 */
   getPythonConfig(): Promise<unknown>;

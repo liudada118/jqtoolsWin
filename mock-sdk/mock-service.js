@@ -19,7 +19,11 @@ const wsPort = Number(process.env.JQTOOLS_MOCK_WS_PORT || DEFAULT_WS_PORT);
 const state = {
   connected: false,
   adaptiveEnabled: false,
-  frameCount: 0,
+  sensorId: 1,
+  sensors: {
+    1: createFakeSensorRuntime(1),
+    2: createFakeSensorRuntime(2)
+  },
   sensorTimer: null,
   airbag: new Array(24).fill(0),
   lastCommand: null,
@@ -44,6 +48,9 @@ const wsServer = new WebSocketServer({ host, port: wsPort });
 wsServer.on('connection', (socket) => {
   state.clients = wsServer.clients.size;
   socket.send(JSON.stringify({}));
+  socket.send(JSON.stringify({ carAdaptiveSensor: getSensorSelection() }));
+  socket.send(JSON.stringify({ carAdaptiveSensors: getSensorsStatus() }));
+  socket.send(JSON.stringify({ carAdaptiveSensorsData: getSensorSnapshots() }));
 
   socket.on('close', () => {
     state.clients = wsServer.clients.size;
@@ -93,6 +100,32 @@ async function routeHttp(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/carAdaptive/sensor') {
+    sendJson(res, 200, ok(getSensorSelection()));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/carAdaptive/sensors') {
+    sendJson(res, 200, ok(getSensorsStatus()));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/carAdaptive/sensor') {
+    const body = await readJsonBody(req);
+    const sensorId = normalizeSensorId(body.sensorId);
+    if (sensorId === null) {
+      sendJson(res, 200, fail('sensorId 只允许为 1（主）或 2（副）'));
+      return;
+    }
+    state.sensorId = sensorId;
+    state.lastSerial = state.sensors[sensorId].lastSerial;
+    state.lastAlgorithm = state.sensors[sensorId].lastAlgorithm;
+    broadcast({ carAdaptiveSensor: getSensorSelection() });
+    broadcastFakeDisplayChannel();
+    sendJson(res, 200, ok(getSensorSelection()));
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/connPort') {
     connectFake();
     sendJson(res, 200, ok({
@@ -136,10 +169,28 @@ async function routeHttp(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/carAdaptive/processFrame') {
     const body = await readJsonBody(req);
-    const sensorData = normalizeSensorData(body.sensorData || body.sensor_data || createFakeSensorData());
-    const algorithm = createFakeAlgorithmData(sensorData);
-    state.lastAlgorithm = algorithm;
-    broadcastAlgorithm(sensorData, algorithm);
+    const sensorId = normalizeSensorId(body.sensorId ?? state.sensorId);
+    if (sensorId === null) {
+      sendJson(res, 200, fail('sensorId 只允许为 1（主）或 2（副）'));
+      return;
+    }
+    const sensorData = normalizeSensorData(
+      body.sensorData || body.sensor_data || createFakeSensorData(sensorId)
+    );
+    const payload = createFakeSerialPayload(sensorData, sensorId);
+    const algorithm = createFakeAlgorithmData(sensorData, sensorId);
+    const sensorState = state.sensors[sensorId];
+    sensorState.lastSerial = payload.sitData.carAir;
+    sensorState.lastAlgorithm = algorithm;
+    sensorState.stamp = Date.now();
+    if (sensorId === state.sensorId) {
+      state.lastSerial = sensorState.lastSerial;
+      state.lastAlgorithm = algorithm;
+      broadcast(payload);
+      broadcastAlgorithm(sensorData, algorithm);
+    }
+    broadcast({ carAdaptiveSensorsData: getSensorSnapshots() });
+    broadcast({ carAdaptiveSensors: getSensorsStatus() });
     sendJson(res, 200, ok(algorithm));
     return;
   }
@@ -213,7 +264,12 @@ function connectFake() {
     return;
   }
   state.connected = true;
-  state.frameCount = 0;
+  Object.values(state.sensors).forEach((sensorState) => {
+    sensorState.frameCount = 0;
+    sensorState.stamp = 0;
+    sensorState.lastSerial = null;
+    sensorState.lastAlgorithm = null;
+  });
   state.sensorTimer = setInterval(pushFakeFrame, 500);
   pushFakeFrame();
 }
@@ -233,46 +289,55 @@ function pushFakeFrame() {
   emitFakeSerialFrame();
 }
 
-/** 生成并广播一帧真实后端协议风格的假串口数据。 */
+/** 同时生成主、副两路假串口帧和独立算法结果，只广播当前展示通道。 */
 function emitFakeSerialFrame() {
-  const sensorData = createFakeSensorData();
-  const payload = createFakeSerialPayload(sensorData);
-  state.lastSerial = payload.sitData.carAir;
-  broadcast(payload);
+  [1, 2].forEach((sensorId) => {
+    const sensorData = createFakeSensorData(sensorId);
+    const payload = createFakeSerialPayload(sensorData, sensorId);
+    const algorithm = createFakeAlgorithmData(sensorData, sensorId);
+    const sensorState = state.sensors[sensorId];
+    sensorState.lastSerial = payload.sitData.carAir;
+    sensorState.lastAlgorithm = algorithm;
+    sensorState.stamp = Date.now();
 
-  const algorithm = createFakeAlgorithmData(sensorData);
-  state.lastAlgorithm = algorithm;
-  broadcastAlgorithm(sensorData, algorithm);
-
-  if (state.adaptiveEnabled) {
-    if (algorithm.control_command) {
+    if (state.adaptiveEnabled && algorithm.control_command) {
       sendAirbagCommand({
         source: 'adaptive',
+        sensorId,
         controlCommand: algorithm.control_command
       });
     }
-  }
+  });
 
-  return payload;
+  broadcastFakeDisplayChannel();
+  broadcast({ carAdaptiveSensors: getSensorsStatus() });
+  broadcast({ carAdaptiveSensorsData: getSensorSnapshots() });
+  return {
+    sensorId: state.sensorId,
+    frame: state.sensors[state.sensorId].lastSerial
+  };
 }
 
-/** 生成一帧 144 点假压力数据。 */
-function createFakeSensorData() {
-  state.frameCount += 1;
-  const phase = state.frameCount / 6;
+/** 生成指定传感器的一帧 144 点假压力数据。 */
+function createFakeSensorData(sensorId) {
+  const sensorState = state.sensors[sensorId];
+  sensorState.frameCount += 1;
+  const phase = sensorState.frameCount / 6 + (sensorId === 2 ? 0.8 : 0);
   return Array.from({ length: 144 }, (_, index) => {
     const wave = Math.sin(phase + index / 9) * 18;
     const seatZone = index >= 72 ? 22 : 8;
+    const sensorOffset = sensorId === 2 ? 9 : 0;
     const noise = Math.round(Math.random() * 8);
-    return clampByte(35 + seatZone + wave + noise);
+    return clampByte(35 + seatZone + sensorOffset + wave + noise);
   });
 }
 
 /** 组装真实后端风格的假串口帧：WebSocket 只推送 sitData。 */
-function createFakeSerialPayload(sensorData) {
+function createFakeSerialPayload(sensorData, sensorId) {
   const timestamp = Date.now();
   const carAirFrame = {
     type: 'carAir',
+    sensorId,
     arr: sensorData,
     stamp: timestamp,
     HZ: 2,
@@ -286,8 +351,8 @@ function createFakeSerialPayload(sensorData) {
   };
 }
 
-/** 根据假传感器数据生成假算法结果。 */
-function createFakeAlgorithmData(sensorData) {
+/** 根据指定传感器假数据生成该路独立算法结果。 */
+function createFakeAlgorithmData(sensorData, sensorId) {
   const total = sensorData.reduce((sum, value) => sum + value, 0);
   const avg = total / sensorData.length;
   const activePoints = sensorData.filter((value) => value > 45).length;
@@ -307,6 +372,9 @@ function createFakeAlgorithmData(sensorData) {
     pressure_map_144: sensorData,
     normalized_pressure_144: normalizedPressure,
     sensor_length: sensorData.length,
+    serial_frame_length: 145,
+    sensor_id: sensorId,
+    sensor_role: sensorId === 1 ? '主' : '副',
     control_length: controlCommand.length,
     is_new_command: true,
     control_decision_data: {
@@ -349,7 +417,7 @@ function createFakeAlgorithmData(sensorData) {
     living_status: livingStatus,
     body_type: bodyType,
     seat_state: seatState,
-    frame_count: state.frameCount,
+    frame_count: state.sensors[sensorId].frameCount,
     mock: true,
     timestamp: Date.now()
   };
@@ -457,13 +525,94 @@ function getStatus() {
   return {
     connected: state.connected,
     adaptiveEnabled: state.adaptiveEnabled,
-    frameCount: state.frameCount,
+    sensorId: state.sensorId,
+    frameCount: state.sensors[state.sensorId].frameCount,
+    sensors: getSensorsStatus(),
     clients: wsServer?.clients?.size || 0,
     airbagState: state.airbag,
     lastSerial: state.lastSerial,
     lastAlgorithm: state.lastAlgorithm,
     hasTimer: Boolean(state.sensorTimer)
   };
+}
+
+/** 返回当前假传感器的主副选择。 */
+function getSensorSelection() {
+  return {
+    sensorId: state.sensorId,
+    role: state.sensorId === 1 ? '主' : '副',
+    displayOnly: true
+  };
+}
+
+/** 创建一路假传感器的独立运行状态。 */
+function createFakeSensorRuntime(sensorId) {
+  return {
+    sensorId,
+    frameCount: 0,
+    stamp: 0,
+    lastSerial: null,
+    lastAlgorithm: null
+  };
+}
+
+/** 返回主、副两路假算法的运行摘要。 */
+function getSensorsStatus() {
+  return [1, 2].map((sensorId) => {
+    const sensorState = state.sensors[sensorId];
+    return {
+      sensorId,
+      role: sensorId === 1 ? '主' : '副',
+      online: Boolean(state.connected && sensorState.stamp && Date.now() - sensorState.stamp < 1500),
+      stamp: sensorState.stamp,
+      HZ: state.connected ? 2 : undefined,
+      algorithmReady: Boolean(sensorState.lastAlgorithm),
+      frameCount: sensorState.frameCount
+    };
+  });
+}
+
+/** 返回前端可分别缓存的主、副两套完整假数据。 */
+function getSensorSnapshots() {
+  return [1, 2].map((sensorId) => {
+    const sensorState = state.sensors[sensorId];
+    return {
+      sensorId,
+      role: sensorId === 1 ? '主' : '副',
+      sitData: {
+        carAir: sensorState.lastSerial || {
+          type: 'carAir',
+          sensorId,
+          status: 'offline',
+          stamp: 0
+        }
+      },
+      algorData: sensorState.lastAlgorithm,
+      algorFeed: getControlFeedback(sensorState.lastAlgorithm?.control_command)
+    };
+  });
+}
+
+/** 广播当前页面选择的一路，另一侧仍在后台继续生成数据并执行算法。 */
+function broadcastFakeDisplayChannel() {
+  const sensorState = state.sensors[state.sensorId];
+  state.lastSerial = sensorState.lastSerial;
+  state.lastAlgorithm = sensorState.lastAlgorithm;
+
+  if (sensorState.lastSerial) {
+    broadcast({ sitData: { carAir: sensorState.lastSerial } });
+  } else {
+    broadcast({ sitData: {} });
+  }
+  if (sensorState.lastAlgorithm) {
+    broadcastAlgorithm(sensorState.lastSerial?.arr || [], sensorState.lastAlgorithm);
+  }
+}
+
+/** 将接口输入标准化为主传感器 1 或副传感器 2。 */
+function normalizeSensorId(value) {
+  const sensorId = Number(value);
+  return Number.isInteger(sensorId) && [1, 2].includes(sensorId) ? sensorId : null;
 }
 
 /** 从 control_command 提取 24 路控制反馈。 */

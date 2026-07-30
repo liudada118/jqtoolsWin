@@ -1,0 +1,662 @@
+.remote-control-page {
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: #0d0f12;
+    color: #edf2f5;
+    letter-spacing: 0;
+    display: flex;
+    flex-direction: column;
+
+    * {
+        box-sizing: border-box;
+    }
+
+    .ant-btn {
+        min-height: 2.4rem;
+        border-color: #3a434c;
+        border-radius: 5px;
+        background: #171b20;
+        color: #dce4ea;
+    }
+
+    .ant-btn:hover {
+        border-color: #3d9bff !important;
+        background: #1b2631 !important;
+        color: #fff !important;
+    }
+
+    .ant-btn-primary {
+        border-color: #087be8;
+        background: #087be8;
+        color: #fff;
+    }
+
+    .ant-input-affix-wrapper {
+        border-color: #39424b;
+        border-radius: 5px;
+        background: #12161a;
+        color: #edf2f5;
+    }
+
+    .ant-input {
+        background: transparent;
+        color: #edf2f5;
+    }
+}
+
+.remote-control-header {
+    flex: none;
+    min-height: 4.4rem;
+    padding: 0.8rem 1.4rem;
+    border-bottom: 1px solid #293038;
+    background: #121519;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.remote-control-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+
+    > .anticon {
+        color: #55aaff;
+        font-size: 1.4rem;
+    }
+
+    h1 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 650;
+        line-height: 1.4;
+    }
+
+    code {
+        display: block;
+        max-width: 34rem;
+        margin-top: 0.16rem;
+        overflow: hidden;
+        color: #7f8b96;
+        font-size: 0.7rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.remote-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.remote-service-state {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #a7b1ba;
+    font-size: 0.76rem;
+    white-space: nowrap;
+
+    i {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: #e6af43;
+    }
+
+    &.is-open i {
+        background: #35c985;
+        box-shadow: 0 0 0 3px rgba(53, 201, 133, 0.12);
+    }
+
+    &.is-error i {
+        background: #ff6268;
+    }
+}
+
+.remote-status-strip {
+    flex: none;
+    min-height: 4.4rem;
+    padding: 0.65rem 1.4rem;
+    border-bottom: 1px solid #252c33;
+    background: #101317;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(7rem, 1fr));
+    gap: 0.7rem;
+
+    > div {
+        min-width: 0;
+        padding-left: 0.7rem;
+        border-left: 2px solid #303943;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    span {
+        color: #78848f;
+        font-size: 0.68rem;
+    }
+
+    strong {
+        margin-top: 0.18rem;
+        overflow: hidden;
+        font-size: 0.88rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        &.is-success {
+            color: #55d79b;
+        }
+
+        &.is-warning {
+            color: #e4b756;
+        }
+
+        &.is-error {
+            color: #ff777c;
+        }
+    }
+}
+
+.remote-control-workspace {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: minmax(26rem, 1.05fr) minmax(24rem, 0.95fr);
+}
+
+.remote-command-panel,
+.remote-state-panel {
+    min-width: 0;
+    padding: 1.35rem 1.5rem;
+}
+
+.remote-command-panel {
+    border-right: 1px solid #293038;
+}
+
+.remote-section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+
+    h2 {
+        margin: 0;
+        font-size: 0.9rem;
+        font-weight: 650;
+    }
+
+    span {
+        color: #74808b;
+        font-size: 0.68rem;
+    }
+
+    &--spaced {
+        margin-top: 1.5rem;
+    }
+}
+
+.remote-command-grid {
+    margin-top: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem;
+
+    &--sensor {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.remote-airbag-toolbar {
+    margin-top: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.remote-airbag-target {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #293038;
+    border-radius: 5px;
+    background: #12161a;
+
+    > span {
+        display: block;
+        margin-bottom: 0.4rem;
+        color: #78848f;
+        font-size: 0.68rem;
+    }
+
+    > div {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.4rem;
+    }
+
+    .ant-btn {
+        min-height: 2rem;
+        font-size: 0.72rem;
+    }
+}
+
+.remote-airbag-target--mode > div {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.remote-airbag-hint {
+    margin-top: 0.6rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid #725d31;
+    border-radius: 5px;
+    background: #1a1710;
+    color: #e4b756;
+    font-size: 0.72rem;
+    line-height: 1.45;
+
+    &.is-error {
+        border-color: #743a3e;
+        background: #1c1213;
+        color: #ff777c;
+    }
+}
+
+.remote-airbag-groups {
+    margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.remote-airbag-group {
+    display: grid;
+    grid-template-columns: 4.2rem minmax(0, 1fr);
+    align-items: start;
+    gap: 0.6rem;
+}
+
+.remote-airbag-group-label {
+    padding-top: 0.45rem;
+    color: #78848f;
+    font-size: 0.7rem;
+}
+
+.remote-airbag-items {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+    gap: 0.4rem;
+}
+
+.remote-airbag-item {
+    padding: 0.35rem 0.3rem;
+    border: 1px solid #313a43;
+    border-radius: 5px;
+    background: #14181d;
+    color: #c8d2da;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+
+    em {
+        color: #6d7883;
+        font-size: 0.62rem;
+        font-style: normal;
+    }
+
+    span {
+        font-size: 0.7rem;
+        line-height: 1.2;
+    }
+
+    i {
+        color: #7e8a95;
+        font-size: 0.62rem;
+        font-style: normal;
+    }
+
+    &:hover {
+        border-color: #3d9bff;
+    }
+
+    &.is-selected {
+        border-color: #087be8;
+        background: #10233a;
+        color: #fff;
+
+        em,
+        i {
+            color: #7fc0ff;
+        }
+    }
+
+    // 档位 3 表示正在快速充气
+    &.is-inflating {
+        i {
+            color: #57d49a;
+        }
+
+        &::after {
+            content: '';
+            width: 100%;
+            height: 2px;
+            border-radius: 2px;
+            background: #57d49a;
+        }
+    }
+}
+
+.remote-airbag-actions {
+    margin-top: 0.85rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #252c33;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.remote-airbag-selection {
+    color: #9da8b2;
+    font-size: 0.72rem;
+
+    strong {
+        color: #edf2f5;
+    }
+
+    .ant-btn-link {
+        min-height: auto;
+        padding: 0 0.35rem;
+        background: transparent;
+        color: #3d9bff;
+    }
+}
+
+.remote-airbag-gears {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.4rem;
+
+    .ant-btn {
+        min-height: 2.1rem;
+        font-size: 0.72rem;
+    }
+}
+
+.remote-airbag-presets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+
+    .ant-btn {
+        min-height: 2.1rem;
+        font-size: 0.72rem;
+    }
+}
+
+.remote-sensor-list {
+    margin-top: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.remote-sensor-row {
+    padding: 0.5rem 0.7rem;
+    border: 1px solid #262d34;
+    border-radius: 5px;
+    background: #12161a;
+    display: grid;
+    grid-template-columns: 3.2rem 3rem minmax(0, 1fr) minmax(0, 1fr) 3.6rem;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+
+    strong {
+        font-size: 0.76rem;
+    }
+
+    span {
+        color: #8b959f;
+
+        &.is-success {
+            color: #57d49a;
+        }
+
+        &.is-error {
+            color: #ff777c;
+        }
+    }
+}
+
+.remote-token-field {
+    margin-top: 1.6rem;
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.8rem;
+
+    > span {
+        color: #9da8b2;
+        font-size: 0.76rem;
+    }
+}
+
+.remote-notice {
+    min-height: 2.6rem;
+    margin-top: 1rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid #303943;
+    border-radius: 5px;
+    background: #13171b;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: #9da8b2;
+    font-size: 0.76rem;
+
+    &.is-success {
+        border-color: #266c50;
+        color: #57d49a;
+    }
+
+    &.is-warning,
+    &.is-pending {
+        border-color: #725d31;
+        color: #e4b756;
+    }
+
+    &.is-error {
+        border-color: #743a3e;
+        color: #ff777c;
+    }
+}
+
+.remote-state-list {
+    margin: 0.75rem 0 0;
+
+    > div {
+        min-height: 2.65rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #252c33;
+        display: grid;
+        grid-template-columns: 8rem minmax(0, 1fr);
+        align-items: center;
+        gap: 1rem;
+    }
+
+    dt {
+        color: #74808b;
+        font-size: 0.7rem;
+    }
+
+    dd {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        color: #dce4ea;
+        font-size: 0.78rem;
+        text-align: right;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    code {
+        color: #9fcaf5;
+        font-size: 0.7rem;
+    }
+}
+
+.remote-history-heading {
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h2 {
+        margin: 0;
+        font-size: 0.9rem;
+        font-weight: 650;
+    }
+
+    span {
+        color: #74808b;
+        font-size: 0.72rem;
+    }
+}
+
+.remote-history-list {
+    margin-top: 0.65rem;
+}
+
+.remote-history-empty {
+    padding: 1.4rem 0;
+    color: #6f7a85;
+    font-size: 0.76rem;
+    text-align: center;
+}
+
+.remote-history-row {
+    min-height: 3.4rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #252c33;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+
+    > div {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    > div:last-child {
+        flex: none;
+        align-items: flex-end;
+    }
+
+    strong {
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    code,
+    time,
+    span {
+        color: #74808b;
+        font-size: 0.66rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .remote-control-page {
+        overflow-y: auto;
+    }
+
+    .remote-status-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .remote-control-workspace {
+        flex: none;
+        overflow: visible;
+        grid-template-columns: 1fr;
+    }
+
+    .remote-command-panel {
+        border-right: 0;
+        border-bottom: 1px solid #293038;
+    }
+}
+
+@media (max-width: 720px) {
+    .remote-airbag-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .remote-airbag-group {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+
+    .remote-airbag-group-label {
+        padding-top: 0;
+    }
+
+    .remote-airbag-gears {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .remote-control-header {
+        padding: 0.7rem 0.8rem;
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .remote-header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .remote-control-title code {
+        max-width: calc(100vw - 4.5rem);
+    }
+
+    .remote-status-strip {
+        padding: 0.6rem 0.8rem;
+    }
+
+    .remote-command-panel,
+    .remote-state-panel {
+        padding: 1rem 0.8rem;
+    }
+
+    .remote-command-grid {
+        grid-template-columns: 1fr;
+
+        &--sensor {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    .remote-token-field {
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+    }
+
+    .remote-state-list > div {
+        grid-template-columns: 6.5rem minmax(0, 1fr);
+    }
+}

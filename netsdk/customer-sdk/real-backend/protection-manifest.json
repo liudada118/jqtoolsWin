@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "protection": "AES-256-GCM + Node.js SEA host",
+  "nodeVersion": "v22.22.0",
+  "entry": "server/serialServer.js",
+  "protectedNodeModules": [
+    "pyWorker.js",
+    "server/HttpResult.js",
+    "server/serialServer.js",
+    "util/aes_ecb.js",
+    "util/carAdaptiveControlMode.js",
+    "util/carAdaptiveProtocol.js",
+    "util/carAdaptiveUiControl.js",
+    "util/clientDevServer.js",
+    "util/config.js",
+    "util/db.js",
+    "util/getServer.js",
+    "util/getWinConfig.js",
+    "util/line.js",
+    "util/parseData.js",
+    "util/serialport.js",
+    "util/time.js"
+  ],
+  "protectedPythonModules": [
+    "server.pyc",
+    "integrated_system.pyc",
+    "config.pyc",
+    "control.pyc",
+    "tap_massage.pyc"
+  ],
+  "packageSha256": "87d81720388f92490112115d4f98766e849e7bb8f30a35d7d274170d08b9d922"
+}

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Text.Json;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace JqTools.CarAdaptive.Wpf;
@@ -17,11 +19,17 @@ public sealed class CarAdaptiveDebugControl : UserControl
     private CarAdaptiveMockServiceHost? _serviceHost;
     private bool _isLoading;
     private bool _isStopping;
+    private bool _webMessageBridgeAttached;
 
     /// <summary>
     /// 服务日志输出。
     /// </summary>
     public event EventHandler<string>? ServiceLogReceived;
+
+    /// <summary>
+    /// SDK 页面收到远程返回主页命令时触发，由宿主程序执行实际页面导航。
+    /// </summary>
+    public event EventHandler<CarAdaptiveHomeRequestedEventArgs>? HomeRequested;
 
     /// <summary>
     /// 内部 WebView2 实例，供高级调用方配置 WebView2 行为。
@@ -190,6 +198,46 @@ public sealed class CarAdaptiveDebugControl : UserControl
         DependencyProperty.Register(nameof(PagePath), typeof(string), typeof(CarAdaptiveDebugControl), new PropertyMetadata("/app"));
 
     /// <summary>
+    /// 远程返回主页命令使用的网页地址或路由；为空时由宿主处理 HomeRequested 事件。
+    /// </summary>
+    public string? HomeUrl
+    {
+        get => (string?)GetValue(HomeUrlProperty);
+        set => SetValue(HomeUrlProperty, value);
+    }
+
+    /// <summary>
+    /// HomeUrl 依赖属性。
+    /// </summary>
+    public static readonly DependencyProperty HomeUrlProperty =
+        DependencyProperty.Register(
+            nameof(HomeUrl),
+            typeof(string),
+            typeof(CarAdaptiveDebugControl),
+            new PropertyMetadata(
+                Environment.GetEnvironmentVariable("JQTOOLS_HOME_URL")));
+
+    /// <summary>
+    /// 局域网远程控制口令；为空时允许局域网内直接调用控制接口。
+    /// </summary>
+    public string? RemoteControlToken
+    {
+        get => (string?)GetValue(RemoteControlTokenProperty);
+        set => SetValue(RemoteControlTokenProperty, value);
+    }
+
+    /// <summary>
+    /// RemoteControlToken 依赖属性。
+    /// </summary>
+    public static readonly DependencyProperty RemoteControlTokenProperty =
+        DependencyProperty.Register(
+            nameof(RemoteControlToken),
+            typeof(string),
+            typeof(CarAdaptiveDebugControl),
+            new PropertyMetadata(
+                Environment.GetEnvironmentVariable("JQTOOLS_REMOTE_CONTROL_TOKEN")));
+
+    /// <summary>
     /// 启动服务并加载调试页面。
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -211,6 +259,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
             }
 
             await _webView.EnsureCoreWebView2Async();
+            AttachWebMessageBridge();
             _webView.Source = options.DebugUri;
         }
         finally
@@ -260,8 +309,89 @@ public sealed class CarAdaptiveDebugControl : UserControl
             WebSocketPort = WebSocketPort,
             NodeExecutablePath = NodeExecutablePath,
             MockSdkDirectory = MockSdkDirectory,
-            PagePath = PagePath
+            PagePath = PagePath,
+            HomeUrl = HomeUrl,
+            RemoteControlToken = RemoteControlToken
         };
+    }
+
+    /// <summary>
+    /// 在 WebView2 初始化后注册一次页面到 WPF 的隐藏消息桥。
+    /// </summary>
+    private void AttachWebMessageBridge()
+    {
+        if (_webMessageBridgeAttached || _webView.CoreWebView2 == null)
+        {
+            return;
+        }
+
+        _webView.CoreWebView2.WebMessageReceived += HandleWebMessageReceived;
+        _webMessageBridgeAttached = true;
+    }
+
+    /// <summary>
+    /// 解析 SDK 页面消息，并把返回主页请求转换为 .NET 事件。
+    /// </summary>
+    private void HandleWebMessageReceived(
+        object? sender,
+        CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = document.RootElement;
+            if (
+                root.ValueKind != JsonValueKind.Object ||
+                ReadString(root, "type") != "jqtools.carAdaptive.homeRequested"
+            )
+            {
+                return;
+            }
+
+            var requestedAtMilliseconds = ReadInt64(root, "requestedAt");
+            var requestedAt = requestedAtMilliseconds > 0
+                ? DateTimeOffset.FromUnixTimeMilliseconds(requestedAtMilliseconds)
+                : DateTimeOffset.UtcNow;
+
+            HomeRequested?.Invoke(
+                this,
+                new CarAdaptiveHomeRequestedEventArgs(
+                    ReadString(root, "commandId"),
+                    ReadString(root, "source"),
+                    ReadString(root, "homeUrl"),
+                    requestedAt));
+        }
+        catch (JsonException error)
+        {
+            ServiceLogReceived?.Invoke(this, $"[wpf] ignore invalid page message: {error.Message}");
+        }
+        catch (ArgumentOutOfRangeException error)
+        {
+            ServiceLogReceived?.Invoke(this, $"[wpf] ignore invalid page timestamp: {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 安全读取 JSON 对象中的字符串属性。
+    /// </summary>
+    private static string ReadString(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) &&
+               value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// 安全读取 JSON 对象中的 64 位整数属性。
+    /// </summary>
+    private static long ReadInt64(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) &&
+               value.ValueKind == JsonValueKind.Number &&
+               value.TryGetInt64(out var result)
+            ? result
+            : 0;
     }
 
     /// <summary>

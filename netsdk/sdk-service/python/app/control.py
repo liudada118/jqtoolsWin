@@ -72,8 +72,8 @@ class LivingDetector:
         更新检测器（每帧调用）
 
         Args:
-            cushion_matrix: 坐垫压力矩阵 (10x6)
-            backrest_matrix: 靠背压力矩阵 (10x6)
+            cushion_matrix: 坐垫压力矩阵 (8x8)
+            backrest_matrix: 靠背压力矩阵 (8x8)
 
         Returns:
             如果触发检测周期，返回检测结果字典；否则返回None
@@ -271,8 +271,8 @@ class BodyTypeDetector:
         更新检测器（每帧调用）
 
         Args:
-            cushion_matrix: 坐垫压力矩阵 (10x6)
-            backrest_matrix: 靠背压力矩阵 (10x6)
+            cushion_matrix: 坐垫压力矩阵 (8x8)
+            backrest_matrix: 靠背压力矩阵 (8x8)
 
         Returns:
             如果触发检测周期，返回检测结果字典；否则返回None
@@ -336,7 +336,7 @@ class BodyTypeDetector:
         对单个矩阵执行体型检测
 
         Args:
-            matrix: 压力矩阵 (10x6)
+            matrix: 压力矩阵 (8x8)
             region_name: 区域名称 (cushion/backrest)
 
         Returns:

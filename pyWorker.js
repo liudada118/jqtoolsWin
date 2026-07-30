@@ -1,17 +1,15 @@
-// pyWorker.js
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-// const { app } = require('electron');
 
-
-
-// console.log('userData from env:', process.workerData.isPackaged);
 let isPackaged = process.env.isPackaged == 'true'
-// isPackaged = isPackaged == 'true'
-// isPackaged = true
 const resourcesPath = process.resourcesPath || __dirname
 console.log(resourcesPath,path.join(__dirname,  'python', 'app', 'server.py') ,path.join(resourcesPath, 'python', 'app', 'server.py'), !isPackaged , isPackaged , 'isPackaged')
+
+/**
+ * 返回当前运行模式使用的 Python 解释器路径。
+ * @returns {string} Python 可执行文件路径。
+ */
 function pythonBin() {
   const isDev = !isPackaged;
   if (process.platform === 'win32') {
@@ -23,23 +21,45 @@ function pythonBin() {
     ? path.join(__dirname,  'python', 'venv', 'bin', 'python')
     : path.join(resourcesPath, 'python', 'venv', 'bin', 'python');
 }
+
+/**
+ * 返回 Python 算法入口。
+ * 开发环境优先使用源码，客户包删除源码后自动切换到同目录的 sourceless pyc。
+ * @returns {string} Python 算法入口路径。
+ */
 function serverPy() {
   const isDev = !isPackaged;
-  return isDev
+  const explicitEntry = process.env.JQTOOLS_PYTHON_ALGORITHM_ENTRY;
+  if (explicitEntry) {
+    return path.resolve(explicitEntry);
+  }
+
+  const sourceEntry = isDev
     ? path.join(__dirname,  'python', 'app', 'server.py')
     : path.join(resourcesPath, 'python', 'app', 'server.py');
+  const bytecodeEntry = sourceEntry.replace(/\.py$/i, '.pyc');
+  return fs.existsSync(sourceEntry) ? sourceEntry : bytecodeEntry;
 }
 
 let child = null;
 let buf = '';
-const pending = new Map(); // id -> {resolve,reject,timer}
+const pending = new Map();
 let nextId = 1;
 let starting = false;
 
-// 保留 stderr 尾部，便于定位异常
 let stderrTail = '';
+
+/**
+ * 仅保留 Python stderr 尾部，避免错误日志无限占用内存。
+ * @param {string} s 新增错误文本。
+ * @returns {void}
+ */
 function pushErr(s) { stderrTail = (stderrTail + s).slice(-4000); }
 
+/**
+ * 启动常驻 Python 算法进程并建立标准输入输出通信。
+ * @returns {void}
+ */
 function startWorker() {
   if (child || starting) return;
   starting = true;
@@ -65,9 +85,8 @@ function startWorker() {
 
   child.stdout.on('data', (d) => {
     buf += d.toString();
-    // console.log(JSON.parse(buf))
     const lines = buf.split(/\r?\n/);
-    buf = lines.pop() || ''; // 剩下一半行，等待下一次拼接
+    buf = lines.pop() || '';
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -97,16 +116,19 @@ function startWorker() {
     }
     pending.clear();
     child = null;
-    setTimeout(startWorker, 500); // 自动重启
+    setTimeout(startWorker, 500);
   });
 
-  // 握手：确认常驻 OK（会发送一条请求）
   callPy('ping', {}, { timeoutMs: 5000 })
     .then(() => console.log('[PY] ready'))
     .catch(e => console.error('[PY] handshake failed:', e.message));
 }
 
-// 反压写：write 返回 false 就等 'drain'
+/**
+ * 向 Python 写入一行请求，并在管道产生背压时等待 drain。
+ * @param {string} line JSON 行文本。
+ * @returns {Promise<boolean|void>} 写入完成结果。
+ */
 function writeLine(line) {
   return new Promise((resolve, reject) => {
     if (!child || !child.stdin) return reject(new Error('worker not running'));
@@ -116,6 +138,13 @@ function writeLine(line) {
   });
 }
 
+/**
+ * 调用 Python 算法函数。
+ * @param {string} fn Python 服务公开的函数名。
+ * @param {object} args 调用参数。
+ * @param {{timeoutMs?: number}} options 超时配置。
+ * @returns {Promise<unknown>} Python 返回的数据。
+ */
 function callPy(fn, args, { timeoutMs = 10000 } = {}) {
   if (!child) startWorker();
   const id = nextId++;
@@ -124,12 +153,11 @@ function callPy(fn, args, { timeoutMs = 10000 } = {}) {
     rec.timer = setTimeout(() => {
       pending.delete(id);
       reject(new Error(`Timeout ${timeoutMs}ms`));
-      // 不 kill 进程，发个可忽略的取消指令即可
       try { child?.stdin.write(JSON.stringify({ id, fn: '_cancel' }) + '\n'); } catch {}
     }, timeoutMs);
     pending.set(id, rec);
     try {
-      await writeLine(JSON.stringify({ id, fn, args }) + '\n'); // ❗不要 .end()
+      await writeLine(JSON.stringify({ id, fn, args }) + '\n');
     } catch (e) {
       clearTimeout(rec.timer);
       pending.delete(id);

@@ -1,5 +1,6 @@
 param(
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$SkipProtection
 )
 
 $ErrorActionPreference = "Stop"
@@ -194,13 +195,24 @@ try {
     }
 
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\README.md") -Destination (Join-Path $outRoot "README.md") -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot "sdk\API.md") -Destination (Join-Path $docsOut "API.md") -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot "sdk\QUICKSTART.md") -Destination (Join-Path $docsOut "QUICKSTART.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\QUICKSTART.md") -Destination (Join-Path $docsOut "QUICKSTART.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\API.md") -Destination (Join-Path $docsOut "API.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\FAKE_API.md") -Destination (Join-Path $docsOut "FAKE_API.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_API.md") -Destination (Join-Path $docsOut "REAL_API.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_ARCHITECTURE.md") -Destination (Join-Path $docsOut "REAL_ARCHITECTURE.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_DATA_SDK.md") -Destination (Join-Path $docsOut "REAL_DATA_SDK.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\PROTECTION.md") -Destination (Join-Path $docsOut "PROTECTION.md") -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REMOTE_CONTROL.md") -Destination (Join-Path $docsOut "REMOTE_CONTROL.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-wpf.ps1") -Destination (Join-Path $scriptsOut "start-wpf.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-mock-service.ps1") -Destination (Join-Path $scriptsOut "start-mock-service.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\stop-mock-service.ps1") -Destination (Join-Path $scriptsOut "stop-mock-service.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\verify-sdk.ps1") -Destination (Join-Path $scriptsOut "verify-sdk.ps1") -Force
+
+    if (-not $SkipProtection) {
+        & (Join-Path $PSScriptRoot "protect-customer-backend.ps1") -CustomerSdkRoot $outRoot
+    }
 
     Write-Host "customer sdk output completed: $outRoot"
     Write-Host "WPF app: $appOut"

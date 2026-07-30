@@ -19,7 +19,7 @@ npm start
 
 - 一键假连接
 - 假串口列表
-- 连接后自动推送 144 点假传感器数据
+- 连接后同时生成主、副两路 145 字节协议假帧及 144 点压力数据
 - 自适应开关
 - 自动生成假算法数据并通过 WebSocket 推送
 - 气囊控制发送和假硬件回包
@@ -31,6 +31,9 @@ GET  /health
 GET  /status
 GET  /getPort
 GET  /connPort
+GET  /carAdaptive/sensor
+POST /carAdaptive/sensor
+GET  /carAdaptive/sensors
 POST /fake/connect
 POST /fake/disconnect
 GET  /fake/serialFrame
@@ -48,8 +51,9 @@ JQTOOLS_MOCK_WS_PORT=19399
 
 ## 假串口推送
 
-- 一键连接后会立即通过 WebSocket 推送一帧 `type: "serial"` 数据，之后默认每 500ms 推送一次。
-- 每帧包含 `serialData.frameData`、`sitData.carAir.arr`、`data.carAir.arr`，数组长度均为 144。
+- 一键连接后，主传感器 `1` 和副传感器 `2` 每 500ms 都会各自生成一帧数据。
+- 两路假算法状态和帧计数分别保存；WebSocket 的 `carAdaptiveSensorsData` 同时发送两套数据，页面“主驾 / 副驾”按钮只切换前端本地缓存。
+- `GET /carAdaptive/sensors` 可查看两路的在线状态、频率和独立算法帧计数。
 
 ## 假算法数据
 

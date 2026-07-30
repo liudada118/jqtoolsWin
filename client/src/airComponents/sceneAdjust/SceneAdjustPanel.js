@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, InputNumber, Segmented, Select, Slider, Tooltip } from 'antd';
-import { CloseOutlined, MinusOutlined, PlusOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
-import { createDefaultSceneTransform, POINT_ITEM_OPTIONS } from '../three/sceneTransform';
+import { CloseOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import {
+    createDefaultSceneTransform,
+    normalizeSceneScale,
+    POINT_ITEM_OPTIONS,
+} from '../three/sceneTransform';
 import './index.scss';
 
-const STORAGE_KEY = 'jqtools.carAir.sceneTransform.v5';
+const STORAGE_KEY = 'jqtools.carAir.sceneTransform.v7';
 
 const TARGET_LABELS = {
     model: '座椅模型',
@@ -37,6 +41,7 @@ const POSITION_RANGES = {
 };
 
 const ROTATION_RANGE = { min: -12.57, max: 12.57, step: 0.01 };
+const SCALE_RANGE = { min: 0.25, max: 2.5, step: 0.05 };
 
 /** 从本地存储读取整体、座椅和点图变换，损坏的数据自动回退到默认值。 */
 function readStoredTransform() {
@@ -49,9 +54,18 @@ function readStoredTransform() {
                 ...defaults.overall,
                 ...stored?.overall,
                 rotation: { ...defaults.overall.rotation, ...stored?.overall?.rotation },
+                scale: normalizeSceneScale(stored?.overall?.scale, defaults.overall.scale),
             },
-            model: { ...defaults.model, ...stored?.model },
-            points: { ...defaults.points, ...stored?.points },
+            model: {
+                ...defaults.model,
+                ...stored?.model,
+                scale: normalizeSceneScale(stored?.model?.scale, defaults.model.scale),
+            },
+            points: {
+                ...defaults.points,
+                ...stored?.points,
+                scale: normalizeSceneScale(stored?.points?.scale, defaults.points.scale),
+            },
             pointItems: Object.fromEntries(
                 Object.entries(defaults.pointItems).map(([name, item]) => [
                     name,
@@ -59,6 +73,10 @@ function readStoredTransform() {
                         ...item,
                         ...stored?.pointItems?.[name],
                         rotation: { ...item.rotation, ...stored?.pointItems?.[name]?.rotation },
+                        scale: normalizeSceneScale(
+                            stored?.pointItems?.[name]?.scale,
+                            item.scale
+                        ),
                     },
                 ])
             ),
@@ -117,11 +135,19 @@ function SceneAdjustPanel({ sceneRef, open: controlledOpen, onOpenChange, showTr
         updateActiveTransform({ [axis]: value });
     };
 
-    /** 更新全部点图或单个点图的缩放比例。 */
-    const updateScale = (value) => {
+    /** 更新当前对象的单个缩放轴。 */
+    const updateScale = (axis, value) => {
         if (typeof value !== 'number') return;
         const scale = Math.min(2.5, Math.max(0.25, Number(value.toFixed(2))));
-        updateActiveTransform({ scale });
+        const activeScale = target === 'pointItem'
+            ? transform.pointItems[pointItem].scale
+            : transform[target].scale;
+        updateActiveTransform({
+            scale: {
+                ...activeScale,
+                [axis]: scale,
+            },
+        });
     };
 
     /** 更新单个点图或整体视图的旋转轴，旋转值使用弧度。 */
@@ -263,45 +289,26 @@ function SceneAdjustPanel({ sceneRef, open: controlledOpen, onOpenChange, showTr
                     </>
                 )}
 
-                {(target === 'points' || target === 'pointItem') && (
-                    <div className="scene-adjust-row scene-adjust-scale">
-                        <span className="scene-adjust-axis">缩放</span>
-                        <Tooltip title="缩小">
-                            <Button
-                                type="text"
-                                shape="circle"
-                                icon={<MinusOutlined />}
-                                aria-label={`缩小${activeLabel}`}
-                                onClick={() => updateScale(activeTransform.scale - 0.1)}
+                <>
+                    <div className="scene-adjust-section-title">方向缩放</div>
+                    {['x', 'y', 'z'].map((axis) => (
+                        <div className="scene-adjust-row" key={`scale-${axis}`}>
+                            <span className="scene-adjust-axis">S{axis.toUpperCase()}</span>
+                            <Slider
+                                aria-label={`${activeLabel} S${axis.toUpperCase()} 缩放滑块`}
+                                {...SCALE_RANGE}
+                                value={activeTransform.scale[axis]}
+                                onChange={(value) => updateScale(axis, value)}
                             />
-                        </Tooltip>
-                        <Slider
-                            aria-label={`${activeLabel}缩放滑块`}
-                            min={0.25}
-                            max={2.5}
-                            step={0.05}
-                            value={activeTransform.scale}
-                            onChange={updateScale}
-                        />
-                        <Tooltip title="放大">
-                            <Button
-                                type="text"
-                                shape="circle"
-                                icon={<PlusOutlined />}
-                                aria-label={`放大${activeLabel}`}
-                                onClick={() => updateScale(activeTransform.scale + 0.1)}
+                            <InputNumber
+                                aria-label={`${activeLabel} S${axis.toUpperCase()} 缩放数值`}
+                                {...SCALE_RANGE}
+                                value={activeTransform.scale[axis]}
+                                onChange={(value) => updateScale(axis, value)}
                             />
-                        </Tooltip>
-                        <InputNumber
-                            aria-label={`${activeLabel}缩放数值`}
-                            min={0.25}
-                            max={2.5}
-                            step={0.05}
-                            value={activeTransform.scale}
-                            onChange={updateScale}
-                        />
-                    </div>
-                )}
+                        </div>
+                    ))}
+                </>
             </div>
 
             <footer className="scene-adjust-footer">

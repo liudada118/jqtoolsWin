@@ -6,6 +6,8 @@
   "scripts": {
     "start": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:client-dev-server": "node --test test/clientDevServer.test.js",
+    "test:control-mode": "node --test test/carAdaptiveControlMode.test.js",
     "build": "electron-builder -w",
     "build:mac": "electron-builder -m"
   },

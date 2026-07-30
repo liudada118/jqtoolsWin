@@ -66,12 +66,51 @@
         flex-direction: column;
     }
 
+    // 气囊状态回传中断提示，位于“区域调节”标题下方，不占据座椅图空间
+    .airbagFeedbackNotice {
+        flex: none;
+        align-self: center;
+        max-width: 100%;
+        margin-top: 2.1rem;
+        padding: 0.24rem 0.55rem;
+        border: 1px solid rgba(228, 183, 86, 0.45);
+        border-radius: 4px;
+        background: rgba(228, 183, 86, 0.12);
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: #e4b756;
+        font-size: 0.66rem;
+        line-height: 1.3;
+        white-space: nowrap;
+
+        .iconfont {
+            font-size: 0.72rem;
+        }
+    }
+
     .imgContent {
         flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
 
-        img {
+        .airbagSeatCanvas {
+            position: relative;
             // height: 80%;
             width: 100%;
+        }
+
+        .airbagSeatCanvas > img,
+        .airbagSeatCanvas .circleAir > img {
+            display: block;
+            width: 100%;
+        }
+
+        // 收不到 ECU 回传时全部气囊必然熄灭，整体降透明度以示状态未知
+        .airbagSeatCanvas.isFeedbackOffline {
+            opacity: 0.55;
         }
     }
 
@@ -198,6 +237,8 @@
     // width: 1.5rem;
     // height: 1.5rem;
     img{
+        height: 100%;
+        object-fit: contain;
         transform: scale(1.3);
     }
     box-sizing: border-box;
@@ -298,4 +339,61 @@
     .iconfont {
         color: #484A5D;
     }
+}
+
+@media (max-width: 600px) {
+    .airAsideContent {
+        padding: 7.5rem 0.75rem 0;
+    }
+
+    .asideContent {
+        height: min(58vh, 28rem);
+        align-items: stretch;
+    }
+
+    .leftContent,
+    .rightContent {
+        width: 29%;
+    }
+
+    .asideItem {
+        padding: 0.75rem 0.5rem;
+        border-radius: 10px;
+    }
+
+    .asideItem::before {
+        border-radius: 10px;
+    }
+
+    .asideTitle {
+        font-size: 0.75rem;
+        white-space: nowrap;
+
+        .iconfont {
+            margin-right: 4px;
+            font-size: 0.75rem;
+        }
+    }
+
+    .selectIcon img {
+        height: 2.25rem;
+    }
+
+    .selectName img {
+        max-width: 100%;
+        height: 1rem;
+    }
+
+    .asideselectContent {
+        margin-bottom: 0.5rem;
+    }
+
+    .safetyItem {
+        font-size: 0.85rem;
+
+        .iconfont {
+            font-size: 2rem;
+        }
+    }
+
 }

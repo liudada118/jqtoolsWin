@@ -10,7 +10,7 @@ import { getDisplayType, getSettingValue, getSettingValueOptimal, getSysType, us
 import { shallow } from 'zustand/shallow'
 import { isMoreMatrix } from '../../assets/util/util'
 import { pointConfig } from '../../util/constant'
-import { DatabaseOutlined, SettingOutlined, SlidersOutlined } from '@ant-design/icons'
+import { AimOutlined, DatabaseOutlined, SettingOutlined, SlidersOutlined } from '@ant-design/icons'
 
 // const selectHelper = new SelectionHelper(document.body, 'selectBox');
 
@@ -234,6 +234,7 @@ function SecondTitle(props) {
     const toggleVisualAdjustment = () => {
         pageInfo.setSceneAdjustOpen(false)
         pageInfo.setAlgorithmConfigOpen(false)
+        pageInfo.setAirbagAdjustOpen(false)
         setSetshow(!setshow)
     }
 
@@ -241,6 +242,7 @@ function SecondTitle(props) {
     const toggleSceneAdjustment = () => {
         setSetshow(false)
         pageInfo.setAlgorithmConfigOpen(false)
+        pageInfo.setAirbagAdjustOpen(false)
         pageInfo.setSceneAdjustOpen(!pageInfo.sceneAdjustOpen)
     }
 
@@ -248,7 +250,16 @@ function SecondTitle(props) {
     const toggleAlgorithmConfig = () => {
         setSetshow(false)
         pageInfo.setSceneAdjustOpen(false)
+        pageInfo.setAirbagAdjustOpen(false)
         pageInfo.setAlgorithmConfigOpen(!pageInfo.algorithmConfigOpen)
+    }
+
+    /** 打开气囊位置调节并关闭其他调节面板。 */
+    const toggleAirbagAdjustment = () => {
+        setSetshow(false)
+        pageInfo.setSceneAdjustOpen(false)
+        pageInfo.setAlgorithmConfigOpen(false)
+        pageInfo.setAirbagAdjustOpen(!pageInfo.airbagAdjustOpen)
     }
 
     /** 打开或关闭采集面板，并收起调节面板。 */
@@ -256,6 +267,7 @@ function SecondTitle(props) {
         setSetshow(false)
         pageInfo.setSceneAdjustOpen(false)
         pageInfo.setAlgorithmConfigOpen(false)
+        pageInfo.setAirbagAdjustOpen(false)
         pageInfo.setDisCol(!pageInfo.col)
     }
 
@@ -375,6 +387,7 @@ function SecondTitle(props) {
                     {/* <IconAndText onClickStatus={onRuler} onClick={() => { rulerClick() }} text={t('ruler')} show={show} icon={<div className='iconContentBox'> <i style={{ color: onRuler ? '#fff' : '#D1D9E1' }} className='iconfont fs16'>&#xe610;</i></div>} /> */}
                     <IconAndText onClickStatus={setshow} onClick={toggleVisualAdjustment} text={t('adjust')} show={show} icon={<div className='iconContentBox'><i className='iconfont fs16'>&#xe60d;</i></div>} />
                     <IconAndText onClickStatus={pageInfo.sceneAdjustOpen} onClick={toggleSceneAdjustment} text="视图调节" show={show} icon={<div className='iconContentBox'><SettingOutlined /></div>} />
+                    <IconAndText onClickStatus={pageInfo.airbagAdjustOpen} onClick={toggleAirbagAdjustment} text="气囊位置" show={show} icon={<div className='iconContentBox'><AimOutlined /></div>} />
                     <IconAndText onClickStatus={pageInfo.algorithmConfigOpen} onClick={toggleAlgorithmConfig} text="算法调节" show={show} icon={<div className='iconContentBox'><SlidersOutlined /></div>} />
                     {/* <IconAndText text={t('upload')} show={show} icon={<div className='iconContentBox'><i className='iconfont fs18'>&#xe609;</i></div>} /> */}
                     <IconAndText onClickStatus={pageInfo.col} text={t('采集')} show={show} onClick={toggleCollection} icon={<div className='iconContentBox'><DatabaseOutlined /></div>} />

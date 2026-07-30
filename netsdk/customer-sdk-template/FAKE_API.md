@@ -36,12 +36,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-mock-service.ps1
 | `GET` | `/status` | 当前状态 |
 | `GET` | `/getPort` | 获取假串口列表 |
 | `GET` | `/connPort` | 兼容真实接口，连接假串口 |
+| `GET` | `/carAdaptive/sensor` | 获取旧版单路 WebSocket 兼容投影 |
+| `POST` | `/carAdaptive/sensor` | 切换旧版兼容投影；当前前端不调用 |
+| `GET` | `/carAdaptive/sensors` | 获取主副两路假算法运行摘要 |
 | `POST` | `/fake/connect` | 连接假设备并开始推送 |
-| `GET` | `/fake/serialFrame` | 主动生成一帧 144 点数据 |
+| `GET` | `/fake/serialFrame` | 主动生成一帧带标识符的 145 字节数据（144 点压力） |
 | `POST` | `/fake/disconnect` | 断开假设备并停止推送 |
 | `POST` | `/adaptive/switch` | 自适应开关 |
 | `POST` | `/airbag/send` | 发送 51 字节气囊控制命令 |
-| `POST` | `/carAdaptive/processFrame` | 输入 144 点数据并返回假算法结果 |
+| `POST` | `/carAdaptive/processFrame` | 指定 sensorId，输入 144 点数据并返回对应假算法结果 |
 | `GET` | `/debug` | 调试页面 |
 | `GET` | `/app` | 项目当前真实前端 |
 
@@ -60,12 +63,53 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-mock-service.ps1
   "sitData": {
     "carAir": {
       "type": "carAir",
+      "sensorId": 1,
       "arr": [54, 57, 60],
       "stamp": 1783410000000,
       "HZ": 2,
       "mock": true
     }
   }
+}
+```
+
+旧版单路客户端的兼容投影：
+
+```json
+{ "carAdaptiveSensor": { "sensorId": 1, "role": "主", "displayOnly": true } }
+```
+
+主副两路运行摘要：
+
+```json
+{
+  "carAdaptiveSensors": [
+    { "sensorId": 1, "role": "主", "online": true, "HZ": 2, "algorithmReady": true, "frameCount": 12 },
+    { "sensorId": 2, "role": "副", "online": true, "HZ": 2, "algorithmReady": true, "frameCount": 12 }
+  ]
+}
+```
+
+主副两套完整数据：
+
+```json
+{
+  "carAdaptiveSensorsData": [
+    {
+      "sensorId": 1,
+      "role": "主",
+      "sitData": { "carAir": { "sensorId": 1, "arr": [54, 57, 60] } },
+      "algorData": { "sensor_id": 1, "frame_count": 12 },
+      "algorFeed": [0, 1, 2]
+    },
+    {
+      "sensorId": 2,
+      "role": "副",
+      "sitData": { "carAir": { "sensorId": 2, "arr": [63, 66, 69] } },
+      "algorData": { "sensor_id": 2, "frame_count": 12 },
+      "algorFeed": [1, 0, 2]
+    }
+  ]
 }
 ```
 
@@ -95,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-mock-service.ps1
 }
 ```
 
-说明：文档示例数组做了截断展示。实际 `sitData.carAir.arr` 和 `algorData.sensor_data_144` 长度为 144，`algorData.control_command` 长度为 51，`algorFeed` 长度为 24。
+说明：假服务每个周期都会为主、副两路分别生成压力帧和算法结果。新版前端使用 `carAdaptiveSensorsData` 同时缓存两套数据并在本地切换，不会调用 `/carAdaptive/sensor`；顶层 `sitData`、`algorData`、`algorFeed` 是留给旧客户端的兼容投影。文档示例数组做了截断展示；实际 `sitData.carAir.arr` 和 `algorData.sensor_data_144` 长度为 144，`algorData.control_command` 长度为 51，`algorFeed` 长度为 24。
 
 ## PowerShell 示例
 

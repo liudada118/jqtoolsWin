@@ -1,10 +1,8 @@
 # JqTools.CarAdaptive.Wpf
 
-这是一个 WPF 自定义控件库，编译后输出 `JqTools.CarAdaptive.Wpf.dll`。控件会启动 `mock-sdk` 的两个调试服务，并用 WebView2 加载现有调试页面。
+这是一个 WPF 自定义控件库，编译后输出 `JqTools.CarAdaptive.Wpf.dll`。控件会启动汽车自适应真实数据服务，并用 WebView2 加载现有业务页面。
 
 ## 构建
-
-当前机器只有 .NET Runtime，没有 .NET SDK。安装 .NET 8 SDK 后执行：
 
 ```powershell
 cd D:\jqtoolsWin1\dotnet-wrapper\JqTools.CarAdaptive.Wpf
@@ -42,9 +40,30 @@ dotnet build -c Release
             HttpPort="19245"
             WebSocketPort="19999"
             PagePath="/app"
+            HomeUrl="https://customer.example/home"
+            HomeRequested="HandleCarAdaptiveHomeRequested"
             AutoStartService="True" />
     </Grid>
 </Window>
+```
+
+局域网设备下发 `return-home` 后，控件会触发 `HomeRequested`，宿主程序在事件中返回自己的主页：
+
+```csharp
+private void HandleCarAdaptiveHomeRequested(
+    object? sender,
+    CarAdaptiveHomeRequestedEventArgs e)
+{
+    MainFrame.Navigate(new HomePage());
+}
+```
+
+`HomeUrl` 用于网页或 iPad 端直接跳转，也会随 `return-home` 命令广播给所有显示端。原生 WPF 应用可不设置 `HomeUrl`，只在 `HomeRequested` 中导航；事件参数的 `HomeUrl` 属性可读取本次配置值。
+
+需要保护局域网控制接口时，可以设置：
+
+```xml
+<jq:CarAdaptiveDebugControl RemoteControlToken="customer-secret" />
 ```
 
 也可以只使用非 UI 服务启动类：
@@ -55,7 +74,8 @@ await host.StartAsync(new CarAdaptiveDebugOptions
 {
     HttpPort = 19245,
     WebSocketPort = 19999,
-    PagePath = "/app"
+    PagePath = "/app",
+    HomeUrl = "https://customer.example/home"
 });
 
 // 默认打开 host.DebugUri 即可访问 /app 真实业务页面；需要简化调试页时显式设置 PagePath = "/debug"。

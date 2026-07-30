@@ -8,17 +8,17 @@ namespace JqTools.CarAdaptive.Wpf;
 public sealed class CarAdaptiveDebugOptions
 {
     /// <summary>
-    /// 假数据 HTTP/WS 服务监听地址，默认只监听本机。
+    /// 控件访问 HTTP/WS 服务时使用的本机地址。
     /// </summary>
     public string Host { get; set; } = "127.0.0.1";
 
     /// <summary>
-    /// 假数据 HTTP 服务端口。
+    /// 汽车自适应真实数据 HTTP 服务端口。
     /// </summary>
     public int HttpPort { get; set; } = 19245;
 
     /// <summary>
-    /// 假数据 WebSocket 服务端口。
+    /// 汽车自适应真实数据 WebSocket 服务端口。
     /// </summary>
     public int WebSocketPort { get; set; } = 19999;
 
@@ -43,15 +43,48 @@ public sealed class CarAdaptiveDebugOptions
     public string PagePath { get; set; } = "/app";
 
     /// <summary>
-    /// 等待假数据 HTTP 服务启动成功的最长时间。
+    /// 远程返回主页命令使用的网页地址或路由；为空时由 WPF 宿主处理 HomeRequested 事件。
+    /// </summary>
+    public string? HomeUrl { get; set; } =
+        Environment.GetEnvironmentVariable("JQTOOLS_HOME_URL");
+
+    /// <summary>
+    /// 局域网远程控制口令；为空时允许局域网内直接调用控制接口。
+    /// </summary>
+    public string? RemoteControlToken { get; set; } =
+        Environment.GetEnvironmentVariable("JQTOOLS_REMOTE_CONTROL_TOKEN");
+
+    /// <summary>
+    /// 等待真实数据 HTTP 服务启动成功的最长时间。
     /// </summary>
     public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(8);
 
     /// <summary>
     /// 当前配置对应的调试页面地址。
     /// </summary>
-    public Uri DebugUri => new($"http://{Host}:{HttpPort}{NormalizePagePath(PagePath)}");
+    public Uri DebugUri => new($"http://{Host}:{HttpPort}{BuildPagePath()}");
 
+    /// <summary>
+    /// 生成带本机主页覆盖参数的页面路径，并把查询参数放在 Hash 路由之前。
+    /// </summary>
+    private string BuildPagePath()
+    {
+        var pagePath = NormalizePagePath(PagePath);
+        if (string.IsNullOrWhiteSpace(HomeUrl))
+        {
+            return pagePath;
+        }
+
+        var fragmentIndex = pagePath.IndexOf('#');
+        var pathAndQuery = fragmentIndex >= 0 ? pagePath[..fragmentIndex] : pagePath;
+        var fragment = fragmentIndex >= 0 ? pagePath[fragmentIndex..] : string.Empty;
+        var separator = pathAndQuery.Contains('?') ? "&" : "?";
+        return $"{pathAndQuery}{separator}homeUrl={Uri.EscapeDataString(HomeUrl.Trim())}{fragment}";
+    }
+
+    /// <summary>
+    /// 将页面路径规范化为以斜杠开头的 HTTP 路径。
+    /// </summary>
     private static string NormalizePagePath(string pagePath)
     {
         if (string.IsNullOrWhiteSpace(pagePath))

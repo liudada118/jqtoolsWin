@@ -1,3 +1,2 @@
-2026/07/14-16:15:24.477 1108 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Local Storage\leveldb/MANIFEST-000001
-2026/07/14-16:15:24.483 1108 Recovering log #3
-2026/07/14-16:15:24.484 1108 Reusing old log D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Local Storage\leveldb/000003.log 
+2026/07/29-18:18:08.595 b5c Creating DB D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Local Storage\leveldb since it was missing.
+2026/07/29-18:18:08.610 b5c Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Local Storage\leveldb/MANIFEST-000001

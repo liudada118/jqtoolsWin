@@ -35,119 +35,16 @@ import ononseat from '../../assets/image/ononseat.png'
 import unonseatText from '../../assets/image/unonseatText.png'
 import ononseatText from '../../assets/image/ononseatText.png'
 
-import onAda from '../../assets/image/onAdaptiveText.png'
-import unAda from '../../assets/image/unAdaptiveText.png'
-import onAdaIcon from '../../assets/image/onAdaptiveIcon.png'
-import unAdaIcon from '../../assets/image/unAdaptiveIcon.png'
-
-
 import { Scheduler } from '../../scheduler/scheduler'
+import { createDefaultAirbagLayout } from '../airbagAdjust/airbagLayout'
+
+const FALLBACK_AIRBAG_LAYOUT = createDefaultAirbagLayout()
 
 export default function AirAside(props) {
 
     const feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 
-    const airArr = [
-        {
-            top: 30.3,
-            left: 35,
-            width: 12,
-            height: 3.8,
-            type: 'rect'
-        },
-        {
-            top: 30.3,
-            left: 52,
-            width: 12,
-            height: 3.8,
-            type: 'rect'
-        },
-        {
-            top: 49.3,
-            left: 28,
-            width: 5,
-            height: 9.5,
-            type: 'rect'
-        },
-        {
-            top: 49.3,
-            left: 67,
-            width: 5,
-            height: 9.5,
-            type: 'rect'
-        },
-        {
-            top: 50.05,
-            left: 41,
-            width: 18,
-            height: 6,
-            type: 'rect'
-        },
-        {
-            top: 58.1,
-            left: 41,
-            width: 18,
-            height: 6,
-            type: 'rect'
-        },
-
-
-
-        {
-            top: 65.5,
-            left: 39,
-            width: 11,
-            height: 10,
-            type: 'rect'
-        },
-
-        {
-            top: 65.5,
-            left: 50,
-            width: 11,
-            height: 10,
-            type: 'rect'
-        },
-
-
-
-
-        {
-            top: 75.8,
-            left: 38,
-            width: 10,
-            height: 4.8,
-            type: 'rect'
-        },
-
-        {
-            top: 75.8,
-            left: 52,
-            width: 10,
-            height: 4.8,
-            type: 'rect'
-        },
-        { top: 32.3 + 3, left: 42, width: 5, type: 'circle' },
-        { top: 32.3 + 3, left: 53, width: 5, type: 'circle' },
-
-        { top: 40.3 + 3, left: 42, width: 5, type: 'circle' },
-        { top: 40.3 + 3, left: 53, width: 5, type: 'circle' },
-
-        { top: 48.3 + 3, left: 42, width: 5, type: 'circle' },
-        { top: 48.3 + 3, left: 53, width: 5, type: 'circle' },
-
-        { top: 56.3 + 3, left: 42, width: 5, type: 'circle' },
-        { top: 56.3 + 3, left: 53, width: 5, type: 'circle' },
-
-        { top: 66.3 + 0, left: 42, width: 5, type: 'circle' },
-        { top: 66.3 + 0, left: 53, width: 5, type: 'circle' },
-
-        { top: 70.3 + 1, left: 42, width: 5, type: 'circle' },
-        { top: 70.3 + 1, left: 53, width: 5, type: 'circle' },
-
-        { top: 74.3 + 2, left: 42, width: 5, type: 'circle' },
-        { top: 74.3 + 2, left: 53, width: 5, type: 'circle' },
-    ]
+    const airArr = props.airbagLayout || FALLBACK_AIRBAG_LAYOUT
 
     const safetyArr = [
         {
@@ -232,6 +129,8 @@ export default function AirAside(props) {
                 dataObj.seat_state = chartData.seat_state
                 dataObj.controlsMode = controlsMode
             }
+            // 气囊亮暗依赖 ECU 回传；收不到回传时全部熄灭，需要在界面上说明原因
+            dataObj.feedbackOnline = Boolean(props.airbagFeedbackOnline?.current)
             return { ...dataObj, t: Date.now() }
         })
         )
@@ -317,13 +216,6 @@ export default function AirAside(props) {
                     </div>
                 </div>
 
-                <div style={{ position: 'absolute', height: '2.4rem', left: '36%', top: '1.2rem',display :'flex' , alignItems : 'center' }}>
-                    {/* <img style={{ height: '100%' }} src={data.controlsMode != 'algor' ? ada : onAda} alt="" /> */}
-                    <img style={{height : '4rem'}} src={data.controlsMode != 'algor' ? unAdaIcon : onAdaIcon} alt="" />
-                    <img style={{height : '1.75rem'}} src={data.controlsMode != 'algor' ? unAda : onAda} alt="" />
-
-                </div>
-
                 <div className="rightContent">
                     {/* <div className="safetyContent asideItem"> */}
                     {/* <div className="asideTitle"></div> */}
@@ -332,17 +224,23 @@ export default function AirAside(props) {
                     }}>
 
                         <div style={{ position: 'absolute' }}>
-                            <AsideTitle icon={<i className='iconfont'>&#xe66a;</i>} title={'气囊调节'} />
+                            <AsideTitle icon={<i className='iconfont'>&#xe66a;</i>} title={'区域调节'} />
                         </div>
+                        {!data.feedbackOnline && (
+                            <div className='airbagFeedbackNotice'>
+                                <i className='iconfont'>&#xe6a6;</i>
+                                <span>未收到气囊状态回传</span>
+                            </div>
+                        )}
                         <div className='imgContent'>
-                            <div style={{ position: 'relative' }}>
+                            <div className={`airbagSeatCanvas${!data.feedbackOnline ? ' isFeedbackOffline' : ''}`}>
                                 <img src={seatImg} alt="" />
                                 {
                                     airArr.map((a, index) => {
 
                                         const command = data.controlFeed //: data.control_command
                                         if (a.type == 'circle') {
-                                            return <div className={`circleAir ${command && command[index] == 3 ? 'onCircleAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                            return <div key={`airbag-${index}`} className={`circleAir ${command && command[index] == 3 ? 'onCircleAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                 {/* <div className='circleAirItem'></div> */}
                                                 <img src={command && command[index] == 3 ? onmassage : unmassage} alt="" />
                                             </div>
@@ -350,17 +248,17 @@ export default function AirAside(props) {
                                         } else {
 
                                             if (index == 6) {
-                                                return <div className={`leftRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                                return <div key={`airbag-${index}`} className={`leftRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                     <div className='leftTopRectAir leftRectAirItem'></div>
                                                     <div className='leftBottomRectAir leftRectAirItem'></div>
                                                 </div>
                                             } else if (index == 7) {
-                                                return <div className={`rightRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                                return <div key={`airbag-${index}`} className={`rightRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                     <div className='rightTopRectAir rightRectAirItem'></div>
                                                     <div className='rightBottomRectAir rightRectAirItem'></div>
                                                 </div>
                                             } else {
-                                                return <div className={` ${'rectAir'} ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}></div>
+                                                return <div key={`airbag-${index}`} className={` ${'rectAir'} ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}></div>
 
                                             }
                                         }

@@ -310,7 +310,7 @@ class JqToolsCarClient {
 
   /**
    * 连接后端识别到的串口设备。
-   * 对汽车自适应硬件，后端收到 144 字节帧时会触发自身的 Python 算法链路。
+   * 后端会按 145 字节帧首字节区分主副传感器，并把后 144 字节分别送入两套独立 Python 算法。
    */
   connectPorts() {
     return this.request('GET', '/connPort');
@@ -321,11 +321,36 @@ class JqToolsCarClient {
     return this.connectPorts();
   }
 
+  /** 获取后端旧版单路兼容投影；新版前端应使用双路 WebSocket 数据本地切换。 */
+  getCarAdaptiveSensor() {
+    return this.request('GET', '/carAdaptive/sensor');
+  }
+
+  /** 获取主、副两路的在线状态、频率和算法帧计数。 */
+  getCarAdaptiveSensors() {
+    return this.request('GET', '/carAdaptive/sensors');
+  }
+
+  /**
+   * 切换后端旧版单路兼容投影；不会影响主、副两路算法持续运行。
+   *
+   * @param {1|2} sensorId 1 表示主传感器，2 表示副传感器。
+   */
+  selectCarAdaptiveSensor(sensorId) {
+    if (![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    return this.request('POST', '/carAdaptive/sensor', {
+      body: { sensorId: Number(sensorId) }
+    });
+  }
+
   /**
    * 提交一帧汽车自适应传感器数据给 SDK 内置 Python 算法。
    *
    * @param {number[]} sensorData 144 个传感器值，每个值应在 0-255 范围内。
    * @param {Object} [options]
+   * @param {1|2} [options.sensorId=1] 指定使用主传感器或副传感器的独立算法实例。
    * @param {boolean} [options.writeSerial=false] 是否将返回的 control_command 写入汽车自适应串口。
    * @returns {Promise<*>} 本地 Python 算法结果，通常包含 control_command、living_status、body_type、seat_state、frame_count。
    */
@@ -334,24 +359,39 @@ class JqToolsCarClient {
       throw new JqToolsError('sensorData must be an array with 144 numbers.');
     }
 
-    const result = await this.pythonWorker.call('server', { sensor_data: sensorData }, {
+    const sensorId = Number(options.sensorId ?? 1);
+    if (![1, 2].includes(sensorId)) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+
+    const result = await this.pythonWorker.call('server', {
+      sensor_data: sensorData,
+      sensor_id: sensorId
+    }, {
       timeout: options.timeout
     });
 
     if (options.writeSerial && result?.control_command) {
-      await this.writeCarAdaptiveCommand(result.control_command);
+      await this.writeCarAdaptiveCommand(result.control_command, sensorId);
     }
 
-    return result;
+    return {
+      ...result,
+      sensor_id: sensorId,
+      sensor_role: sensorId === 1 ? '主' : '副'
+    };
   }
 
   /**
    * 通过后端把 Python 算法返回的 control_command 写入汽车自适应串口。
    * SDK 在本地计算算法结果；硬件串口访问仍由后端负责。
    */
-  writeCarAdaptiveCommand(controlCommand) {
+  writeCarAdaptiveCommand(controlCommand, sensorId = 1) {
+    if (![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
     return this.request('POST', '/carAdaptive/writeCommand', {
-      body: { controlCommand }
+      body: { controlCommand, sensorId: Number(sensorId) }
     });
   }
 
@@ -406,7 +446,10 @@ class JqToolsCarClient {
    *
    * @param {Object} [handlers]
    * @param {Function} [handlers.onAlgorithmData] 收到 algorData 消息时触发。
-   * @param {Function} [handlers.onControlFeedback] 收到 algorFeed 消息时触发。
+     * @param {Function} [handlers.onControlFeedback] 收到 algorFeed 消息时触发。
+     * @param {Function} [handlers.onSensorChange] 主副传感器选择发生变化时触发。
+     * @param {Function} [handlers.onSensorStatus] 收到主副两路运行摘要时触发。
+     * @param {Function} [handlers.onSensorData] 同时收到主副两套完整数据时触发。
    * @param {Function} [handlers.onRawMessage] 每条已解析 WebSocket 消息都会触发。
    * @param {Function} [handlers.onOpen] WebSocket 连接建立回调。
    * @param {Function} [handlers.onClose] WebSocket 连接关闭回调。
@@ -426,6 +469,15 @@ class JqToolsCarClient {
         }
         if (message && typeof message === 'object' && 'algorFeed' in message && typeof handlers.onControlFeedback === 'function') {
           handlers.onControlFeedback(message.algorFeed, event);
+        }
+        if (message && typeof message === 'object' && 'carAdaptiveSensor' in message && typeof handlers.onSensorChange === 'function') {
+          handlers.onSensorChange(message.carAdaptiveSensor, event);
+        }
+        if (message && typeof message === 'object' && 'carAdaptiveSensors' in message && typeof handlers.onSensorStatus === 'function') {
+          handlers.onSensorStatus(message.carAdaptiveSensors, event);
+        }
+        if (message && typeof message === 'object' && 'carAdaptiveSensorsData' in message && typeof handlers.onSensorData === 'function') {
+          handlers.onSensorData(message.carAdaptiveSensorsData, event);
         }
       }
     });

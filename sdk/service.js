@@ -16,6 +16,11 @@ const host = process.env.JQTOOLS_SDK_HOST || '127.0.0.1';
 const httpPort = Number(process.env.JQTOOLS_SDK_HTTP_PORT || process.env.PORT || DEFAULT_HTTP_PORT);
 const wsPort = Number(process.env.JQTOOLS_SDK_WS_PORT || DEFAULT_WS_PORT);
 const serialBackendUrl = trimTrailingSlash(process.env.JQTOOLS_SERIAL_BACKEND_URL || '');
+let selectedSensorId = 1;
+const sensorStates = {
+  1: createSensorState(1),
+  2: createSensorState(2)
+};
 
 const client = createClient({
   pythonPath: process.env.JQTOOLS_PYTHON,
@@ -51,6 +56,9 @@ wsServer.on('connection', (socket) => {
     service: 'jqtools-car-adaptive-sdk',
     message: 'connected'
   }));
+  socket.send(JSON.stringify({ carAdaptiveSensor: getSensorSelection() }));
+  socket.send(JSON.stringify({ carAdaptiveSensors: getSensorStatuses() }));
+  socket.send(JSON.stringify({ carAdaptiveSensorsData: getSensorSnapshots() }));
 });
 
 httpServer.listen(httpPort, host, () => {
@@ -93,6 +101,24 @@ async function routeHttp(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/carAdaptive/sensor') {
+    sendJson(res, 200, ok(getSensorSelection()));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/carAdaptive/sensor') {
+    const body = await readJsonBody(req);
+    selectedSensorId = normalizeSensorId(body.sensorId);
+    broadcast({ carAdaptiveSensor: getSensorSelection() });
+    sendJson(res, 200, ok(getSensorSelection()));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/carAdaptive/sensors') {
+    sendJson(res, 200, ok(getSensorStatuses()));
+    return;
+  }
+
   if (req.method === 'POST' && url.pathname === '/carAdaptive/processFrame') {
     const body = await readJsonBody(req);
     const result = await processFrame(body);
@@ -102,7 +128,10 @@ async function routeHttp(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/carAdaptive/writeCommand') {
     const body = await readJsonBody(req);
-    const result = await writeCommand(body.controlCommand);
+    const result = await writeCommand(
+      body.controlCommand,
+      normalizeSensorId(body.sensorId ?? selectedSensorId)
+    );
     sendJson(res, result.code === 0 ? 200 : 501, result);
     return;
   }
@@ -141,32 +170,49 @@ async function routeHttp(req, res) {
 async function processFrame(body) {
   const sensorData = body.sensorData || body.sensor_data;
   const writeSerial = Boolean(body.writeSerial);
+  const sensorId = normalizeSensorId(body.sensorId ?? selectedSensorId);
 
   validateSensorData(sensorData);
 
-  const result = await client.callPythonFunction('server', { sensor_data: sensorData }, {
+  const result = await client.callPythonFunction('server', {
+    sensor_data: sensorData,
+    sensor_id: sensorId
+  }, {
     timeout: body.timeout
   });
 
   const responseData = {
     ...result,
+    sensor_id: sensorId,
+    sensor_role: sensorId === 1 ? '主' : '副',
     serialWrite: null
   };
+  const sensorState = sensorStates[sensorId];
+  sensorState.stamp = Date.now();
+  sensorState.algorithmReady = true;
+  sensorState.frameCount = result?.frame_count || sensorState.frameCount + 1;
+  sensorState.sensorData = sensorData;
+  sensorState.algorData = responseData;
+  sensorState.controlCommand = result?.control_command;
 
   if (writeSerial && result?.control_command) {
-    responseData.serialWrite = await writeCommand(result.control_command);
+    responseData.serialWrite = await writeCommand(result.control_command, sensorId);
   }
 
-  broadcast({
-    algorData: result,
-    algorFeed: getControlFeedback(result?.control_command)
-  });
+  if (sensorId === selectedSensorId) {
+    broadcast({
+      algorData: responseData,
+      algorFeed: getControlFeedback(result?.control_command)
+    });
+  }
+  broadcast({ carAdaptiveSensors: getSensorStatuses() });
+  broadcast({ carAdaptiveSensorsData: getSensorSnapshots() });
 
   return ok(responseData);
 }
 
 /** 将已有 control_command 写入串口；实际串口写入由原后端代理完成。 */
-async function writeCommand(controlCommand) {
+async function writeCommand(controlCommand, sensorId) {
   if (!serialBackendUrl) {
     return {
       code: 1,
@@ -186,7 +232,7 @@ async function writeCommand(controlCommand) {
   const response = await fetch(`${serialBackendUrl}/carAdaptive/writeCommand`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ controlCommand })
+    body: JSON.stringify({ controlCommand, sensorId })
   });
 
   return response.json();
@@ -258,6 +304,76 @@ function handleCors(req, res) {
   });
   res.end();
   return true;
+}
+
+/** 创建一路 SDK 算法运行摘要。 */
+function createSensorState(sensorId) {
+  return {
+    sensorId,
+    stamp: 0,
+    algorithmReady: false,
+    frameCount: 0,
+    sensorData: undefined,
+    algorData: undefined,
+    controlCommand: undefined
+  };
+}
+
+/** 校验主副传感器标识符。 */
+function normalizeSensorId(value) {
+  const sensorId = Number(value);
+  if (![1, 2].includes(sensorId)) {
+    throw new Error('sensorId must be 1 (main) or 2 (secondary)');
+  }
+  return sensorId;
+}
+
+/** 返回 SDK 服务当前页面展示通道。 */
+function getSensorSelection() {
+  return {
+    sensorId: selectedSensorId,
+    role: selectedSensorId === 1 ? '主' : '副',
+    displayOnly: true
+  };
+}
+
+/** 返回 SDK 服务中主副两套独立算法的运行摘要。 */
+function getSensorStatuses() {
+  const now = Date.now();
+  return [1, 2].map((sensorId) => {
+    const sensorState = sensorStates[sensorId];
+    return {
+      sensorId,
+      role: sensorId === 1 ? '主' : '副',
+      online: Boolean(sensorState.stamp && now - sensorState.stamp < 1000),
+      stamp: sensorState.stamp,
+      algorithmReady: sensorState.algorithmReady,
+      frameCount: sensorState.frameCount
+    };
+  });
+}
+
+/** 返回前端可分别缓存的主副两套算法数据。 */
+function getSensorSnapshots() {
+  return [1, 2].map((sensorId) => {
+    const sensorState = sensorStates[sensorId];
+    const online = Boolean(sensorState.stamp && Date.now() - sensorState.stamp < 1000);
+    return {
+      sensorId,
+      role: sensorId === 1 ? '主' : '副',
+      sitData: {
+        carAir: {
+          type: 'carAir',
+          sensorId,
+          status: online ? 'online' : 'offline',
+          arr: sensorState.sensorData,
+          stamp: sensorState.stamp
+        }
+      },
+      algorData: sensorState.algorData,
+      algorFeed: getControlFeedback(sensorState.controlCommand)
+    };
+  });
 }
 
 /** 校验汽车自适应算法输入必须是 144 个 0-255 数字。 */

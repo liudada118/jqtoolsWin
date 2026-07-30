@@ -18,6 +18,29 @@ const { callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
 const { default: axios } = require('axios');
 const module2 = require('../util/aes_ecb')
+const {
+  CAR_ADAPTIVE_SERIAL_FRAME_LENGTH,
+  CAR_ADAPTIVE_MAIN_SENSOR_ID,
+  CAR_ADAPTIVE_SENSOR_IDS,
+  normalizeCarAdaptiveSensorId,
+  parseCarAdaptiveSerialFrame,
+  getCarAdaptiveSensorRole
+} = require('../util/carAdaptiveProtocol')
+const {
+  CAR_ADAPTIVE_UI_ACTIONS,
+  createCarAdaptiveUiState,
+  applyCarAdaptiveUiCommand,
+  applyCarAdaptiveUiReport,
+  applyCarAdaptiveUiAcknowledgement
+} = require('../util/carAdaptiveUiControl')
+const {
+  CAR_ADAPTIVE_CONTROL_MODES,
+  applyCarAdaptiveControlMode,
+  createCarAdaptiveControlModeState,
+  getCarAdaptiveModeForView,
+  isCarAdaptiveAlgorithmRunning,
+  isCarAdaptiveAutoMode
+} = require('../util/carAdaptiveControlMode')
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -188,7 +211,9 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
 const ALGOR = 'algor', HANDLE = 'handle'
-var algorData, control_command, controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+// controlMode 只是 carAdaptiveControlModeState 的历史命名镜像，唯一写入点是 setCarAdaptiveControlMode。
+// ECU 回传帧恢复启用时，应调用 applyCarAdaptiveControlMode({mode, source: 'ecu'}) 而不是直接赋值。
+var controlMode = ALGOR, oldControlMode = '', feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 // 选择数据库数据
 let historyDbArr;
 
@@ -204,7 +229,555 @@ console.log(__dirname, dbPath, '__dirname')
 
 const CAR_ADAPTIVE_TYPE = 'carAir'
 const CAR_ADAPTIVE_COMMAND_INTERVAL = 500
-const adaptiveWritePending = {}
+const CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN = String(
+  process.env.JQTOOLS_REMOTE_CONTROL_TOKEN || ''
+).trim()
+const CAR_ADAPTIVE_HOME_URL = String(
+  process.env.JQTOOLS_HOME_URL || ''
+).trim()
+// 超过该时长没有收到 ECU 回传，认为回传中断，气囊反馈置空
+const CAR_ADAPTIVE_FEEDBACK_TIMEOUT = 2000
+/**
+ * 气囊反馈数据源。
+ * `ecu`：只用 ECU 回传帧，硬件没回传就置空，前端全灭。
+ * `command`：回落到最近一次写入串口的命令，仅在 ECU 确认不回传时用于兼容。
+ */
+const CAR_ADAPTIVE_FEEDBACK_SOURCE =
+  String(process.env.JQTOOLS_AIRBAG_FEEDBACK_SOURCE || 'ecu').trim().toLowerCase() === 'command'
+    ? 'command'
+    : 'ecu'
+const adaptiveWriteQueues = {}
+let selectedCarAdaptiveSensorId = CAR_ADAPTIVE_MAIN_SENSOR_ID
+let carAdaptiveUiState = createCarAdaptiveUiState(CAR_ADAPTIVE_MAIN_SENSOR_ID)
+let carAdaptiveControlModeState = createCarAdaptiveControlModeState(
+  process.env.JQTOOLS_CONTROL_MODE
+)
+const carAdaptiveSensorStates = Object.fromEntries(
+  CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => [sensorId, createCarAdaptiveSensorState(sensorId)])
+)
+
+/** 创建一路传感器的运行状态，主、副两路不会共享算法历史或控制命令。 */
+function createCarAdaptiveSensorState(sensorId) {
+  return {
+    sensorId,
+    role: getCarAdaptiveSensorRole(sensorId),
+    sensorData: undefined,
+    stamp: 0,
+    HZ: undefined,
+    portPath: undefined,
+    algorData: undefined,
+    controlCommand: undefined,
+    writtenCommand: undefined,
+    // 以下三项只由 ECU 回传帧写入，代表气囊硬件实际状态
+    feedbackGears: undefined,
+    feedbackStamp: 0,
+    feedbackMode: undefined
+  }
+}
+
+/** 返回旧版单路 WebSocket 的兼容投影选择。 */
+function getCarAdaptiveSensorSelection() {
+  return {
+    sensorId: selectedCarAdaptiveSensorId,
+    role: getCarAdaptiveSensorRole(selectedCarAdaptiveSensorId),
+    displayOnly: true
+  }
+}
+
+/** 返回指定传感器的运行状态。 */
+function getCarAdaptiveSensorState(sensorId) {
+  return carAdaptiveSensorStates[sensorId]
+}
+
+/** 返回主、副两路算法运行摘要，不传输较大的 144 点压力数组。 */
+function getCarAdaptiveSensorsStatus() {
+  const now = Date.now()
+  return CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => {
+    const state = getCarAdaptiveSensorState(sensorId)
+    return {
+      sensorId,
+      role: state.role,
+      online: Boolean(state.stamp && now - state.stamp < 1000),
+      stamp: state.stamp,
+      HZ: state.HZ,
+      algorithmReady: Boolean(state.algorData),
+      frameCount: state.algorData?.frame_count || 0,
+      feedbackOnline: isCarAdaptiveFeedbackOnline(state),
+      feedbackStamp: state.feedbackStamp
+    }
+  })
+}
+
+/** 把当前选中的一路投影到旧版 sitData.carAir 结构，保持前端兼容。 */
+function createCarAdaptiveDisplayDataMap() {
+  const displayDataMap = JSON.parse(JSON.stringify({ ...dataMap }))
+  const displayState = getCarAdaptiveSensorState(selectedCarAdaptiveSensorId)
+
+  Object.values(displayDataMap).forEach((dataItem) => {
+    if (dataItem?.type !== CAR_ADAPTIVE_TYPE) return
+    dataItem.arr = displayState.sensorData
+    dataItem.stamp = displayState.stamp
+    dataItem.HZ = displayState.HZ
+    dataItem.sensorId = displayState.sensorId
+  })
+
+  return displayDataMap
+}
+
+/** 从 55 字节控制命令中提取前端使用的 24 路气囊反馈。 */
+function getCarAdaptiveControlFeedback(command) {
+  if (!Array.isArray(command)) return []
+
+  const feedback = []
+  for (let index = 0; index < 24; index++) {
+    feedback.push(command[2 * index + 2])
+  }
+  return feedback
+}
+
+/** 生成一路可直接被前端缓存和渲染的完整数据快照。 */
+function createCarAdaptiveSensorSnapshot(sensorId) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  const online = Boolean(state.stamp && Date.now() - state.stamp < 1000)
+
+  return {
+    sensorId,
+    role: state.role,
+    sitData: {
+      carAir: {
+        type: CAR_ADAPTIVE_TYPE,
+        sensorId,
+        status: online ? 'online' : 'offline',
+        arr: state.sensorData,
+        stamp: state.stamp,
+        HZ: state.HZ
+      }
+    },
+    algorData: state.algorData,
+    // 气囊反馈来自 ECU 回传，代表硬件实际状态；没有回传时为空数组，前端全灭。
+    algorFeed: getCarAdaptiveAirbagFeedback(sensorId),
+    feedbackOnline: isCarAdaptiveFeedbackOnline(state),
+    feedbackStamp: state.feedbackStamp,
+    feedbackSource: CAR_ADAPTIVE_FEEDBACK_SOURCE,
+    controlMode: carAdaptiveControlModeState.mode
+  }
+}
+
+/** 返回主、副两套完整数据，前端只负责从中选择当前展示项。 */
+function getCarAdaptiveSensorSnapshots() {
+  return CAR_ADAPTIVE_SENSOR_IDS.map(createCarAdaptiveSensorSnapshot)
+}
+
+/** 同时广播主、副两路数据；每个前端客户端可独立选择显示通道。 */
+function broadcastCarAdaptiveSensorSnapshots() {
+  socketSendData(server, JSON.stringify({
+    carAdaptiveSensorsData: getCarAdaptiveSensorSnapshots()
+  }))
+}
+
+/** 判断网卡名称是否通常属于虚拟机、容器或隧道设备。 */
+function isVirtualNetworkInterface(interfaceName) {
+  return /vmware|virtualbox|vbox|vethernet|hyper-v|docker|wsl|npcap|loopback|tunnel|tap/i
+    .test(interfaceName)
+}
+
+/** 判断 IPv4 地址是否位于常用局域网私有地址段。 */
+function isPrivateIpv4Address(address) {
+  const octets = address.split('.').map(Number)
+  return octets.length === 4 && (
+    octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  )
+}
+
+/** 返回当前机器可供局域网设备访问的 IPv4 地址，物理网卡排在虚拟网卡前。 */
+function getLanIpv4Addresses() {
+  const candidates = []
+  Object.entries(os.networkInterfaces()).forEach(([interfaceName, networks]) => {
+    ;(networks || []).forEach((network) => {
+      const isIpv4 = network?.family === 'IPv4' || network?.family === 4
+      if (!isIpv4 || network.internal || candidates.some((item) => item.address === network.address)) {
+        return
+      }
+      candidates.push({
+        address: network.address,
+        privateAddress: isPrivateIpv4Address(network.address),
+        virtualInterface: isVirtualNetworkInterface(interfaceName)
+      })
+    })
+  })
+
+  return candidates
+    .sort((left, right) =>
+      Number(left.virtualInterface) - Number(right.virtualInterface) ||
+      Number(right.privateAddress) - Number(left.privateAddress) ||
+      left.address.localeCompare(right.address)
+    )
+    .map((item) => item.address)
+}
+
+/** 统计指定角色的 WebSocket 客户端数量。 */
+function countCarAdaptiveUiClients(role) {
+  let count = 0
+  server.clients.forEach((client) => {
+    if (client.jqtoolsRole === role && client.readyState === WebSocket.OPEN) count++
+  })
+  return count
+}
+
+/** 返回局域网控制页使用的完整状态，不暴露控制令牌。 */
+function getCarAdaptiveUiPublicState() {
+  return {
+    ...carAdaptiveUiState,
+    tokenRequired: Boolean(CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN),
+    homeUrlConfigured: Boolean(CAR_ADAPTIVE_HOME_URL),
+    displayClients: countCarAdaptiveUiClients('ui-display'),
+    webSocketClients: server.clients.size,
+    lanAddresses: getLanIpv4Addresses(),
+    httpPort: port,
+    webSocketPort: wsPort
+  }
+}
+
+/** 校验远程控制请求携带的可选令牌。 */
+function isCarAdaptiveUiRequestAuthorized(req) {
+  if (!CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN) return true
+  const headerToken = String(req.get('x-jqtools-control-token') || '').trim()
+  const bodyToken = typeof req.body?.token === 'string' ? req.body.token.trim() : ''
+  return headerToken === CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN ||
+    bodyToken === CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN
+}
+
+/** 广播远程 UI 命令，并附带下发瞬间的公共状态。 */
+function broadcastCarAdaptiveUiCommand(command) {
+  socketSendData(server, JSON.stringify({
+    carAdaptiveUiCommand: command,
+    carAdaptiveUiState: getCarAdaptiveUiPublicState()
+  }))
+}
+
+/**
+ * ECU 回传气囊状态帧的长度。
+ * 回传是一条 55 字节命令帧，其中 4 字节帧尾 [170,85,3,153] 被串口分隔符消费，
+ * 因此业务层收到的是剩下的 51 字节。
+ */
+const CAR_ADAPTIVE_FEEDBACK_FRAME_LENGTH = 51
+const SERIAL_DIAGNOSTIC_LOG_INTERVAL = 5000
+const SERIAL_DIAGNOSTIC_MAX_SAMPLES = 8
+const serialFrameDiagnostics = {}
+
+/**
+ * 按 55 字节控制命令协议解析一条候选 ECU 回传帧。
+ * 只做解析和格式校验，不改变任何运行状态。
+ *
+ * @param {number[]} frame 去掉帧尾后的 51 字节数组。
+ * @returns {object|null} 解析结果，长度不符时返回 null。
+ */
+function decodeCarAdaptiveFeedbackFrame(frame) {
+  if (!Array.isArray(frame) || frame.length !== CAR_ADAPTIVE_FEEDBACK_FRAME_LENGTH) {
+    return null
+  }
+
+  const airbagIds = []
+  const gears = []
+  for (let index = 0; index < 24; index++) {
+    airbagIds.push(frame[2 * index + 1])
+    gears.push(frame[2 * index + 2])
+  }
+
+  return {
+    frameHeader: frame[0],
+    headerMatches: frame[0] === 31,
+    // 编号位应依次为 1..24，用于确认回传确实沿用下行命令的协议布局
+    airbagIdsMatch: airbagIds.every((id, index) => id === index + 1),
+    mode: frame[49],
+    modeLabel: frame[49] === 1 ? 'manual' : 'auto',
+    direction: frame[50],
+    isUpstream: frame[50] === 1,
+    airbagIds,
+    gears
+  }
+}
+
+/** 取得指定串口的诊断记录。 */
+function getSerialFrameDiagnosticState(path) {
+  if (!serialFrameDiagnostics[path]) {
+    serialFrameDiagnostics[path] = {
+      lengthCounts: {},
+      samples: {},
+      feedbackFrames: 0,
+      lastFeedback: null,
+      lastLoggedAt: 0
+    }
+  }
+  return serialFrameDiagnostics[path]
+}
+
+/**
+ * 记录一帧未被业务分支处理的串口数据。
+ * 用于在真实硬件上确认 ECU 是否回传气囊状态，以及回传帧的实际长度和布局。
+ *
+ * @param {string} path 串口路径。
+ * @param {number[]} frame 去掉帧尾后的字节数组。
+ */
+function recordSerialFrameDiagnostics(path, frame) {
+  const state = getSerialFrameDiagnosticState(path)
+  const length = frame.length
+  const now = Date.now()
+
+  state.lengthCounts[length] = (state.lengthCounts[length] || 0) + 1
+
+  if (!state.samples[length] && Object.keys(state.samples).length < SERIAL_DIAGNOSTIC_MAX_SAMPLES) {
+    state.samples[length] = { at: now, bytes: frame.slice(0, 24) }
+  }
+
+  const decoded = decodeCarAdaptiveFeedbackFrame(frame)
+  if (decoded) {
+    state.feedbackFrames++
+    // 只有方向位为上行、帧头和编号布局都正确的帧才作为气囊真实状态使用
+    const trusted = decoded.isUpstream && decoded.headerMatches && decoded.airbagIdsMatch
+    const attribution = trusted ? applyCarAdaptiveFeedbackFrame(path, decoded) : null
+    state.lastFeedback = {
+      at: now,
+      ...decoded,
+      trusted,
+      appliedSensorIds: attribution?.sensorIds || [],
+      sharedPort: Boolean(attribution?.sharedPort)
+    }
+  }
+
+  // 串口帧频率很高，日志按串口节流，避免刷屏
+  if (now - state.lastLoggedAt < SERIAL_DIAGNOSTIC_LOG_INTERVAL) return
+  state.lastLoggedAt = now
+
+  if (decoded) {
+    console.log(
+      `[car-adaptive] 可能的 ECU 回传帧 ${path}: 帧头=${decoded.frameHeader}(${decoded.headerMatches ? 'ok' : '不匹配'})` +
+      ` 编号布局=${decoded.airbagIdsMatch ? 'ok' : '不匹配'}` +
+      ` 模式位=${decoded.mode}(${decoded.modeLabel}) 方向位=${decoded.direction}(${decoded.isUpstream ? '上行' : '下行'})` +
+      ` 累计=${state.feedbackFrames}\n            24 路档位=[${decoded.gears.join(',')}]`
+    )
+  } else {
+    console.log(
+      `[car-adaptive] 未识别串口帧 ${path}: 长度=${length} 累计=${state.lengthCounts[length]}` +
+      ` 前 24 字节=[${frame.slice(0, 24).join(',')}]`
+    )
+  }
+}
+
+/**
+ * 处理一条 ECU 回传的气囊状态帧。
+ *
+ * 回传帧本身不含主副驾标识，只能按来源串口归属：取 `portPath` 等于该串口的通道。
+ * 主副共用同一串口时无法区分，两路都写入并在诊断中标记 `sharedPort`。
+ *
+ * 注意回传帧第 49 字节的模式位仅作诊断记录，不用来改 `carAdaptiveControlModeState`。
+ * 当前算法和手动命令下发的模式位恒为 `0`，跟随它会把软件手动开关强行拉回自动。
+ *
+ * @param {string} path 收到回传帧的串口路径。
+ * @param {object} decoded 已解析的回传帧。
+ * @returns {{sensorIds: number[], sharedPort: boolean}} 归属结果。
+ */
+function applyCarAdaptiveFeedbackFrame(path, decoded) {
+  const now = Date.now()
+  const sensorIds = CAR_ADAPTIVE_SENSOR_IDS.filter(
+    (sensorId) => getCarAdaptiveSensorState(sensorId).portPath === path
+  )
+
+  sensorIds.forEach((sensorId) => {
+    const state = getCarAdaptiveSensorState(sensorId)
+    state.feedbackGears = decoded.gears
+    state.feedbackStamp = now
+    state.feedbackMode = decoded.mode
+  })
+
+  return { sensorIds, sharedPort: sensorIds.length > 1 }
+}
+
+/** 判断一路气囊回传是否仍在更新。 */
+function isCarAdaptiveFeedbackOnline(state) {
+  return Boolean(state?.feedbackStamp && Date.now() - state.feedbackStamp < CAR_ADAPTIVE_FEEDBACK_TIMEOUT)
+}
+
+/**
+ * 返回一路气囊的 24 路档位反馈。
+ *
+ * 默认只认 ECU 回传：没有回传或回传中断时返回空数组，前端气囊全灭。
+ * `JQTOOLS_AIRBAG_FEEDBACK_SOURCE=command` 时回落到最近一次写入串口的命令。
+ *
+ * @param {number} sensorId 传感器标识。
+ * @returns {number[]} 24 路档位，无数据时为空数组。
+ */
+function getCarAdaptiveAirbagFeedback(sensorId) {
+  const state = getCarAdaptiveSensorState(sensorId)
+
+  if (isCarAdaptiveFeedbackOnline(state) && Array.isArray(state.feedbackGears)) {
+    return state.feedbackGears
+  }
+
+  if (CAR_ADAPTIVE_FEEDBACK_SOURCE === 'command') {
+    return getCarAdaptiveControlFeedback(state.writtenCommand || state.controlCommand)
+  }
+
+  return []
+}
+
+/** 返回全部串口的帧诊断信息，用于确认 ECU 回传是否存在。 */
+function getSerialFrameDiagnostics() {
+  return {
+    feedbackFrameLength: CAR_ADAPTIVE_FEEDBACK_FRAME_LENGTH,
+    delimiter: splitArr,
+    note: 'ECU 回传为 55 字节命令帧，4 字节帧尾被串口分隔符消费，业务层收到 51 字节',
+    feedbackSource: CAR_ADAPTIVE_FEEDBACK_SOURCE,
+    feedbackTimeoutMs: CAR_ADAPTIVE_FEEDBACK_TIMEOUT,
+    observedFeedback: Object.values(serialFrameDiagnostics).some((item) => item.feedbackFrames > 0),
+    sensors: CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => {
+      const state = getCarAdaptiveSensorState(sensorId)
+      return {
+        sensorId,
+        role: state.role,
+        portPath: state.portPath,
+        feedbackOnline: isCarAdaptiveFeedbackOnline(state),
+        feedbackStamp: state.feedbackStamp,
+        feedbackMode: state.feedbackMode,
+        gears: state.feedbackGears || []
+      }
+    }),
+    ports: Object.fromEntries(
+      Object.entries(serialFrameDiagnostics).map(([path, item]) => [path, {
+        type: dataMap[path]?.type,
+        portOpen: Boolean(parserArr[path]?.port?.isOpen),
+        lengthCounts: item.lengthCounts,
+        feedbackFrames: item.feedbackFrames,
+        lastFeedback: item.lastFeedback,
+        samples: item.samples
+      }])
+    )
+  }
+}
+
+/** 返回气囊控制模式的对外状态。 */
+function getCarAdaptiveControlModePublicState() {
+  return {
+    ...carAdaptiveControlModeState,
+    autoWrite: isCarAdaptiveAutoMode(carAdaptiveControlModeState),
+    algorithmRunning: isCarAdaptiveAlgorithmRunning(carAdaptiveControlModeState),
+    commandIntervalMs: CAR_ADAPTIVE_COMMAND_INTERVAL,
+    view: carAdaptiveUiState.view
+  }
+}
+
+/** 广播当前气囊控制模式，让所有前端和业务客户端同步开关状态。 */
+function broadcastCarAdaptiveControlMode() {
+  socketSendData(server, JSON.stringify({
+    carAdaptiveControlMode: getCarAdaptiveControlModePublicState()
+  }))
+}
+
+/**
+ * 应用一次气囊控制模式变更。
+ * 手动切回自动时清空按摩状态，避免手动期间的拍打被算法立刻当成触发信号。
+ *
+ * @param {unknown} input 形如 `{mode, source, reason}` 的请求体。
+ * @returns {Promise<object>} 应用结果，附带 `massageReset` 表示是否已清空按摩状态。
+ */
+async function setCarAdaptiveControlMode(input) {
+  const result = applyCarAdaptiveControlMode(carAdaptiveControlModeState, input)
+  if (!result.ok) return result
+
+  carAdaptiveControlModeState = result.state
+  controlMode = isCarAdaptiveAutoMode(result.state) ? ALGOR : HANDLE
+
+  let massageReset = false
+  let algorithmReset = false
+
+  if (result.changed && result.state.mode === CAR_ADAPTIVE_CONTROL_MODES.AUTO) {
+    if (result.previousMode === CAR_ADAPTIVE_CONTROL_MODES.PAUSED) {
+      // 从暂停恢复相当于重新进入模块：重建两路算法实例，帧计数和在离座历史从零开始
+      try {
+        await callPy('resetSystem')
+        algorithmReset = true
+        CAR_ADAPTIVE_SENSOR_IDS.forEach((sensorId) => {
+          const state = getCarAdaptiveSensorState(sensorId)
+          state.algorData = undefined
+          state.controlCommand = undefined
+        })
+      } catch (err) {
+        console.error('[car-adaptive] resetSystem failed:', err.message)
+      }
+    } else {
+      // 手动切回自动只清按摩状态，避免手动期间的按压被当成拍打触发信号
+      try {
+        await callPy('resetMessage')
+        massageReset = true
+      } catch (err) {
+        console.error('[car-adaptive] resetMessage failed:', err.message)
+      }
+    }
+  }
+
+  if (result.changed) {
+    console.log(
+      `[car-adaptive] control mode: ${result.previousMode} -> ${result.state.mode} (${result.state.source})`
+    )
+    broadcastCarAdaptiveControlMode()
+  }
+
+  return { ...result, massageReset, algorithmReset }
+}
+
+/**
+ * 按当前 SDK 页面视图同步气囊控制模式。
+ *
+ * 只在视图真正发生变化时才切换：模块页内切换主副驾会重复上报 `view=module`，
+ * 若每次都同步，会把页面上正在进行的手动标定强行拉回自动。
+ *
+ * @param {string} previousView 变化前的视图。
+ * @param {string} nextView 变化后的视图。
+ * @returns {Promise<void>}
+ */
+async function syncCarAdaptiveControlModeWithView(previousView, nextView) {
+  if (!nextView || previousView === nextView) return
+
+  const targetMode = getCarAdaptiveModeForView(nextView)
+  if (targetMode === carAdaptiveControlModeState.mode) return
+
+  await setCarAdaptiveControlMode({
+    mode: targetMode,
+    source: 'view',
+    reason: targetMode === CAR_ADAPTIVE_CONTROL_MODES.AUTO
+      ? '进入自适应模块'
+      : `离开自适应模块（${nextView}）`
+  })
+}
+
+/** 保存一路 145 字节串口帧解析后的 144 点压力数据。 */
+function updateCarAdaptiveSensorFrame(sensorId, sensorData, stamp, portPath) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  const previousStamp = state.stamp
+  state.sensorData = sensorData
+  state.stamp = stamp
+  state.portPath = portPath || state.portPath
+  state.HZ = previousStamp && stamp > previousStamp
+    ? Math.max(1, parseInt(1000 / (stamp - previousStamp)))
+    : state.HZ
+  return state
+}
+
+/** 保存指定传感器的独立算法结果及其最新控制命令。 */
+function updateCarAdaptiveAlgorithmResult(sensorId, result) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  state.algorData = {
+    ...result,
+    sensor_id: sensorId,
+    sensor_role: state.role
+  }
+  if (result?.control_command) {
+    state.controlCommand = result.control_command
+  }
+  return state.algorData
+}
 
 function normalizeControlCommand(command) {
   if (!Array.isArray(command) || !command.length) {
@@ -223,7 +796,16 @@ function normalizeControlCommand(command) {
   return Buffer.from(bytes)
 }
 
-function getCarAdaptivePorts() {
+function getCarAdaptivePorts(sensorId) {
+  const sensorPortPath = sensorId && getCarAdaptiveSensorState(sensorId)?.portPath
+  if (sensorPortPath && parserArr[sensorPortPath]?.port?.isOpen) {
+    return [{
+      path: sensorPortPath,
+      port: parserArr[sensorPortPath].port,
+      type: dataMap[sensorPortPath]?.type
+    }]
+  }
+
   return Object.keys(parserArr)
     .map((path) => ({
       path,
@@ -233,23 +815,57 @@ function getCarAdaptivePorts() {
     .filter((item) => item.type === CAR_ADAPTIVE_TYPE && item.port?.isOpen)
 }
 
-function writeCarAdaptiveCommand(command) {
-  const commandBuffer = normalizeControlCommand(command)
-  if (!commandBuffer) return
+/** 按串口排队写入命令，确保主、副两路命令不会因同一时刻写串口而被丢弃。 */
+function enqueueCarAdaptiveCommand(path, port, commandBuffer) {
+  const queueState = adaptiveWriteQueues[path] || {
+    writing: false,
+    queue: []
+  }
+  adaptiveWriteQueues[path] = queueState
+  queueState.queue.push(commandBuffer)
 
-  const targetPorts = getCarAdaptivePorts()
-  if (!targetPorts.length) return
-
-  targetPorts.forEach(({ path, port }) => {
-    if (adaptiveWritePending[path]) return
-
-    adaptiveWritePending[path] = true
-    port.write(commandBuffer, (err) => {
-      adaptiveWritePending[path] = false
+  const writeNext = () => {
+    if (queueState.writing || !queueState.queue.length || !port?.isOpen) return
+    queueState.writing = true
+    const nextCommand = queueState.queue.shift()
+    port.write(nextCommand, (err) => {
+      queueState.writing = false
       if (err) {
         console.error(`[car-adaptive] write failed on ${path}:`, err.message)
       }
+      writeNext()
     })
+  }
+
+  writeNext()
+}
+
+/** 将一路控制命令写回产生该路数据的串口，算法自动写入和业务手动写入共用该入口。 */
+function writeCarAdaptiveCommand(command, sensorId = selectedCarAdaptiveSensorId) {
+  const commandBuffer = normalizeControlCommand(command)
+  if (!commandBuffer) return
+
+  const targetPorts = getCarAdaptivePorts(sensorId)
+  if (!targetPorts.length) return
+
+  // 记录真正进入写入队列的命令，手动模式下前端气囊反馈才能反映实际下发值。
+  const sensorState = getCarAdaptiveSensorState(sensorId)
+  if (sensorState) {
+    sensorState.writtenCommand = Array.isArray(command) ? [...command] : command
+  }
+
+  targetPorts.forEach(({ path, port }) => {
+    enqueueCarAdaptiveCommand(path, port, commandBuffer)
+  })
+}
+
+/** 依次写入主、副两路最新算法命令。 */
+function writeAllCarAdaptiveCommands() {
+  CAR_ADAPTIVE_SENSOR_IDS.forEach((sensorId) => {
+    const command = getCarAdaptiveSensorState(sensorId).controlCommand
+    if (command) {
+      writeCarAdaptiveCommand(command, sensorId)
+    }
   })
 }
 
@@ -274,7 +890,8 @@ app.get('/health', (req, res) => {
     mode: 'real',
     httpPort: port,
     webSocketPort: wsPort,
-    frontendBuildDir: FRONTEND_BUILD_DIR
+    frontendBuildDir: FRONTEND_BUILD_DIR,
+    controlMode: carAdaptiveControlModeState.mode
   }, 'success'))
 })
 
@@ -805,27 +1422,123 @@ app.post('/algorithm/config', async (req, res) => {
   }
 })
 
-// Car adaptive: submit a 144-point frame and run the Python algorithm.
+// 获取旧版单路 WebSocket 的兼容投影：1 为主传感器，2 为副传感器。
+app.get('/carAdaptive/sensor', (req, res) => {
+  res.json(new HttpResult(0, getCarAdaptiveSensorSelection(), 'success'))
+})
+
+// 获取主、副两路实时运行摘要；两路算法始终独立运行。
+app.get('/carAdaptive/sensors', (req, res) => {
+  res.json(new HttpResult(0, getCarAdaptiveSensorsStatus(), 'success'))
+})
+
+// 诊断接口：确认 ECU 是否回传气囊状态帧，以及回传帧的实际长度和协议布局。
+// 前端气囊亮暗最终应由回传驱动，这里用于在真实硬件上先验证回传是否存在。
+app.get('/carAdaptive/feedbackDiagnostics', (req, res) => {
+  res.json(new HttpResult(0, getSerialFrameDiagnostics(), 'success'))
+})
+
+// 查询当前气囊控制模式：auto 为算法自动写串口，manual 为只接受手动下发。
+app.get('/carAdaptive/mode', (req, res) => {
+  res.json(new HttpResult(0, getCarAdaptiveControlModePublicState(), 'success'))
+})
+
+// 切换气囊控制模式。手动模式只停止算法自动写串口，两路算法继续运行并继续推送数据。
+app.post('/carAdaptive/mode', async (req, res) => {
+  const result = await setCarAdaptiveControlMode(req.body)
+  if (!result.ok) {
+    res.status(400).json(new HttpResult(1, {}, result.message))
+    return
+  }
+
+  res.json(new HttpResult(0, {
+    ...getCarAdaptiveControlModePublicState(),
+    changed: result.changed,
+    massageReset: result.massageReset,
+    algorithmReset: result.algorithmReset
+  }, result.changed ? '控制模式已切换' : '控制模式未变化'))
+})
+
+// 查询当前 SDK 页面、主副驾选择和最近一次远程命令执行状态。
+app.get('/carAdaptive/ui/state', (req, res) => {
+  res.json(new HttpResult(0, getCarAdaptiveUiPublicState(), 'success'))
+})
+
+// 从局域网设备下发返回主页、打开模块或主副驾切换命令。
+app.post('/carAdaptive/ui/command', async (req, res) => {
+  if (!isCarAdaptiveUiRequestAuthorized(req)) {
+    res.status(401).json(new HttpResult(1, {}, '远程控制令牌错误'))
+    return
+  }
+
+  const previousView = carAdaptiveUiState.view
+  const result = applyCarAdaptiveUiCommand(carAdaptiveUiState, req.body)
+  if (!result.ok) {
+    res.status(400).json(new HttpResult(1, {}, result.message))
+    return
+  }
+
+  carAdaptiveUiState = result.state
+  // 进入自适应模块让算法接管，离开则暂停算法
+  await syncCarAdaptiveControlModeWithView(previousView, carAdaptiveUiState.view)
+  if (
+    result.command.action === CAR_ADAPTIVE_UI_ACTIONS.RETURN_HOME &&
+    CAR_ADAPTIVE_HOME_URL
+  ) {
+    result.command.homeUrl = CAR_ADAPTIVE_HOME_URL
+  }
+  broadcastCarAdaptiveUiCommand(result.command)
+  res.json(new HttpResult(0, {
+    command: result.command,
+    state: getCarAdaptiveUiPublicState()
+  }, '远程 UI 命令已广播'))
+})
+
+// 切换旧版单路兼容投影，不停止、不清空也不重置任何一路算法。
+app.post('/carAdaptive/sensor', (req, res) => {
+  const sensorId = normalizeCarAdaptiveSensorId(req.body?.sensorId)
+  if (sensorId === null) {
+    res.json(new HttpResult(1, {}, 'sensorId 只允许为 1（主）或 2（副）'))
+    return
+  }
+
+  selectedCarAdaptiveSensorId = sensorId
+  const selection = getCarAdaptiveSensorSelection()
+  socketSendData(server, JSON.stringify({ carAdaptiveSensor: selection }))
+  res.json(new HttpResult(0, selection, '兼容投影切换成功，主副算法继续运行'))
+})
+
+// Car adaptive: submit a 144-point frame to the specified independent Python algorithm.
 app.post('/carAdaptive/processFrame', async (req, res) => {
   try {
     const { sensorData, writeSerial = false } = req.body
+    const sensorId = normalizeCarAdaptiveSensorId(
+      req.body?.sensorId ?? selectedCarAdaptiveSensorId
+    )
 
     if (!Array.isArray(sensorData) || sensorData.length !== 144) {
       res.json(new HttpResult(1, {}, 'sensorData must be an array with 144 numbers'));
       return
     }
 
-    const result = await callPy('server', { sensor_data: sensorData })
-    algorData = result
-
-    if (result?.control_command) {
-      control_command = result.control_command
-      if (writeSerial) {
-        writeCarAdaptiveCommand(result.control_command)
-      }
+    if (sensorId === null) {
+      res.json(new HttpResult(1, {}, 'sensorId must be 1 (main) or 2 (secondary)'));
+      return
     }
 
-    res.json(new HttpResult(0, result, 'success'));
+    updateCarAdaptiveSensorFrame(sensorId, sensorData, Date.now())
+    const result = await callPy('server', {
+      sensor_data: sensorData,
+      sensor_id: sensorId
+    })
+    const sensorAlgorithmData = updateCarAdaptiveAlgorithmResult(sensorId, result)
+
+    if (writeSerial && result?.control_command) {
+      writeCarAdaptiveCommand(result.control_command, sensorId)
+    }
+
+    broadcastCarAdaptiveSensorSnapshots()
+    res.json(new HttpResult(0, sensorAlgorithmData, 'success'));
   } catch (err) {
     res.json(new HttpResult(1, {}, err.message || 'car adaptive algorithm failed'));
   }
@@ -835,6 +1548,9 @@ app.post('/carAdaptive/processFrame', async (req, res) => {
 app.post('/carAdaptive/writeCommand', async (req, res) => {
   try {
     const { controlCommand } = req.body
+    const sensorId = normalizeCarAdaptiveSensorId(
+      req.body?.sensorId ?? selectedCarAdaptiveSensorId
+    )
     const commandBuffer = normalizeControlCommand(controlCommand)
 
     if (!commandBuffer) {
@@ -842,8 +1558,18 @@ app.post('/carAdaptive/writeCommand', async (req, res) => {
       return
     }
 
-    writeCarAdaptiveCommand(controlCommand)
-    res.json(new HttpResult(0, { length: commandBuffer.length }, 'success'));
+    if (sensorId === null) {
+      res.json(new HttpResult(1, {}, 'sensorId must be 1 (main) or 2 (secondary)'));
+      return
+    }
+
+    writeCarAdaptiveCommand(controlCommand, sensorId)
+    // 返回当前模式：自动模式下该命令会在下一个 500ms 周期被算法命令覆盖。
+    res.json(new HttpResult(0, {
+      length: commandBuffer.length,
+      sensorId,
+      controlMode: carAdaptiveControlModeState.mode
+    }, 'success'));
   } catch (err) {
     res.json(new HttpResult(1, {}, err.message || 'car adaptive write command failed'));
   }
@@ -900,12 +1626,40 @@ server.on("connection", function connection(ws, req) {
   const ip = req.connection.remoteAddress;
   const port = req.connection.remotePort;
   const clientName = ip + port;
+  const requestUrl = new URL(req.url || '/', 'ws://127.0.0.1')
+  ws.jqtoolsRole = requestUrl.searchParams.get('role') || 'data'
+  ws.jqtoolsClientId = requestUrl.searchParams.get('clientId') || clientName
   console.log("%s is connected", clientName);
 
   socketSendData(server, JSON.stringify({}))
+  socketSendData(server, JSON.stringify({ carAdaptiveSensor: getCarAdaptiveSensorSelection() }))
+  socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
+  broadcastCarAdaptiveControlMode()
+  broadcastCarAdaptiveSensorSnapshots()
 
-  ws.on("message", () => {
+  ws.on("message", (rawMessage) => {
+    let message
+    try {
+      message = JSON.parse(rawMessage.toString())
+    } catch (_error) {
+      return
+    }
 
+    if (message?.type === 'carAdaptiveUiReport') {
+      const previousView = carAdaptiveUiState.view
+      carAdaptiveUiState = applyCarAdaptiveUiReport(carAdaptiveUiState, {
+        ...message,
+        clientId: ws.jqtoolsClientId
+      })
+      // 只在视图真正变化时同步，模块页内切换主副驾会重复上报同一视图
+      syncCarAdaptiveControlModeWithView(previousView, carAdaptiveUiState.view)
+        .catch((err) => console.error('[car-adaptive] 视图模式同步失败:', err.message))
+    } else if (message?.type === 'carAdaptiveUiAcknowledgement') {
+      carAdaptiveUiState = applyCarAdaptiveUiAcknowledgement(carAdaptiveUiState, {
+        ...message,
+        clientId: ws.jqtoolsClientId
+      })
+    }
   });
 });
 
@@ -987,6 +1741,7 @@ function parseData(parserArr, objs, type) {
         json[data.type].rotate = data.rotate
         json[data.type].stamp = data.stamp
         json[data.type].HZ = data.HZ
+        if (data.sensorId) json[data.type].sensorId = data.sensorId
         if (data.cop) json[data.type].cop = data.cop
         if (data.breatheData) json[data.type].cop = data.breatheData
         // json[data.type].stampDiff = new Date().getTime() - data.stamp
@@ -1394,15 +2149,24 @@ async function connectPort() {
             // console.log(dataItem.arrList, pointArr.length, dataItem.cop)
           }
 
-        } else if (pointArr.length == 144) {
+        } else if (pointArr.length == CAR_ADAPTIVE_SERIAL_FRAME_LENGTH) {
 
+          const frame = parseCarAdaptiveSerialFrame(pointArr)
+          if (!frame) {
+            console.warn('[car-adaptive] ignored invalid 145-byte frame')
+            return
+          }
+
+          const { sensorId, sensorData } = frame
           const stamp = new Date().getTime()
+          const sensorState = updateCarAdaptiveSensorFrame(sensorId, sensorData, stamp, path)
           dataItem.stamp = stamp
           dataItem.type = 'carAir'
+          dataItem.sensorId = sensorId
           // if (!dataItem.premission) {
           //   dataItem.status = 'expired'
           // } else {
-          dataItem.arr = pointArr
+          dataItem.arr = sensorData
           // }
 
 
@@ -1413,8 +2177,9 @@ async function connectPort() {
           if (sendDataLength < 1) {
             sendDataLength++
           }
-          if (oldTimeObj[dataItem.type]) {
-            dataItem.HZ = parseInt(1000 / (stamp - oldTimeObj[dataItem.type]))
+          const sensorTimeKey = `${dataItem.type}:${sensorId}`
+          if (oldTimeObj[sensorTimeKey]) {
+            dataItem.HZ = sensorState.HZ
             if (!MaxHZ && sendDataLength == 1) {
               MaxHZ = dataItem.HZ
               HZ = MaxHZ
@@ -1425,14 +2190,18 @@ async function connectPort() {
             }
           }
 
-          oldTimeObj[dataItem.type] = dataItem.stamp
-          try {
-            algorData = await callPy('server', { sensor_data: pointArr })
-            if (algorData.control_command) {
-              control_command = algorData.control_command
+          oldTimeObj[sensorTimeKey] = dataItem.stamp
+          // 暂停模式只停算法，上面的串口采集、压力数据和 HZ 统计照常进行
+          if (isCarAdaptiveAlgorithmRunning(carAdaptiveControlModeState)) {
+            try {
+              const result = await callPy('server', {
+                sensor_data: sensorData,
+                sensor_id: sensorId
+              })
+              updateCarAdaptiveAlgorithmResult(sensorId, result)
+            } catch (err) {
+              console.error(`[car-adaptive] sensor ${sensorId} algorithm failed:`, err.message)
             }
-          } catch (err) {
-            console.error('[car-adaptive] algorithm failed:', err.message)
           }
           // console.log(algorData?.frame_count)
 
@@ -1498,7 +2267,9 @@ async function connectPort() {
 
 
         else if (![18, 1024, 130].includes(pointArr.length)) {
-
+          // 未被业务分支处理的帧。ECU 回传的气囊状态帧会落在这里（预期 51 字节），
+          // 记录下来供 /carAdaptive/feedbackDiagnostics 确认回传是否存在及其实际布局。
+          recordSerialFrameDiagnostics(path, pointArr)
         }
       })
     }
@@ -1639,7 +2410,8 @@ function sendData() {
     // 如果串口发送数据
     const arr = []
 
-    obj = parseData(parserArr, JSON.parse(JSON.stringify({ ...dataMap })), 'highHZ')
+    broadcastCarAdaptiveSensorSnapshots()
+    obj = parseData(parserArr, createCarAdaptiveDisplayDataMap(), 'highHZ')
     for (let i = 0; i < 4096; i++) {
       arr.push(Math.floor(Math.random() * 100))
     }
@@ -1712,10 +2484,16 @@ setInterval(() => {
 
 
 setInterval(async () => {
-  if (algorData?.control_command && controlMode == ALGOR) {
-    writeCarAdaptiveCommand(algorData.control_command)
+  // 手动模式只停止算法自动写串口，算法本身继续处理每一帧并推送数据。
+  if (isCarAdaptiveAutoMode(carAdaptiveControlModeState)) {
+    writeAllCarAdaptiveCommands()
   }
 
+  socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
+  broadcastCarAdaptiveSensorSnapshots()
+  const displayState = getCarAdaptiveSensorState(selectedCarAdaptiveSensorId)
+  const displayAlgorithmData = displayState.algorData
+  const displayAirbagFeedback = getCarAdaptiveAirbagFeedback(selectedCarAdaptiveSensorId)
   const portArr = Object.keys(parserArr).map((path) => {
     return parserArr[path].port
   })
@@ -1728,37 +2506,12 @@ setInterval(async () => {
       server.clients.forEach(function each(client) {
         if (port?.isOpen) {
 
-          if (algorData?.control_command && controlMode == ALGOR) {
-            const hexStr = algorData.control_command
-              .map(v => v.toString(16).padStart(2, '0'))
-              .join('');
-
-            // console.log(hexStr);
-
-
-            // 不发送指令
-            // const command = Buffer.from(hexStr, 'hex')
-            // console.log('sendCommand', command)
-            // port.write(command, err => {
-            //   if (err) {
-            //     return console.error('err2:', err.message);
-            //   }
-            //   // console.log('send:', command.trim());
-            //   // resolve(command.trim())
-
-            //   console.log('send:', 11);
-            //   // resolve(11)
-            // });
-
-            let max = 24, controlArr = []
-            for (let i = 0; i < max; i++) {
-              controlArr.push(algorData.control_command[2 * i + 2])
-            }
-
+          // 兼容单路推送：气囊反馈来自 ECU 回传，代表硬件实际状态。
+          // 实际写串口由 writeAllCarAdaptiveCommands 按通道排队完成，不在这里发送。
+          if (displayAirbagFeedback.length) {
             if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({ algorFeed: controlArr }));
+              client.send(JSON.stringify({ algorFeed: displayAirbagFeedback }));
             }
-
           }
 
 
@@ -1768,7 +2521,7 @@ setInterval(async () => {
 
 
           if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ algorData }));
+            client.send(JSON.stringify({ algorData: displayAlgorithmData }));
           }
         }
       });

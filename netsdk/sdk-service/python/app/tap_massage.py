@@ -71,8 +71,8 @@ class TapMassageDetector:
         每帧调用的主方法
 
         Args:
-            backrest_right_rect: 靠背右侧小矩形（6个元素）
-            cushion_right_rect: 坐垫右侧小矩形（6个元素）
+            backrest_right_rect: 靠背右侧小矩形（4个元素）
+            cushion_right_rect: 坐垫右侧小矩形（4个元素）
             frame_count: 当前帧数
 
         Returns:
@@ -154,8 +154,8 @@ class TapMassageDetector:
         计算帧差并更新历史缓冲
 
         Args:
-            backrest_right_rect: 靠背右侧小矩形（6个元素）
-            cushion_right_rect: 坐垫右侧小矩形（6个元素）
+            backrest_right_rect: 靠背右侧小矩形（4个元素）
+            cushion_right_rect: 坐垫右侧小矩形（4个元素）
         """
         # 追加当前数据到历史
         self.backrest_right_history.append(backrest_right_rect.copy())
@@ -186,8 +186,8 @@ class TapMassageDetector:
         计算帧差均值（只保留正向压力增加）
 
         Args:
-            current: 当前帧数据（6个元素）
-            prev: 前一帧数据（6个元素）
+            current: 当前帧数据（4个元素）
+            prev: 前一帧数据（4个元素）
 
         Returns:
             帧差均值（0-255范围）

@@ -1,15 +1,23 @@
 const { app, BrowserWindow, Menu } = require('electron')
 const path = require('path')
-const { fork, spawn } = require('child_process')
+const { fork, spawn, spawnSync } = require('child_process')
 const { getHardwareFingerprint } = require('./util/getWinConfig')
 const { getKeyfromWinuuid } = require('./util/getServer')
 const { initDb, getCsvData } = require('./util/db')
 const http = require('http')
 const fs = require('fs')
 const { startWorker, callPy } = require('./pyWorker')
+const {
+  createClientDevUrl,
+  findAvailablePort,
+  waitForClientDevServerReady
+} = require('./util/clientDevServer')
 const isPackaged = app.isPackaged
 const clientDevHost = process.env.JQTOOLS_CLIENT_DEV_HOST || '127.0.0.1'
 const clientDevPort = Number(process.env.JQTOOLS_CLIENT_DEV_PORT || 3000)
+const clientDevPortSearchLimit = Number(
+  process.env.JQTOOLS_CLIENT_DEV_PORT_SEARCH_LIMIT || 100
+)
 const clientDir = path.join(__dirname, 'client')
 const clientPublicDir = path.join(clientDir, 'public')
 const startupPageUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(`<!doctype html>
@@ -31,38 +39,19 @@ const startupPageUrl = `data:text/html;charset=UTF-8,${encodeURIComponent(`<!doc
 let clientDevProcess = null
 let clientPublicWatcher = null
 
-function isHttpReady(url) {
-  return new Promise((resolve) => {
-    const req = http.get(url, (res) => {
-      res.resume()
-      resolve(res.statusCode >= 200 && res.statusCode < 500)
-    })
-
-    req.on('error', () => resolve(false))
-    req.setTimeout(1000, () => {
-      req.destroy()
-      resolve(false)
-    })
-  })
-}
-
-async function waitForHttpReady(url, timeoutMs = 90000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await isHttpReady(url)) {
-      return true
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500))
-  }
-  return false
-}
-
 async function startClientDevServer() {
-  const url = `http://${clientDevHost}:${clientDevPort}`
+  const selectedPort = await findAvailablePort({
+    host: clientDevHost,
+    startPort: clientDevPort,
+    maxAttempts: clientDevPortSearchLimit
+  })
+  const url = createClientDevUrl(clientDevHost, selectedPort)
 
-  if (await isHttpReady(url)) {
-    console.log(`[client] reuse dev server: ${url}`)
-    return url
+  if (selectedPort !== clientDevPort) {
+    console.warn(
+      `[client] preferred port ${clientDevPort} is occupied; ` +
+      `start this project's client on ${selectedPort}`
+    )
   }
 
   const packageJsonPath = path.join(clientDir, 'package.json')
@@ -72,7 +61,10 @@ async function startClientDevServer() {
 
   // Windows 不能直接 spawn .cmd 文件，需通过 cmd.exe 启动 npm。
   const npmCommand = process.platform === 'win32'
-    ? { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd start'] }
+    ? {
+        command: process.env.ComSpec || 'cmd.exe',
+        args: ['/d', '/s', '/c', 'call npm.cmd start']
+      }
     : { command: 'npm', args: ['start'] }
 
   clientDevProcess = spawn(npmCommand.command, npmCommand.args, {
@@ -83,9 +75,9 @@ async function startClientDevServer() {
       ...process.env,
       BROWSER: 'none',
       HOST: clientDevHost,
-      PORT: String(clientDevPort),
+      PORT: String(selectedPort),
       WDS_SOCKET_HOST: clientDevHost,
-      WDS_SOCKET_PORT: String(clientDevPort),
+      WDS_SOCKET_PORT: String(selectedPort),
       // 开发启动默认跳过 ESLint 全量扫描，可通过环境变量改回 false。
       DISABLE_ESLINT_PLUGIN: process.env.DISABLE_ESLINT_PLUGIN || 'true'
     }
@@ -110,7 +102,7 @@ async function startClientDevServer() {
   })
 
   const ready = await Promise.race([
-    waitForHttpReady(url),
+    waitForClientDevServerReady(url),
     startupFailure
   ])
   startupFinished = true
@@ -128,7 +120,17 @@ function stopClientDevServer() {
   }
 
   if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(clientDevProcess.pid), '/t', '/f'])
+    const result = spawnSync(
+      'taskkill',
+      ['/pid', String(clientDevProcess.pid), '/t', '/f'],
+      {
+        windowsHide: true,
+        stdio: 'ignore'
+      }
+    )
+    if (result.error) {
+      console.error(`[client] failed to stop dev server: ${result.error.message}`)
+    }
     return
   }
 
@@ -311,6 +313,7 @@ const createWindow = async (clientUrlPromise = null) => {
     await win.loadURL(startupPageUrl)
     const clientUrl = await clientUrlPromise
     await win.loadURL(clientUrl)
+    console.log(`[client] window loaded project frontend: ${clientUrl}`)
     watchClientPublicAssets(win)
     return
   }

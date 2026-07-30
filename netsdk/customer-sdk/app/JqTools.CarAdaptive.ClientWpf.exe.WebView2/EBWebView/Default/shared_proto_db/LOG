@@ -1,3 +1,2 @@
-2026/07/13-19:37:15.117 26d0 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\shared_proto_db/MANIFEST-000001
-2026/07/13-19:37:15.117 26d0 Recovering log #3
-2026/07/13-19:37:15.117 26d0 Reusing old log D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\shared_proto_db/000003.log 
+2026/07/29-18:18:08.568 c1d8 Creating DB D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\shared_proto_db since it was missing.
+2026/07/29-18:18:08.573 c1d8 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\shared_proto_db/MANIFEST-000001

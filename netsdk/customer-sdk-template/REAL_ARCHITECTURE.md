@@ -1,83 +1,91 @@
 # 真实架构与客户 SDK 转换说明
 
-本文档描述 `customer-sdk` 当前的独立运行架构。客户不需要原项目源码，也不需要另外安装 Node.js 或 Python。
+本文描述 `customer-sdk` 的独立运行和源码保护结构。客户不需要原项目源码，也不需要另外安装 Node.js 或 Python。
 
 ## 1. 运行架构
 
 ```mermaid
 flowchart LR
-  WPF["WPF EXE / WPF 控件 / Native DLL"] --> Launcher["mock-service.js 真实服务启动器"]
-  Launcher --> Node["real-backend/server/serialServer.js"]
-  Node --> Serial["真实压力和气囊串口"]
-  Node --> Worker["real-backend/pyWorker.js"]
-  Worker --> Python["内置 Python + 汽车自适应算法"]
-  Python --> Node
-  Node --> REST["HTTP :19245"]
-  Node --> WS["WebSocket :19999"]
+  WPF["WPF EXE / WPF 控件 / Native DLL"] --> Launcher["mock-service.js 兼容启动器"]
+  Launcher --> Host["real-backend/backend-host.exe"]
+  Host --> Pack["backend.jqpack 加密业务包"]
+  Host --> Serial["真实压力与区域控制串口"]
+  Host --> Py["内置 Python + server.pyc"]
+  Py --> Host
+  Host --> REST["HTTP :19245"]
+  Host --> WS["WebSocket :19999"]
   REST --> UI["WebView2 / Three.js 前端"]
   WS --> UI
 ```
 
-`mock-service.js` 是为兼容原 WPF 启动接口而保留的文件名。当前文件只负责启动真实后端，不生成假串口或假算法数据。
+`mock-service.js` 只是兼容已有 WPF 和 Native DLL 启动接口的薄启动器，不生成假数据。它优先启动受保护的 `backend-host.exe`；项目开发环境没有保护产物时，才回退到根目录源码。
 
 ## 2. 客户包结构
 
 ```text
 customer-sdk/
-  app/                       WPF 独立启动程序
-    mock-sdk/                真实服务启动器
-  wpf-control/               WPF 自定义控件 DLL
-    mock-sdk/                真实服务启动器
-  native-dll/                C ABI Native DLL 和 P/Invoke 示例
-    mock-sdk/                真实服务启动器
-  mock-service/              可单独启动的真实服务入口
-  frontend-build/            当前 React/Three.js 构建产物和模型
-  runtime/node/node.exe      内置 Node.js
+  app/                             WPF 独立程序
+  wpf-control/                     WPF 自定义控件 DLL
+  native-dll/                      C ABI Native DLL 和 P/Invoke 示例
+  mock-service/                    可单独启动的兼容入口
+  frontend-build/                  React/Three.js 构建产物和模型
+  runtime/node/node.exe            启动薄入口所需的 Node.js
   real-backend/
-    server/                  HTTP、WS、串口和算法调用
-    util/                    串口解析、数据库和配置工具
-    pyWorker.js              Node/Python JSON 行协议桥接
-    python/Python311/        内置 Python 运行时和依赖
-    python/app/              汽车自适应算法及 YAML 配置
-    node_modules/            Node 生产依赖
-    db/                      汽车自适应 SQLite 数据库
-    data/                    采集输出目录
-    config.txt               系统类型和串口协议配置
-  scripts/                   启动、停止和验收脚本
-  docs/                      接口和架构文档
+    backend-host.exe               Node.js SEA 业务宿主
+    backend.jqpack                 AES-256-GCM 加密业务模块
+    protection-manifest.json       不含密钥的保护产物清单
+    python/Python311/              Python 3.11 运行时和第三方依赖
+    python/app/*.pyc               第一方汽车自适应算法字节码
+    python/app/sensor_config.yaml  客户可调算法参数
+    node_modules/                  Node 生产依赖和原生扩展
+    db/                            汽车自适应 SQLite 数据库
+    data/                          采集输出目录
+    config.txt                     系统类型和串口协议配置
+  scripts/                         启动、停止和验收脚本
+  docs/                            接口、架构和保护说明
 ```
 
-所有入口共享一份 `real-backend/` 和 `frontend-build/`，避免重复拷贝 Python、Node 依赖和 Three.js 模型。
+客户包不包含第一方 `server/*.js`、`util/*.js`、`pyWorker.js` 或算法 `.py`。`node_modules`、Python 标准库和第三方包仍可能包含其各自源码，这是运行时依赖，不是本项目业务源码。
 
-## 3. 真实数据链路
+## 3. 真实双传感器链路
 
-1. WPF 或 Native DLL 使用 `runtime/node/node.exe` 启动入口。
-2. 入口通过 `JQTOOLS_REAL_BACKEND_ROOT` 定位客户包内的 `real-backend/`。
-3. `serialServer.js` 读取本机真实串口并解析 144 点汽车压力帧。
-4. Node 通过 `pyWorker.js` 向常驻 Python 进程发送 JSON 行请求。
-5. Python 调用 `IntegratedSeatSystem.process_frame()` 生成算法数据和 51 字节 `control_command`。
-6. Node 将控制命令写回 `carAir` 气囊串口，并通过 WebSocket 推送真实数据。
-7. WebView2 加载 `/app`，显示当前 React/Three.js 前端。
+1. WPF 或 Native DLL 使用内置 Node 启动 `mock-service.js`。
+2. 启动器通过 `JQTOOLS_REAL_BACKEND_ROOT` 定位 `real-backend/`，以隐藏窗口启动 `backend-host.exe`。
+3. SEA 宿主在内存中校验并解密 `backend.jqpack`，加载真实 HTTP、WebSocket、串口和 Python 桥接逻辑。
+4. 串口按 145 字节解析：首字节 `1` 为主驾、`2` 为副驾，后 144 字节为压力数据。
+5. 主、副数据始终进入各自独立的 Python 算法实例，不因 UI 当前显示通道而停止。
+6. 两路算法分别返回 55 字节 `control_command`；`auto` 模式下 Node 按来源串口排队写回。
+7. WebSocket 用 `carAdaptiveSensorsData` 同时推送两套完整快照。
+8. 前端“主驾 / 副驾”按钮只切换本地显示缓存，不清空算法历史，也不影响其他客户端。
 
-## 4. Python 调用协议
+气囊写入模式由 `GET`/`POST /carAdaptive/mode` 管理。`manual` 只关闭算法的周期自动写入，
+主副两套算法仍逐帧运行；显式 `/carAdaptive/writeCommand` 继续可用。模式变化通过
+`carAdaptiveControlMode` 广播。
 
-请求示例：
+## 4. Python 调用
+
+Node 启动以下入口：
+
+```text
+real-backend/python/Python311/python.exe
+real-backend/python/app/server.pyc
+```
+
+通信仍为 stdin/stdout JSON 行协议：
 
 ```json
-{"id":1,"fn":"server","args":{"sensor_data":[0,1,2]}}
+{"id":1,"fn":"server","args":{"sensor_id":1,"sensor_data":[144点数据]}}
 ```
-
-响应示例：
 
 ```json
-{"id":1,"ok":true,"data":{"control_command":[170,85]}}
+{"id":1,"ok":true,"data":{"control_command":[55字节命令]}}
 ```
 
-Python 进程使用隐藏窗口启动，WPF 正常运行时不会出现终端窗口。WPF 退出时会终止入口和其子进程树。
+Python 进程使用隐藏窗口启动。WPF 退出时会终止启动器、SEA 宿主和 Python 子进程树。
 
 ## 5. 算法参数
 
-参数源文件：
+参数文件保持明文，以支持客户现场调节：
 
 ```text
 real-backend/python/app/sensor_config.yaml
@@ -90,26 +98,58 @@ GET  /algorithm/config
 POST /algorithm/config
 ```
 
-前端右上角“算法参数”按钮会打开抽屉，按配置段分组显示全部参数及中文注释。保存时前端只发送已修改项；Python 合并写入 YAML 后重建算法系统，使映射参数和未映射参数都立即生效。
+保存后会重建主、副两套算法实例，新参数立即作用于后续压力帧。
 
-## 6. 从源码到 SDK 的转换
+## 6. 从源码到 SDK
 
-`netsdk/build-customer-sdk.ps1` 执行以下工作：
+`netsdk/build-customer-sdk.ps1` 默认执行：
 
-1. 构建 `client/`，生成当前前端和 Three.js 模型资源。
+1. 构建当前 React/Three.js 前端。
 2. 构建 WPF 程序、WPF 控件 DLL 和 Native DLL。
-3. 复制真实 Node 后端、串口工具、汽车数据库和算法代码到 `real-backend/`。
-4. 复制 Python 3.11 运行时及算法依赖。
-5. 使用 `npm ci --omit=dev` 安装 Node 生产依赖。
-6. 复制当前 `node.exe` 到 `runtime/node/`。
-7. 生成客户文档、启动脚本和验收脚本。
+3. 安装真实后端生产依赖并复制 Node/Python 运行时。
+4. 将第一方 Node 模块压缩后使用 AES-256-GCM 加密为 `backend.jqpack`。
+5. 用 Node.js Single Executable Applications 生成 `backend-host.exe`，密钥只随宿主二进制交付。
+6. 将五个第一方 Python 算法模块编译成根目录 sourceless `.pyc`。
+7. 成功生成全部保护产物后，删除客户包中的第一方 `.js` 和 `.py`。
+8. 从 `sdk/API.md`、`sdk/QUICKSTART.md` 复制客户接口文档，再复制其余说明、启动脚本和验收脚本。
 
-## 7. 验证边界
+内部排查时可临时使用 `-SkipProtection` 输出源码版，但该参数不应用于客户交付。
 
-执行：
+## 7. 局域网模块控制
+
+后端新增独立于压力数据流的 UI 控制状态：
+
+```text
+GET  /carAdaptive/ui/state
+POST /carAdaptive/ui/command
+```
+
+SDK 业务页通过现有 WebSocket 以 `role=ui-display` 注册，接收 `carAdaptiveUiCommand` 后执行页面导航或本地主副驾切换，并返回 `carAdaptiveUiAcknowledgement`。远程控制不会改变两套后端算法的运行状态。
+
+使用 `/app?remoteControl=1&showTitle=1` 时，iPad 加载与 WPF 完全相同的业务前端；已有主副驾控件会把选择写入控制接口，后端再同步广播给全部显示端。普通 `/app` 仍保持本地展示切换。
+
+`return-home` 可携带启动时配置的 `JQTOOLS_HOME_URL`。网页端直接跳转该地址；WPF 页面同时通过 WebView2 `postMessage` 进入 `CarAdaptiveDebugControl`，再转换为 `HomeRequested` 事件。客户既可配置网页路由，也可由原生宿主决定实际主页。
+
+独立局域网调试页为：
+
+```text
+http://<SDK电脑IP>:19245/app#/remote-control
+```
+
+控制写接口可通过 `JQTOOLS_REMOTE_CONTROL_TOKEN` 或 WPF `RemoteControlToken` 启用口令验证。完整协议见 `docs/REMOTE_CONTROL.md`。
+
+客户快速接入见 `docs/QUICKSTART.md`，完整业务接口见 `docs/API.md`，真实后端调用边界
+补充见 `docs/REAL_API.md`。其中
+`POST /carAdaptive/writeCommand` 的成功响应只表示命令进入写入流程，不代表硬件 ACK。
+
+## 8. 验收
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1
 ```
 
-验收脚本会检查内置 Node、Python、真实后端、前端、Three.js 模型、WPF DLL 和 Native DLL，并实际调用 `/health`、`/getPort`、`/algorithm/config`。添加 `-ConnectSerial` 后才会执行真实串口连接，避免基础验收误操作硬件。
+脚本会检查保护产物存在、第一方明文源码不存在，并实际验证 `/health`、`/app`、
+`/getPort`、`/algorithm/config`、主副两路算法、自动/手动控制模式，以及局域网控制命令
+的 WebSocket 广播和页面回执。只有添加 `-ConnectSerial` 才会执行真实串口连接。
+
+源码保护的强度与边界见 `docs/PROTECTION.md`。

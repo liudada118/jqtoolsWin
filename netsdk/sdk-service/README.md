@@ -181,6 +181,7 @@ async function main() {
 
   const sensorData = new Array(144).fill(50);
   const result = await jqtools.processCarAdaptiveFrame(sensorData, {
+    sensorId: 1,
     writeSerial: true
   });
 
@@ -192,7 +193,13 @@ main().catch(console.error);
 
 ## Real-Time Algorithm Stream
 
-When the backend receives 144-byte car adaptive frames from serial hardware, it calls its Python algorithm and pushes results over WebSocket. This is separate from the SDK-local Python call below.
+When the backend receives a 145-byte car adaptive serial frame, it treats the first byte as the sensor identifier and sends the remaining 144 pressure values to an independent Python algorithm instance. Sensor ID `1` is the main sensor and ID `2` is the secondary sensor. Both algorithms keep running, and `carAdaptiveSensorsData` carries both complete datasets so each frontend can select locally.
+
+```js
+const current = await jqtools.getCarAdaptiveSensor();
+const statuses = await jqtools.getCarAdaptiveSensors();
+await jqtools.selectCarAdaptiveSensor(2); // legacy single-stream clients only
+```
 
 ```js
 const socket = jqtools.connectCarAdaptiveStream({
@@ -201,6 +208,16 @@ const socket = jqtools.connectCarAdaptiveStream({
   },
   onControlFeedback(feed) {
     console.log('control feedback:', feed);
+  },
+  onSensorChange(selection) {
+    console.log('display sensor:', selection.sensorId, selection.role);
+  },
+  onSensorStatus(statuses) {
+    console.log('both algorithms:', statuses);
+  },
+  onSensorData(sensorSnapshots) {
+    // Both datasets arrive together; select sensorId 1 or 2 locally for rendering.
+    console.log('main and secondary datasets:', sensorSnapshots);
   },
   onRawMessage(message) {
     console.log('raw stream message:', message);
@@ -231,6 +248,8 @@ const sensorData = [
 ];
 
 const result = await jqtools.processCarAdaptiveFrame(sensorData, {
+  // 1: use the main algorithm instance; 2: use the secondary instance
+  sensorId: 2,
   // false: only return algorithm result
   // true: also ask the backend to write result.control_command to the car adaptive serial port
   writeSerial: false
@@ -257,8 +276,10 @@ jqtools.stopPythonAlgorithm();
 - `listPorts()`
 - `connectPorts()`
 - `connectCarAdaptivePorts()`
-- `processCarAdaptiveFrame(sensorData, { writeSerial })`
-- `writeCarAdaptiveCommand(controlCommand)`
+- `getCarAdaptiveSensor()` / `selectCarAdaptiveSensor(sensorId)`
+- `getCarAdaptiveSensors()`
+- `processCarAdaptiveFrame(sensorData, { sensorId, writeSerial })`
+- `writeCarAdaptiveCommand(controlCommand, sensorId)`
 - `connectStream(handlers)`
 - `connectCarAdaptiveStream(handlers)`
 - `getPythonConfig()`

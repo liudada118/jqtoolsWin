@@ -11,19 +11,24 @@ import { pageContext } from '../../page/test/Test'
 import { systemConfig } from '../../util/constant'
 import { useEquipStore } from '../../store/equipStore'
 import { shallow } from 'zustand/shallow'
-import { Button } from 'antd'
+import { Button, Segmented } from 'antd'
 import { useWindowSize } from '../../hooks/useWindowsize'
+import { AppstoreOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import { connectCarAdaptiveDevice } from '../../util/carAdaptiveStartup'
 
 
 const Title = memo((props) => {
   const { t, i18n } = props;
+  const navigate = useNavigate();
+
+  /**
+   * 调试模式下复用页面自动连接流程，确保串口连接后再初始化设备。
+   */
   const connent = () => {
-    axios.get('http://localhost:19245/connPort', {}).then((res) => {
-      console.log(res)
-    })
-    axios.get('http://localhost:19245/sendMac', {}).then((res) => {
-      console.log(res)
-    })
+    connectCarAdaptiveDevice()
+      .then((result) => console.log(result))
+      .catch((error) => console.error('[car-adaptive] 连接失败:', error))
   }
 
   const pageInfo = useContext(pageContext);
@@ -66,6 +71,14 @@ const Title = memo((props) => {
 
   const { size } = useWindowSize()
 
+  /**
+   * 普通显示端继续切换工具栏；iPad 控制端复用同一标识下发返回主页命令。
+   */
+  const handleLogoClick = () => {
+    if (pageInfo.requestCarAdaptiveReturnHome?.()) return
+    pageInfo.setTitleDisplay(!pageInfo.titleDisplay)
+  }
+
   return (
 
     <div className='titleContent pf'>
@@ -75,16 +88,37 @@ const Title = memo((props) => {
           {/* <div className={`logo fs24  ${size == 'max' ? 'maxLogo' : ''}`}> */}
 
           <div className={`logo fs24`}>
-            <img src={logo} onClick={() => {pageInfo.setTitleDisplay(!pageInfo.titleDisplay)}} style={{ height: '1.2rem' }} alt="" />
+            <img src={logo} onClick={handleLogoClick} style={{ height: '1.2rem' }} alt="" />
           </div>
           {/* <Select options={systemTypeArr}
             defaultValue={t(systemType)}
             onChange={changeSystemType}
           /> */}
           <EquipStatus fileName={systemType} />
+          <div className="sensorSelector" title="后端同时推送主驾和副驾数据，这里只切换本页面展示">
+            <span className="sensorSelectorLabel">显示</span>
+            <Segmented
+              size="small"
+              value={pageInfo.carAdaptiveSensorId}
+              disabled={pageInfo.carAdaptiveSensorSwitching}
+              options={[
+                { label: '主驾', value: 1 },
+                { label: '副驾', value: 2 }
+              ]}
+              onChange={pageInfo.selectCarAdaptiveSensor}
+            />
+          </div>
           <div className={`${!Object.keys(equipStatus).length || Object.values(equipStatus).includes('offline') ? 'connectPort' : 'unclickButton'} cursor connectButton`} style={{ marginRight: '2.1rem' }} onClick={() => { connent() }}>
             {t('connect')}
           </div>
+          <Button
+            className="rawSerialButton"
+            size="small"
+            icon={<AppstoreOutlined />}
+            onClick={() => navigate('/raw-serial')}
+          >
+            <span className="rawSerialButtonText">原始数据</span>
+          </Button>
 
           {/* <Button className={`${!Object.keys(equipStatus).length || Object.values(equipStatus).includes('offline') ? 'connectPort' : 'unclickButton'} cursor`} style={{ marginRight: '3.1rem' }} onClick={() => { connent() }}>{t('connect')}</Button> */}
 

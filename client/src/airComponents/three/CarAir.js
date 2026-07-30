@@ -9,6 +9,7 @@ import { TextureLoader } from "three";
 import * as TWEEN from '@tweenjs/tween.js'
 import {
     addSide,
+    compensateSingleColumnGaussian,
     findMax,
     gaussBlur_1,
     gaussBlur_return,
@@ -25,13 +26,42 @@ import { jetWhite3, lineInterp } from "../../assets/util/line";
 import { getDisplayType, getSettingValue, getStatus } from "../../store/equipStore";
 import { useWhyReRender } from "../../hooks/useWindowsize";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
-import { DEFAULT_SCENE_TRANSFORM } from "./sceneTransform";
+import {
+    DEFAULT_SCENE_TRANSFORM,
+    getSensorViewScaleX,
+    normalizeSceneScale,
+} from "./sceneTransform";
+import {
+    getObjectBoundsCenterInAncestor,
+    getOverallPivotOffset,
+} from "./scenePivot";
+import {
+    CAR_ADAPTIVE_CENTER_COLUMNS,
+    CAR_ADAPTIVE_CENTER_ROWS,
+    CAR_ADAPTIVE_SECTION_SIZE,
+    CAR_ADAPTIVE_SIDE_COLUMNS,
+    CAR_ADAPTIVE_SIDE_ROWS,
+    reverseSensorRows,
+    splitCarAdaptiveSensorSection,
+} from "../../util/carAdaptiveSensorLayout";
 import './index.scss';
 
 
 const fps = 15;                          // 想要的帧率
 const interval = 1000 / fps;             // 每帧间隔 ms
 let lastTime = performance.now();
+
+/**
+ * 主驾保持根分组原方向，副驾镜像同时包含座椅和压力点的整体根分组。
+ */
+function applySensorGroupMirror(transformTargets, sensorId) {
+    const scaleX = getSensorViewScaleX(sensorId);
+    const mirrorTarget = transformTargets?.mirror;
+
+    if (mirrorTarget) {
+        mirrorTarget.scale.set(scaleX, 1, 1);
+    }
+}
 
 
 function rotateMatrix(matrix, m, n) {
@@ -104,12 +134,28 @@ const CarAir =
 
         useWhyReRender(props)
 
-        const transformTargetsRef = useRef({ root: null, model: null, pointGroup: null });
+        const transformTargetsRef = useRef({
+            root: null,
+            pivot: null,
+            mirror: null,
+            content: null,
+            model: null,
+            pointGroup: null,
+        });
+        const overallPivotStateRef = useRef({
+            signature: '',
+            center: new THREE.Vector3(),
+        });
+        const sceneTransformRef = useRef(DEFAULT_SCENE_TRANSFORM);
+        const activeSensorIdRef = useRef(Number(props.sensorId) === 2 ? 2 : 1);
 
         console.log('renderCanvas')
         const {
             // sitnum1 = 32, sitnum2 = 32, sitInterp = 4, sitInterp2 = 2, sitOrder = 4 , 
         } = props
+        let sceneRoot = new THREE.Group();
+        let overallPivot = new THREE.Group();
+        let mirrorGroup = new THREE.Group();
         let group = new THREE.Group();
 
         let controlsFlag = true;
@@ -264,7 +310,21 @@ const CarAir =
 
 
             group.add(pointGroup);
-            transformTargetsRef.current = { root: group, model, pointGroup };
+            overallPivot.add(group);
+            sceneRoot.add(overallPivot);
+            mirrorGroup.add(sceneRoot);
+            overallPivotStateRef.current = {
+                signature: '',
+                center: new THREE.Vector3(),
+            };
+            transformTargetsRef.current = {
+                root: sceneRoot,
+                pivot: overallPivot,
+                mirror: mirrorGroup,
+                content: group,
+                model,
+                pointGroup,
+            };
             // pointGroup.
             initPoints()
             initModel();
@@ -460,13 +520,37 @@ const CarAir =
         const yValue = 0.1
         const zValue = -3
 
-        const sitleftConfig = { sitnum1: 3, sitnum2: 2, sitInterp: 5 * 2, sitInterp1: 2, sitOrder: 3, }
+        const sitleftConfig = {
+            sitnum1: CAR_ADAPTIVE_SIDE_ROWS,
+            sitnum2: CAR_ADAPTIVE_SIDE_COLUMNS,
+            sitInterp: 6,
+            sitInterp1: 2,
+            sitOrder: 4,
+        }
 
-        const sitConfig = { sitnum1: 10, sitnum2: 6, sitInterp: 2 * 4, sitInterp1: 2 * 5, sitOrder: 3 }
+        const sitConfig = {
+            sitnum1: CAR_ADAPTIVE_CENTER_ROWS,
+            sitnum2: CAR_ADAPTIVE_CENTER_COLUMNS,
+            sitInterp: 10,
+            sitInterp1: 7,
+            sitOrder: 3,
+        }
 
-        const backConfig = { sitnum1: 3, sitnum2: 2, sitInterp: 8 * 2, sitInterp1: 2 * 2, sitOrder: 2 }
+        const backConfig = {
+            sitnum1: CAR_ADAPTIVE_SIDE_ROWS,
+            sitnum2: CAR_ADAPTIVE_SIDE_COLUMNS,
+            sitInterp: 9,
+            sitInterp1: 4,
+            sitOrder: 4,
+        }
 
-        const sitConfigBack = { sitnum1: 10, sitnum2: 6, sitInterp: 2 * 6, sitInterp1: 2 * 4, sitOrder: 3 }
+        const sitConfigBack = {
+            sitnum1: CAR_ADAPTIVE_CENTER_ROWS,
+            sitnum2: CAR_ADAPTIVE_CENTER_COLUMNS,
+            sitInterp: 15,
+            sitInterp1: 6,
+            sitOrder: 3,
+        }
 
 
         let allConfig = {
@@ -664,7 +748,8 @@ const CarAir =
                 // model.rotation.y = -8.52
                 // model.rotation.z = 6.14
                 group.add(model);
-                scene.add(group);
+                scene.add(mirrorGroup);
+                setSceneTransform(sceneTransformRef.current);
 
 
 
@@ -924,6 +1009,13 @@ const CarAir =
                 1 + (sitnum1 - 1) * sitInterp + sitOrder * 2,
                 gauss
             );
+            if (sitnum2 === 1) {
+                bigArrg = compensateSingleColumnGaussian(
+                    bigArrg,
+                    gauss,
+                    Math.max(0, ...bigArr)
+                );
+            }
 
             let k = 0, l = 0;
             let dataArr = []
@@ -1093,35 +1185,26 @@ const CarAir =
             
 
             // let ndata1 = new Array(144).fill(0) 
-            const left = ndata1.slice(0, 6)
-            const right = ndata1.slice(6, 12)
-            let center = ndata1.slice(12, 12 + 6 * 10)
-
-            // center = press256(center, 6, 10, 6, 0.5, 'col')
-
-            let leftsit = ndata1.slice(72, 72 + 6)
-            let rightsit = ndata1.slice(72 + 6, 72 + 12)
-            let centersit = ndata1.slice(72 + 12, 72 + 12 + 6 * 10)
-
-            // centersit = press256(centersit, 6, 10, 6, 0.5, 'col')
-
-            for (let i = 0; i < 1; i++) {
-                for (let j = 0; j < 2; j++) {
-                    [leftsit[i * 2 + j], leftsit[(2 - i) * 2 + j]] = [leftsit[(2 - i) * 2 + j], leftsit[i * 2 + j],]
-                }
-            }
-
-            for (let i = 0; i < 1; i++) {
-                for (let j = 0; j < 2; j++) {
-                    [rightsit[i * 2 + j], rightsit[(2 - i) * 2 + j]] = [rightsit[(2 - i) * 2 + j], rightsit[i * 2 + j],]
-                }
-            }
-
-            for (let i = 0; i < 5; i++) {
-                for (let j = 0; j < 6; j++) {
-                    [centersit[i * 6 + j], centersit[(9 - i) * 6 + j]] = [centersit[(9 - i) * 6 + j], centersit[i * 6 + j],]
-                }
-            }
+            const backrestSensors = splitCarAdaptiveSensorSection(ndata1, 0)
+            const cushionSensors = splitCarAdaptiveSensorSection(
+                ndata1,
+                CAR_ADAPTIVE_SECTION_SIZE
+            )
+            const left = backrestSensors.firstSide
+            const right = backrestSensors.secondSide
+            const center = backrestSensors.center
+            const leftsit = reverseSensorRows(
+                cushionSensors.firstSide,
+                CAR_ADAPTIVE_SIDE_COLUMNS
+            )
+            const rightsit = reverseSensorRows(
+                cushionSensors.secondSide,
+                CAR_ADAPTIVE_SIDE_COLUMNS
+            )
+            const centersit = reverseSensorRows(
+                cushionSensors.center,
+                CAR_ADAPTIVE_CENTER_COLUMNS
+            )
 
             // for (let j = 0; j < 2; j++) {
             //     [right[j * 2 + 0], right[j * 2 + 1]] = [right[j * 2 + 1], right[j * 2 + 0],]
@@ -1196,27 +1279,82 @@ const CarAir =
             if (camera) camera.position.z = (-120 * 100 / value);
         }
 
+        /** 生成座椅模型局部变换签名，用于判断是否需要重新计算旋转中心。 */
+        function getModelTransformSignature(modelTarget) {
+            return [
+                modelTarget.position.x,
+                modelTarget.position.y,
+                modelTarget.position.z,
+                modelTarget.rotation.x,
+                modelTarget.rotation.y,
+                modelTarget.rotation.z,
+                modelTarget.scale.x,
+                modelTarget.scale.y,
+                modelTarget.scale.z,
+            ].map((value) => Number(value).toFixed(6)).join('|');
+        }
+
+        /**
+         * 将整体旋转枢轴移动到座椅包围盒中心。
+         * 中心首次建立或模型变换变化时补偿内容位移，避免当前画面发生跳动。
+         */
+        function updateOverallPivotFromModel(modelTarget, overallTransform) {
+            const contentTarget = transformTargetsRef.current.content;
+            const pivotTarget = transformTargetsRef.current.pivot;
+            if (!modelTarget || !contentTarget || !pivotTarget || !modelTarget.children.length) {
+                return;
+            }
+
+            const signature = getModelTransformSignature(modelTarget);
+            const pivotState = overallPivotStateRef.current;
+            if (signature === pivotState.signature) return;
+
+            const nextCenter = getObjectBoundsCenterInAncestor(modelTarget, contentTarget);
+            if (!nextCenter) return;
+
+            const rotation = overallTransform?.rotation
+                || DEFAULT_SCENE_TRANSFORM.overall.rotation;
+            const scale = normalizeSceneScale(
+                overallTransform?.scale,
+                DEFAULT_SCENE_TRANSFORM.overall.scale
+            );
+            const pivotOffset = getOverallPivotOffset(
+                pivotState.center,
+                nextCenter,
+                rotation,
+                scale
+            );
+
+            pivotTarget.position.add(pivotOffset);
+            contentTarget.position.copy(nextCenter).multiplyScalar(-1);
+            overallPivotStateRef.current = {
+                signature,
+                center: nextCenter.clone(),
+            };
+        }
+
         /** 设置整体视图、座椅模型与压力点图的位置和缩放。 */
         function setSceneTransform(transform) {
+            sceneTransformRef.current = transform || DEFAULT_SCENE_TRANSFORM;
             const rootTarget = transformTargetsRef.current.root;
+            const pivotTarget = transformTargetsRef.current.pivot;
             const modelTarget = transformTargetsRef.current.model;
             const pointTarget = transformTargetsRef.current.pointGroup;
 
-            if (rootTarget && transform?.overall) {
-                const { x, y, z, rotation } = transform.overall;
-                rootTarget.position.set(x, y, z);
-                rootTarget.rotation.set(rotation.x, rotation.y, rotation.z);
-            }
-
             if (modelTarget && transform?.model) {
                 const { x, y, z } = transform.model;
+                const scale = normalizeSceneScale(transform.model.scale);
                 modelTarget.position.set(x, y, z);
+                modelTarget.scale.set(scale.x, scale.y, scale.z);
             }
+
+            updateOverallPivotFromModel(modelTarget, transform?.overall);
 
             if (pointTarget && transform?.points) {
                 const { x, y, z, scale } = transform.points;
+                const axisScale = normalizeSceneScale(scale);
                 pointTarget.position.set(x, y, z);
-                pointTarget.scale.setScalar(scale);
+                pointTarget.scale.set(axisScale.x, axisScale.y, axisScale.z);
             }
 
             if (pointTarget && transform?.pointItems) {
@@ -1226,9 +1364,28 @@ const CarAir =
 
                     itemTarget.position.set(item.x, item.y, item.z);
                     itemTarget.rotation.set(item.rotation.x, item.rotation.y, item.rotation.z);
-                    itemTarget.scale.setScalar(0.005 * item.scale);
+                    const scale = normalizeSceneScale(item.scale);
+                    itemTarget.scale.set(
+                        0.005 * scale.x,
+                        0.005 * scale.y,
+                        0.005 * scale.z
+                    );
                 });
             }
+
+            if (rootTarget && transform?.overall) {
+                const { x, y, z, rotation } = transform.overall;
+                const scale = normalizeSceneScale(transform.overall.scale);
+                rootTarget.position.set(x, y, z);
+                rootTarget.rotation.set(0, 0, 0);
+                rootTarget.scale.set(1, 1, 1);
+                if (pivotTarget) {
+                    pivotTarget.rotation.set(rotation.x, rotation.y, rotation.z);
+                    pivotTarget.scale.set(scale.x, scale.y, scale.z);
+                }
+            }
+
+            applySensorGroupMirror(transformTargetsRef.current, activeSensorIdRef.current);
         }
 
         useImperativeHandle(refs, () => ({
@@ -1414,6 +1571,13 @@ const CarAir =
                 window.removeEventListener("resize", onWindowResize);
             };
         }, []);
+
+        useEffect(() => {
+            const nextSensorId = Number(props.sensorId) === 2 ? 2 : 1;
+            activeSensorIdRef.current = nextSensorId;
+            applySensorGroupMirror(transformTargetsRef.current, nextSensorId);
+        }, [props.sensorId]);
+
         return (
             <div
                 // style={{ width: "100%", height: "100%" }}

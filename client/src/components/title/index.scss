@@ -125,6 +125,21 @@
     }
 }
 
+.titleVisibilityHotspot {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 1101;
+    width: 3rem;
+    height: 3rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
 .connectButton:active {
     transform: scale(0.96);
 }
@@ -223,4 +238,160 @@
     padding: 0.1rem 0.6rem;
     border-radius: 6px;
     line-height: 1.5rem;
+}
+
+.rawSerialButton {
+    margin-right: 0;
+    border-color: #39414a;
+    background: #171b20;
+    color: #d8e0e7;
+}
+
+.rawSerialButton:hover {
+    border-color: #2e91ff !important;
+    background: #1c2732 !important;
+    color: #fff !important;
+}
+
+.sensorSelector {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-right: 1rem;
+
+    .sensorSelectorLabel {
+        color: #aeb7c2;
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+
+    .ant-segmented {
+        padding: 2px;
+        border: 1px solid #39414a;
+        background: #101216;
+    }
+
+    .ant-segmented-item {
+        min-width: 2.4rem;
+        color: #aeb7c2;
+    }
+
+    .ant-segmented-item-selected {
+        color: #fff;
+        background: #0072ef;
+        box-shadow: none;
+    }
+
+    .ant-segmented-disabled {
+        opacity: 0.65;
+    }
+}
+
+@media (max-width: 600px) {
+    .titleContent {
+        .firstTitle {
+            height: 5rem;
+            padding: 0.45rem 0.75rem;
+            align-items: stretch;
+
+            .titleLeft {
+                display: grid;
+                grid-template-areas:
+                    "logo status raw connect"
+                    "selector selector selector selector";
+                grid-template-columns: auto minmax(0, 1fr) auto auto;
+                column-gap: 0.55rem;
+                row-gap: 0.3rem;
+                width: 100%;
+
+                .logo {
+                    grid-area: logo;
+                    display: flex;
+                    align-items: center;
+                    margin: 0;
+
+                    img {
+                        width: auto;
+                        max-width: 5.25rem;
+                        height: 0.9rem !important;
+                        object-fit: contain;
+                    }
+                }
+
+                .equipsStatusContent {
+                    grid-area: status;
+                    min-width: 0;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .equipStatusContent {
+                    margin: 0;
+                    font-size: 0.75rem;
+                    white-space: nowrap;
+                }
+
+                .connectButton {
+                    grid-area: connect;
+                    align-self: center;
+                    margin: 0 !important;
+                    white-space: nowrap;
+                }
+
+                .rawSerialButton {
+                    grid-area: raw;
+                    align-self: center;
+                    width: 2rem;
+                    min-width: 2rem;
+                    padding: 0;
+
+                    .rawSerialButtonText {
+                        display: none;
+                    }
+                }
+
+                .sensorSelector {
+                    grid-area: selector;
+                    justify-self: center;
+                    margin: 0;
+
+                    .sensorSelectorLabel {
+                        display: none;
+                    }
+                }
+            }
+
+            .titleRight {
+                display: none;
+            }
+        }
+
+        .secondTitle {
+            left: 0;
+            width: 100%;
+        }
+
+        .secondTitleContent {
+            box-sizing: border-box;
+            justify-content: space-around;
+            width: 100%;
+            padding: 0.15rem 0.25rem;
+            border-radius: 0;
+        }
+
+        .iconContent,
+        .iconContent:not(:first-child) {
+            flex: 1;
+            min-width: 0;
+            width: auto;
+            margin-left: 0;
+            padding: 0.45rem 0.1rem;
+
+            .iconInfo {
+                margin-top: 0.2rem;
+                font-size: 0.65rem;
+                white-space: nowrap;
+            }
+        }
+    }
 }

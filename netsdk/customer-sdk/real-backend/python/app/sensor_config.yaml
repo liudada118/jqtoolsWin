@@ -51,23 +51,23 @@ matrix:
   total_size: 144  # 传感器总数（靠背72 + 坐垫72）
   backrest_size: 72  # 靠背传感器数量
   cushion_size: 72  # 坐垫传感器数量
-  side_rect_size: 6  # 左右侧小矩形的传感器数量（每侧6个）
-  center_matrix_rows: 10  # 中间大矩阵的行数
-  center_matrix_cols: 6  # 中间大矩阵的列数
+  side_rect_size: 4  # 左右侧小矩形的传感器数量（每侧4个）
+  center_matrix_rows: 8  # 中间大矩阵的行数
+  center_matrix_cols: 8  # 中间大矩阵的列数
   # 靠背压力分区（行索引范围）
   backrest_upper_rows:  # 靠背上部（肩部区域）行范围
   - 0
-  - 5
+  - 4
   backrest_lower_rows:  # 靠背下部（腰部区域）行范围
-  - 5
-  - 10
+  - 4
+  - 8
   # 坐垫压力分区（行索引范围）
   cushion_butt_rows:  # 臀部区域行范围
-  - 5
-  - 10
+  - 4
+  - 8
   cushion_leg_rows:  # 腿部区域行范围
   - 2
-  - 5
+  - 4
 
 # ========================================
 # 通信协议配置

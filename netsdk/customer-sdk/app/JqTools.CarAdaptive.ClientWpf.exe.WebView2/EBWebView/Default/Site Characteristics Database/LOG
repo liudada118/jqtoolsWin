@@ -1,3 +1,2 @@
-2026/07/14-16:15:24.425 3334 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Site Characteristics Database/MANIFEST-000001
-2026/07/14-16:15:24.429 3334 Recovering log #6
-2026/07/14-16:15:24.429 3334 Reusing old log D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Site Characteristics Database/000006.log 
+2026/07/29-18:18:08.543 ece4 Creating DB D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Site Characteristics Database since it was missing.
+2026/07/29-18:18:08.554 ece4 Reusing MANIFEST D:\jqtoolsWin1\netsdk\customer-sdk\app\JqTools.CarAdaptive.ClientWpf.exe.WebView2\EBWebView\Default\Site Characteristics Database/MANIFEST-000001

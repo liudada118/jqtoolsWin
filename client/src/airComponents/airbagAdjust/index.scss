@@ -1,0 +1,145 @@
+.airbag-adjust-toggle {
+    position: fixed;
+    top: 7.6rem;
+    right: 1rem;
+    z-index: 1200;
+    width: 2.5rem;
+    height: 2.5rem;
+    background: #087ea4;
+}
+
+.airbag-adjust-dropdown {
+    z-index: 1300 !important;
+}
+
+.airbag-adjust-panel {
+    position: fixed;
+    top: 4.5rem;
+    right: 1rem;
+    z-index: 1210;
+    width: 29rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    padding: 0.9rem;
+    border: 1px solid #424852;
+    border-radius: 6px;
+    background: #202327;
+    color: #e6ebf0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+    .airbag-adjust-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 2rem;
+        margin-bottom: 0.7rem;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+
+        .ant-btn {
+            color: #b4c0ca;
+            cursor: pointer;
+        }
+    }
+
+    .airbag-adjust-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+
+        .anticon {
+            color: #8f9ca8;
+        }
+    }
+
+    .airbag-adjust-select {
+        width: 100%;
+        margin-bottom: 0.65rem;
+    }
+
+    .airbag-adjust-position-summary {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.65rem;
+        color: #8f9ca8;
+        font-size: 0.78rem;
+    }
+
+    .airbag-adjust-controls {
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .airbag-adjust-row {
+        display: grid;
+        grid-template-columns: 3rem minmax(8rem, 1fr) 5rem;
+        align-items: center;
+        gap: 0.55rem;
+        min-height: 2rem;
+
+        > span {
+            color: #b4c0ca;
+            font-size: 0.8rem;
+        }
+
+        .ant-slider {
+            margin: 0;
+        }
+
+        .ant-input-number {
+            width: 5rem;
+            border-color: #4e565f;
+            background: #141619;
+        }
+
+        .ant-input-number-input {
+            color: #e6ebf0;
+        }
+    }
+
+    .airbag-adjust-config-title {
+        margin: 0.8rem 0 0.4rem;
+        color: #d5dce3;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .airbag-adjust-config {
+        border-color: #4e565f;
+        background: #141619;
+        color: #cbd5df;
+        font-family: Consolas, monospace;
+        font-size: 0.72rem;
+        line-height: 1.45;
+        resize: none;
+    }
+
+    .airbag-adjust-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.6rem;
+        margin-top: 0.8rem;
+
+        .ant-btn-default {
+            border-color: #4e565f;
+            background: #2c3035;
+            color: #e6ebf0;
+        }
+    }
+}
+
+.airbag-adjust-panel.is-dragging {
+    .airbag-adjust-header {
+        cursor: grabbing;
+    }
+}
+
+@media (max-width: 1100px) {
+    .airbag-adjust-panel {
+        right: 1rem;
+        width: min(29rem, calc(100vw - 2rem));
+    }
+}

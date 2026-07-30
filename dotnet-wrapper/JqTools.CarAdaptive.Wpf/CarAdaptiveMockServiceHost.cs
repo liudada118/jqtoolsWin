@@ -79,6 +79,8 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         startInfo.Environment["JQTOOLS_MOCK_HTTP_PORT"] = Options.HttpPort.ToString();
         startInfo.Environment["JQTOOLS_MOCK_WS_PORT"] = Options.WebSocketPort.ToString();
         startInfo.Environment["JQTOOLS_MOCK_FRONTEND_DIR"] = Options.ResolveFrontendBuildDirectory(mockSdkDirectory);
+        startInfo.Environment["JQTOOLS_REMOTE_CONTROL_TOKEN"] = Options.RemoteControlToken ?? string.Empty;
+        startInfo.Environment["JQTOOLS_HOME_URL"] = Options.HomeUrl ?? string.Empty;
 
         _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Node.js 真实数据服务启动失败。");
         _process.OutputDataReceived += HandleOutput;
@@ -132,6 +134,9 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         _httpClient.Dispose();
     }
 
+    /// <summary>
+    /// 轮询健康检查接口，直到服务可用、进程退出或启动超时。
+    /// </summary>
     private async Task WaitForHealthAsync(CancellationToken cancellationToken)
     {
         using var timeout = new CancellationTokenSource(Options.StartupTimeout);
@@ -233,6 +238,9 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// 收集 Node 服务输出并转发给控件调用方。
+    /// </summary>
     private void HandleOutput(object sender, DataReceivedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(e.Data))

@@ -6,6 +6,8 @@ import './locale/index'; // 在这里导入
 import i18next from "i18next";
 import Equip from './page/equip/Equip';
 import Data from './page/data/Data';
+import RawSerialPage from './page/rawSerial/RawSerialPage';
+import RemoteControlPage from './page/remoteControl/RemoteControlPage';
 // import Addequip from './page/addEquip/Addequip';
 
 i18next.init({
@@ -169,6 +171,14 @@ function App() {
   return (
     <HashRouter>
       <Routes>
+        <Route
+          path="/raw-serial"
+          element={<RawSerialPage />}
+        />
+        <Route
+          path="/remote-control"
+          element={<RemoteControlPage />}
+        />
 
         <Route
           path="/data"

@@ -46,7 +46,7 @@ export default function SystemSetting() {
             bed: { gauss: 2.6, color: 355, filter: 6, height: 2.02, coherent: 1 },
             car: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 },
             endi: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 },
-            carAir: { gauss: 2, color: 495, filter: 0, height: 3.36, coherent: 1 }
+            carAir: { gauss: 2, color: 616, filter: 0, height: 3.36, coherent: 1 }
         },
         maxObj: {
             bed: { gauss: 4, color: 2000, filter: 20, height: 8, coherent: 10 },

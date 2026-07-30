@@ -194,14 +194,14 @@ class IntegratedSeatSystem:
                 【数据结构】144个元素的排列方式：
                 ┌─────────────────────────────────────┐
                 │ 元素[0-71]: 靠背传感器（72个）       │
-                │   [0-5]:   左侧小矩形（6个）         │
-                │   [6-11]:  右侧小矩形（6个）         │
-                │   [12-71]: 中间大矩阵（60个=10行×6列）│
+                │   [0-3]:   左侧小矩形（4个）         │
+                │   [4-7]:   右侧小矩形（4个）         │
+                │   [8-71]:  中间大矩阵（64个=8行×8列） │
                 ├─────────────────────────────────────┤
                 │ 元素[72-143]: 坐垫传感器（72个）     │
-                │   [72-77]:  左侧小矩形（6个）        │
-                │   [78-83]:  右侧小矩形（6个）        │
-                │   [84-143]: 中间大矩阵（60个=10行×6列)│
+                │   [72-75]:  左侧小矩形（4个）        │
+                │   [76-79]:  右侧小矩形（4个）        │
+                │   [80-143]: 中间大矩阵（64个=8行×8列）│
                 └─────────────────────────────────────┘
 
         Returns:
@@ -337,10 +337,12 @@ class IntegratedSeatSystem:
         # 拆分和重塑矩阵
         backrest_data, cushion_data = self._split_matrices(sensor_data)
 
-        # === 新增：提取右侧小矩形（在reshape之前）===
+        # 提取第二组侧翼数据用于拍打检测，再重塑中间矩阵。
         # 用于拍打检测
-        backrest_right_rect = backrest_data[6:12]  # 原始数据[6-11]
-        cushion_right_rect = cushion_data[6:12]    # cushion_data的[6-11]对应原始[78-83]
+        side_size = self.config.get('matrix.side_rect_size', 4)
+        right_side_slice = slice(side_size, side_size * 2)
+        backrest_right_rect = backrest_data[right_side_slice]
+        cushion_right_rect = cushion_data[right_side_slice]
 
         # 运行拍打检测
         tap_result = None
@@ -507,26 +509,30 @@ class IntegratedSeatSystem:
         return backrest, cushion
 
     def _reshape_matrix(self, data_72: np.ndarray) -> np.ndarray:
-        """重塑72元素数据为10x6矩阵"""
-        side_size = self.config.get('matrix.side_rect_size', 6)
-        rows = self.config.get('matrix.center_matrix_rows', 10)
-        cols = self.config.get('matrix.center_matrix_cols', 6)
+        """去除两个侧翼区域，并将剩余 64 点重塑为 8x8 中心矩阵。"""
+        side_size = self.config.get('matrix.side_rect_size', 4)
+        rows = self.config.get('matrix.center_matrix_rows', 8)
+        cols = self.config.get('matrix.center_matrix_cols', 8)
+        center_data = data_72[side_size * 2:]
+        expected_size = rows * cols
 
-        left_rect = data_72[0:side_size]
-        right_rect = data_72[side_size:side_size * 2]
-        center_matrix = data_72[side_size * 2:].reshape(rows, cols)
+        if center_data.size != expected_size:
+            raise ValueError(
+                f"传感器中心区域长度错误: expected={expected_size}, "
+                f"actual={center_data.size}"
+            )
 
-        return center_matrix
+        return center_data.reshape(rows, cols)
 
     def _extract_regions(self, backrest_matrix: np.ndarray, cushion_matrix: np.ndarray) -> Dict:
         """提取压力区域"""
-        backrest_upper_rows = self.config.get('matrix.backrest_upper_rows', [0, 5])
-        backrest_lower_rows = self.config.get('matrix.backrest_lower_rows', [5, 10])
-        cushion_butt_rows = self.config.get('matrix.cushion_butt_rows', [0, 4])
-        cushion_leg_rows = self.config.get('matrix.cushion_leg_rows', [4, 7])
+        backrest_upper_rows = self.config.get('matrix.backrest_upper_rows', [0, 4])
+        backrest_lower_rows = self.config.get('matrix.backrest_lower_rows', [4, 8])
+        cushion_butt_rows = self.config.get('matrix.cushion_butt_rows', [4, 8])
+        cushion_leg_rows = self.config.get('matrix.cushion_leg_rows', [2, 4])
 
         # 中间列分界
-        mid_col = cushion_matrix.shape[1] // 2  # 通常是3
+        mid_col = cushion_matrix.shape[1] // 2  # 8 列矩阵的左右分界为 4
 
         return {
             'backrest_upper': backrest_matrix[backrest_upper_rows[0]:backrest_upper_rows[1], :],

@@ -52,10 +52,125 @@ export interface CarAdaptiveStreamHandlers {
   onAlgorithmData?: (data: unknown, event: unknown) => void;
   /** 接收从 control_command 中提取的 algorFeed 控制反馈。 */
   onControlFeedback?: (data: unknown, event: unknown) => void;
+  /** 接收主副传感器选择变化，sensorId=1 为主，sensorId=2 为副。 */
+  onSensorChange?: (data: CarAdaptiveSensorSelection, event: unknown) => void;
+  /** 接收主副两路在线状态、频率和算法帧计数。 */
+  onSensorStatus?: (data: CarAdaptiveSensorStatus[], event: unknown) => void;
+  /** 同时接收主副两套完整数据，调用方可在本地选择展示通道。 */
+  onSensorData?: (data: CarAdaptiveSensorSnapshot[], event: unknown) => void;
+  /** 接收气囊控制模式变化。 */
+  onControlModeChange?: (data: CarAdaptiveControlModeState, event: unknown) => void;
+}
+
+/**
+ * 气囊控制模式。
+ * `auto` 算法接管并自动写串口，`manual` 算法运行但只接受手动下发，
+ * `paused` 暂停算法且气囊冻结。三者都不影响串口采集。
+ */
+export type CarAdaptiveControlMode = 'auto' | 'manual' | 'paused';
+
+/** 气囊控制模式状态。 */
+export interface CarAdaptiveControlModeState {
+  /** 当前模式。 */
+  mode: CarAdaptiveControlMode;
+  /** 上一个模式，从未切换过时为 null。 */
+  previousMode: CarAdaptiveControlMode | null;
+  /** 变更来源：default 启动默认值，api 接口调用，view 页面视图切换，ecu 整车回传。 */
+  source: 'default' | 'api' | 'view' | 'ecu';
+  /** 变更原因，最长 120 字符。 */
+  reason: string;
+  /** 变更次数，可用于判断状态是否比本地缓存更新。 */
+  sequence: number;
+  /** 最近一次变更的毫秒时间戳。 */
+  changedAt: number;
+  /** 当前是否在自动写串口，等价于 mode === 'auto'。 */
+  autoWrite: boolean;
+  /** 算法是否在处理串口帧，等价于 mode !== 'paused'。 */
+  algorithmRunning: boolean;
+  /** 自动写入周期，单位毫秒。 */
+  commandIntervalMs: number;
+  /** 当前 SDK 页面视图，控制模式跟随它自动切换。 */
+  view: string;
+}
+
+/** 切换控制模式后的返回状态，在模式状态之上附带本次切换的结果。 */
+export interface CarAdaptiveControlModeChange extends CarAdaptiveControlModeState {
+  /** 本次调用是否真的改变了模式。重复设置同一模式为 false。 */
+  changed: boolean;
+  /** 从 manual 恢复到 auto 时是否成功清空了按摩状态。 */
+  massageReset: boolean;
+  /** 从 paused 恢复到 auto 时是否成功重建了算法实例。 */
+  algorithmReset: boolean;
+}
+
+/** 汽车自适应前端展示通道。 */
+export interface CarAdaptiveSensorSelection {
+  /** 1 为主传感器，2 为副传感器。 */
+  sensorId: 1 | 2;
+  /** 当前传感器的中文角色。 */
+  role: '主' | '副';
+  /** 表示该选择只影响前端显示，不影响两路算法运行。 */
+  displayOnly: true;
+}
+
+/** 一路传感器的实时算法运行摘要。 */
+export interface CarAdaptiveSensorStatus {
+  /** 1 为主传感器，2 为副传感器。 */
+  sensorId: 1 | 2;
+  /** 传感器中文角色。 */
+  role: '主' | '副';
+  /** 最近一秒是否收到该路串口帧。 */
+  online: boolean;
+  /** 最近一帧的毫秒时间戳。 */
+  stamp: number;
+  /** 当前接收频率。 */
+  HZ?: number;
+  /** 是否已经得到该路算法结果。 */
+  algorithmReady: boolean;
+  /** 该路算法内部帧计数。 */
+  frameCount: number;
+  /** 最近是否收到该路 ECU 气囊状态回传，中断超过 2000ms 为 false。 */
+  feedbackOnline: boolean;
+  /** 最近一条 ECU 回传的毫秒时间戳。 */
+  feedbackStamp: number;
+}
+
+/** 一路传感器的完整前端数据快照。 */
+export interface CarAdaptiveSensorSnapshot {
+  sensorId: 1 | 2;
+  role: '主' | '副';
+  /** 与现有前端兼容的压力数据结构。 */
+  sitData: {
+    carAir: {
+      type: 'carAir';
+      sensorId: 1 | 2;
+      status: 'online' | 'offline';
+      arr?: number[];
+      stamp: number;
+      HZ?: number;
+    };
+  };
+  /** 对应传感器的独立 Python 算法结果。 */
+  algorData?: unknown;
+  /**
+   * 24 路气囊档位反馈，来自 ECU 回传帧，代表硬件实际状态。
+   * 没有回传或回传中断时为空数组。
+   */
+  algorFeed: number[];
+  /** 该路 ECU 回传是否在线。为 false 时 algorFeed 为空，界面气囊应全部熄灭。 */
+  feedbackOnline: boolean;
+  /** 最近一条 ECU 回传的毫秒时间戳。 */
+  feedbackStamp: number;
+  /** 反馈数据源，ecu 为 ECU 回传，command 为回落到已下发命令。 */
+  feedbackSource: 'ecu' | 'command';
+  /** 生成该快照时的气囊控制模式。 */
+  controlMode: CarAdaptiveControlMode;
 }
 
 /** 单次显式 Python 算法调用配置。 */
 export interface ProcessCarAdaptiveFrameOptions {
+  /** 指定主或副传感器的独立算法实例，默认主传感器 1。 */
+  sensorId?: 1 | 2;
   /** 为 true 时，后端会把返回的 control_command 写入汽车自适应串口。 */
   writeSerial?: boolean;
   /** 覆盖本次调用的 unwrap 行为。 */
@@ -97,6 +212,15 @@ export class JqToolsCarClient {
   /** connectPorts 的语义化别名，用于客户汽车自适应场景。 */
   connectCarAdaptivePorts(): Promise<HttpResult | unknown>;
 
+  /** 获取后端旧版单路兼容投影。 */
+  getCarAdaptiveSensor(): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
+
+  /** 获取主、副两路实时算法运行摘要。 */
+  getCarAdaptiveSensors(): Promise<HttpResult<CarAdaptiveSensorStatus[]> | CarAdaptiveSensorStatus[]>;
+
+  /** 选择后端旧版单路兼容投影，不停止任何一路算法。 */
+  selectCarAdaptiveSensor(sensorId: 1 | 2): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
+
   /**
    * 提交一帧 144 点汽车自适应传感器数据给 SDK 本地 Python 算法。
    * 设置 writeSerial=true 时，会把返回的 control_command 写入汽车自适应串口。
@@ -104,7 +228,20 @@ export class JqToolsCarClient {
   processCarAdaptiveFrame(sensorData: number[], options?: ProcessCarAdaptiveFrameOptions): Promise<unknown>;
 
   /** 通过后端把已有的 Python control_command 写入汽车自适应串口。 */
-  writeCarAdaptiveCommand(controlCommand: number[]): Promise<HttpResult | unknown>;
+  writeCarAdaptiveCommand(controlCommand: number[], sensorId?: 1 | 2): Promise<HttpResult | unknown>;
+
+  /** 查询当前气囊控制模式。 */
+  getControlMode(): Promise<HttpResult<CarAdaptiveControlModeState> | CarAdaptiveControlModeState>;
+
+  /**
+   * 切换气囊控制模式。
+   * `manual` 只停自动写串口，算法继续运行；`paused` 暂停算法且气囊冻结。
+   * 从 `manual` 恢复到 `auto` 清空按摩状态，从 `paused` 恢复重建两路算法实例。
+   */
+  setControlMode(
+    mode: CarAdaptiveControlMode,
+    options?: { reason?: string }
+  ): Promise<HttpResult<CarAdaptiveControlModeChange> | CarAdaptiveControlModeChange>;
 
   /** 获取 SDK 本地 Python 算法参数和注释。 */
   getPythonConfig(): Promise<unknown>;

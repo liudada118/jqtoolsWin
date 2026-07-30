@@ -11,35 +11,22 @@ import { garyColors } from "./constant";
  * @returns 
  */
 export function addSide(arr, width, height, wnum, hnum, sideNum = 0) {
-  let narr = new Array(height);
-  let res = [];
-  for (let i = 0; i < height; i++) {
-    narr[i] = [];
+  const fillValue = sideNum >= 0 ? sideNum : 1;
+  const res = [];
 
-    for (let j = 0; j < width; j++) {
-      if (j == 0) {
-        narr[i].push(
-          ...new Array(wnum).fill(sideNum >= 0 ? sideNum : 1),
-          arr[i * width + j]
-        );
-      } else if (j == width - 1) {
-        narr[i].push(
-          arr[i * width + j],
-          ...new Array(wnum).fill(sideNum >= 0 ? sideNum : 1)
-        );
-      } else {
-        narr[i].push(arr[i * width + j]);
-      }
-    }
-  }
   for (let i = 0; i < height; i++) {
-    res.push(...narr[i]);
+    const rowStart = i * width;
+    res.push(
+      ...new Array(wnum).fill(fillValue),
+      ...arr.slice(rowStart, rowStart + width),
+      ...new Array(wnum).fill(fillValue)
+    );
   }
 
   return [
-    ...new Array(hnum * (width + 2 * wnum)).fill(sideNum >= 0 ? sideNum : 1),
+    ...new Array(hnum * (width + 2 * wnum)).fill(fillValue),
     ...res,
-    ...new Array(hnum * (width + 2 * wnum)).fill(sideNum >= 0 ? sideNum : 1),
+    ...new Array(hnum * (width + 2 * wnum)).fill(fillValue),
   ];
 }
 
@@ -71,6 +58,47 @@ export function gaussBlur_return(scl, w, h, r) {
     }
   }
   return res
+}
+
+/**
+ * 补偿单列传感器在二维高斯平滑中被横向零边框稀释的强度。
+ * 仅恢复缺失横向邻点造成的衰减，纵向平滑和边缘渐变保持不变。
+ * @param {number[]} values 高斯平滑后的数据。
+ * @param {number} radius 高斯平滑半径。
+ * @param {number} maxValue 插值前允许恢复到的最大传感器值。
+ * @returns {number[]} 颜色强度补偿后的数据。
+ */
+export function compensateSingleColumnGaussian(values, radius, maxValue = Infinity) {
+  const safeRadius = Number(radius);
+  if (!Number.isFinite(safeRadius) || safeRadius <= 0) {
+    return [...values];
+  }
+
+  const kernelRadius = Math.ceil(safeRadius * 2.57);
+  let totalWeight = 0;
+  let centerColumnWeight = 0;
+
+  for (let y = -kernelRadius; y <= kernelRadius; y++) {
+    for (let x = -kernelRadius; x <= kernelRadius; x++) {
+      const distanceSquared = x * x + y * y;
+      const weight = Math.exp(-distanceSquared / (2 * safeRadius * safeRadius));
+      totalWeight += weight;
+      if (x === 0) {
+        centerColumnWeight += weight;
+      }
+    }
+  }
+
+  if (centerColumnWeight <= 0 || totalWeight <= 0) {
+    return [...values];
+  }
+
+  const gain = totalWeight / centerColumnWeight;
+  const upperBound = Number.isFinite(maxValue) ? Math.max(0, maxValue) : Infinity;
+
+  return values.map((value) => (
+    Math.min(upperBound, Math.max(0, (Number(value) || 0) * gain))
+  ));
 }
 
 
@@ -199,6 +227,22 @@ export function endiBackPressFn(y) {
 }
 
 export function lineInterpnew(smallMat, width, height, interp1, interp2) {
+  // 单列侧翼没有横向区间，直接沿高度方向插值，避免原循环返回全零。
+  if (width === 1) {
+    const verticalStep = Math.max(1, Math.round(interp2));
+    const result = [];
+
+    for (let row = 0; row < height - 1; row++) {
+      const start = Number(smallMat[row]) || 0;
+      const end = Number(smallMat[row + 1]) || 0;
+      for (let step = 0; step < verticalStep; step++) {
+        result.push(start + (end - start) * step / verticalStep);
+      }
+    }
+
+    result.push(Number(smallMat[height - 1]) || 0);
+    return result;
+  }
 
   let bigMat = new Array((width * interp1) * (height * interp2)).fill(0)
   const interpValue = 1

@@ -6,6 +6,7 @@ import Canvas from '../../components/three/canvas copy'
 import Bed from '../../components/three/ThreeAndModel'
 import Car from '../../components/three/ThreeAndCar'
 import Title from '../../components/title/Title'
+import TitleVisibilityHotspot from '../../components/title/TitleVisibilityHotspot'
 import { useWindowSize } from '../../hooks/useWindowsize'
 import ViewSetting from '../../components/viewSetting/ViewSetting'
 import ColAndHistory from '../../components/ColAndHistory/ColAndHistory'
@@ -31,20 +32,48 @@ import AirAside from '../../airComponents/aside/AirAside'
 import CarAir from '../../airComponents/three/CarAir'
 import SceneAdjustPanel from '../../airComponents/sceneAdjust/SceneAdjustPanel'
 import AlgorithmConfigDrawer from '../../airComponents/algorithmConfig/AlgorithmConfigDrawer'
+import AirbagAdjustPanel from '../../airComponents/airbagAdjust/AirbagAdjustPanel'
+import {
+    readStoredAirbagLayout,
+    storeAirbagLayout
+} from '../../airComponents/airbagAdjust/airbagLayout'
+import { useNavigate } from 'react-router-dom'
+import {
+    CAR_ADAPTIVE_UI_ACTIONS,
+    CAR_ADAPTIVE_UI_VIEWS,
+    applyCarAdaptiveUiCommand,
+    createCarAdaptiveUiReport,
+    getCarAdaptiveUiClientId,
+    getStoredCarAdaptiveSensorId,
+    isCarAdaptiveRemoteController,
+    resolveCarAdaptiveUiWebSocketUrl,
+    sendCarAdaptiveUiCommand,
+    sendCarAdaptiveUiSocketMessage,
+    storeCarAdaptiveSensorId
+} from '../../util/carAdaptiveUiControl'
+import {
+    connectCarAdaptiveDevice,
+    shouldShowCarAdaptiveTitle
+} from '../../util/carAdaptiveStartup'
 
 export const pageContext = createContext(null)
+const carAdaptiveUiClientId = getCarAdaptiveUiClientId()
+const carAdaptiveWsUrl = resolveCarAdaptiveUiWebSocketUrl(carAdaptiveUiClientId)
 // const selectHelper = new SelectionHelper(document.body, 'selectBox');
 function Test() {
 
     const { t, i18n } = useTranslation()
+    const navigate = useNavigate()
 
     const [value, setValue] = useState('')
+    const [showTitle, setShowTitle] = useState(shouldShowCarAdaptiveTitle())
 
-    const connPort = () => {
-        axios.get('http://localhost:19245/connPort', {}).then((res) => {
-            console.log(res)
-        })
-    }
+    /**
+     * 通过右上角透明热区切换完整标题栏，不在页面上显示按钮外观。
+     */
+    const toggleTitle = useCallback(() => {
+        setShowTitle((currentValue) => !currentValue)
+    }, [])
 
     const handInput = (e) => {
         const value = e.target.value
@@ -75,6 +104,8 @@ function Test() {
     const handle = useRef({})
     const controlsMode = useRef('algor')
     const algorFeed = useRef({})
+    // 气囊回传是否在线，用于在界面上区分“气囊未动作”和“收不到 ECU 回传”
+    const airbagFeedbackOnline = useRef(false)
 
 
     const disPlayDataRef = useRef({})
@@ -82,17 +113,139 @@ function Test() {
     const onSitRef = useRef({})
     // const dataRef = useRef({})
 
+    const initialCarAdaptiveSensorId = useRef(getStoredCarAdaptiveSensorId()).current
+    const [carAdaptiveSensorId, setCarAdaptiveSensorId] = useState(initialCarAdaptiveSensorId)
+    const carAdaptiveSensorIdRef = useRef(initialCarAdaptiveSensorId)
+    const carAdaptiveWsRef = useRef(null)
+    const carAdaptiveSensorCacheRef = useRef({ 1: null, 2: null })
+    const carAdaptiveDualStreamRef = useRef(false)
+    const carAdaptiveRemoteController = useRef(isCarAdaptiveRemoteController()).current
+    const carAdaptiveSensorSwitching = false
+
+    /** 清空当前渲染数据，等待下一条双路快照应用目标通道；不会重置后端算法。 */
+    const clearCarAdaptiveDisplayData = useCallback(() => {
+        const emptySensorData = new Array(144).fill(0)
+        sitDataRef.current = { carAir: emptySensorData }
+        disPlayDataRef.current = { carAir: emptySensorData }
+        algorDataRef.current = {}
+        algorFeed.current = {}
+        airbagFeedbackOnline.current = false
+        handle.current = {}
+        controlsMode.current = 'algor'
+        onSitRef.current.onSitState = 'outSeat'
+        useEquipStore.getState().setDisplayStatus({ carAir: emptySensorData })
+    }, [])
+
+    /** 从前端缓存中选择主驾或副驾数据，不向后端发送切换命令。 */
+    const selectCarAdaptiveSensor = useCallback((sensorId) => {
+        const nextSensorId = Number(sensorId)
+        if (![1, 2].includes(nextSensorId) || nextSensorId === carAdaptiveSensorIdRef.current) {
+            return false
+        }
+
+        carAdaptiveSensorIdRef.current = nextSensorId
+        setCarAdaptiveSensorId(nextSensorId)
+        storeCarAdaptiveSensorId(nextSensorId)
+        clearCarAdaptiveDisplayData()
+
+        sendCarAdaptiveUiSocketMessage(
+            carAdaptiveWsRef.current,
+            createCarAdaptiveUiReport(
+                carAdaptiveUiClientId,
+                nextSensorId,
+                CAR_ADAPTIVE_UI_VIEWS.MODULE
+            )
+        )
+        return true
+    }, [clearCarAdaptiveDisplayData])
+
+    /** iPad 控制模式复用现有主副驾控件，并把本地选择广播给全部显示端。 */
+    const selectCarAdaptiveSensorFromUi = useCallback((sensorId) => {
+        const changed = selectCarAdaptiveSensor(sensorId)
+        if (!changed || !carAdaptiveRemoteController) return changed
+
+        sendCarAdaptiveUiCommand(CAR_ADAPTIVE_UI_ACTIONS.SELECT_SENSOR, sensorId)
+            .catch((error) => console.error('[car-adaptive] 远程切换主副驾失败:', error))
+        return true
+    }, [carAdaptiveRemoteController, selectCarAdaptiveSensor])
+
+    /** iPad 控制模式点击现有品牌标识时广播返回客户主页命令。 */
+    const requestCarAdaptiveReturnHome = useCallback(() => {
+        if (!carAdaptiveRemoteController) return false
+
+        sendCarAdaptiveUiCommand(CAR_ADAPTIVE_UI_ACTIONS.RETURN_HOME)
+            .catch((error) => console.error('[car-adaptive] 远程返回主页失败:', error))
+        return true
+    }, [carAdaptiveRemoteController])
+
     useEffect(() => {
-        const ws = new WebSocket(" ws://127.0.0.1:19999");
+        const ws = new WebSocket(carAdaptiveWsUrl);
+        carAdaptiveWsRef.current = ws
         ws.onopen = () => {
             // connection opened
             console.info("connect success");
-
+            sendCarAdaptiveUiSocketMessage(
+                ws,
+                createCarAdaptiveUiReport(
+                    carAdaptiveUiClientId,
+                    carAdaptiveSensorIdRef.current,
+                    CAR_ADAPTIVE_UI_VIEWS.MODULE
+                )
+            )
         };
         let data = {}
         ws.onmessage = (e) => {
 
-            const jsonObj = JSON.parse(e.data)
+            let incomingMessage
+            try {
+                incomingMessage = JSON.parse(e.data)
+            } catch (_error) {
+                return
+            }
+
+            const acknowledgement = applyCarAdaptiveUiCommand(incomingMessage, {
+                sensorId: carAdaptiveSensorIdRef.current,
+                view: CAR_ADAPTIVE_UI_VIEWS.MODULE,
+                navigate,
+                onSelectSensor: selectCarAdaptiveSensor
+            })
+            if (acknowledgement) {
+                sendCarAdaptiveUiSocketMessage(ws, acknowledgement)
+            }
+
+            let jsonObj = incomingMessage
+
+            if (Array.isArray(incomingMessage.carAdaptiveSensorsData)) {
+                carAdaptiveDualStreamRef.current = true
+                incomingMessage.carAdaptiveSensorsData.forEach((sensorSnapshot) => {
+                    const sensorId = Number(sensorSnapshot?.sensorId)
+                    if ([1, 2].includes(sensorId)) {
+                        carAdaptiveSensorCacheRef.current[sensorId] = sensorSnapshot
+                    }
+                })
+
+                const displaySnapshot = carAdaptiveSensorCacheRef.current[carAdaptiveSensorIdRef.current]
+                if (displaySnapshot) {
+                    jsonObj = {
+                        ...incomingMessage,
+                        sitData: displaySnapshot.sitData,
+                        algorData: displaySnapshot.algorData,
+                        algorFeed: displaySnapshot.algorFeed,
+                        feedbackOnline: displaySnapshot.feedbackOnline
+                    }
+                }
+            } else if (carAdaptiveDualStreamRef.current) {
+                jsonObj = { ...incomingMessage }
+                if (jsonObj.sitData?.carAir) {
+                    const nextSitData = { ...jsonObj.sitData }
+                    delete nextSitData.carAir
+                    if (Object.keys(nextSitData).length) jsonObj.sitData = nextSitData
+                    else delete jsonObj.sitData
+                }
+                if (jsonObj.algorData?.sensor_id) delete jsonObj.algorData
+                if (jsonObj.algorFeed) delete jsonObj.algorFeed
+            }
+
             if (jsonObj.sitData) {
                 // console.log(jsonObj.sitData.com3.data)
                 // const date = new Date().getTime()
@@ -446,6 +599,10 @@ function Test() {
                 controlsMode.current = 'algor'
             }
 
+            if ('feedbackOnline' in jsonObj) {
+                airbagFeedbackOnline.current = Boolean(jsonObj.feedbackOnline)
+            }
+
             if (jsonObj.handle) {
                 handle.current = jsonObj.handle
                 controlsMode.current = 'handle'
@@ -457,13 +614,36 @@ function Test() {
         };
         ws.onclose = (e) => {
             // connection closed
+            if (carAdaptiveWsRef.current === ws) carAdaptiveWsRef.current = null
         };
 
-
-    }, [])
+        return () => {
+            if (carAdaptiveWsRef.current === ws) carAdaptiveWsRef.current = null
+            ws.close()
+        }
+    }, [navigate, selectCarAdaptiveSensor])
 
     useEffect(() => {
         Scheduler.start()
+    }, [])
+
+    useEffect(() => {
+        let pageActive = true
+
+        /**
+         * 页面启动后执行现有的一键连接链路，串口成功后再初始化设备信息。
+         */
+        connectCarAdaptiveDevice()
+            .then(() => {
+                if (pageActive) console.info('[car-adaptive] 自动连接完成')
+            })
+            .catch((error) => {
+                if (pageActive) console.error('[car-adaptive] 自动连接失败:', error)
+            })
+
+        return () => {
+            pageActive = false
+        }
     }, [])
 
     const [sitData, setSitData] = useState([])
@@ -606,9 +786,17 @@ function Test() {
 
     const [onRuler, setOnRuler] = useState(false)
 
-    const [titleDisplay, setTitleDisplay] = useState(true)
+    const [titleDisplay, setTitleDisplay] = useState(false)
     const [sceneAdjustOpen, setSceneAdjustOpen] = useState(false)
     const [algorithmConfigOpen, setAlgorithmConfigOpen] = useState(false)
+    const [airbagAdjustOpen, setAirbagAdjustOpen] = useState(false)
+    const [airbagLayout, setAirbagLayout] = useState(readStoredAirbagLayout)
+
+    /** 更新并持久化区域调节中的左右对称气囊位置。 */
+    const changeAirbagLayout = useCallback((nextLayout) => {
+        setAirbagLayout(nextLayout)
+        storeAirbagLayout(nextLayout)
+    }, [])
 
     return (
 
@@ -631,21 +819,34 @@ function Test() {
                 titleDisplay, setTitleDisplay,
                 sceneAdjustOpen, setSceneAdjustOpen,
                 algorithmConfigOpen, setAlgorithmConfigOpen,
+                airbagAdjustOpen, setAirbagAdjustOpen,
+                carAdaptiveSensorId,
+                carAdaptiveSensorSwitching,
+                carAdaptiveRemoteController,
+                requestCarAdaptiveReturnHome,
+                selectCarAdaptiveSensor: selectCarAdaptiveSensorFromUi,
                 systemType,
                 setDisplayType,
                 displayType,
                 onRuler, setOnRuler
             }} >
-                <Title />
+                <TitleVisibilityHotspot
+                    visible={showTitle}
+                    onToggle={toggleTitle}
+                />
+                {showTitle ? <Title /> : null}
                 <AirAside 
                 
                 algorDataRef={algorDataRef}
                 algorFeed={algorFeed}
+                airbagFeedbackOnline={airbagFeedbackOnline}
                 handle={handle}
                 controlsMode={controlsMode}
+                airbagLayout={airbagLayout}
                 />
                 <CarAir
                     sitData={disPlayDataRef}
+                    sensorId={carAdaptiveSensorId}
                     changeViewProp={handleChangeViewProp}
                     ref={threeRef}
                     backConfig={{ sitnum1: 32, sitnum2: 32, sitInterp: 4, sitInterp1: 2, sitOrder: 3 }}
@@ -660,6 +861,13 @@ function Test() {
                 <AlgorithmConfigDrawer
                     open={algorithmConfigOpen}
                     onOpenChange={setAlgorithmConfigOpen}
+                    showTrigger={false}
+                />
+                <AirbagAdjustPanel
+                    layout={airbagLayout}
+                    onLayoutChange={changeAirbagLayout}
+                    open={airbagAdjustOpen}
+                    onOpenChange={setAirbagAdjustOpen}
                     showTrigger={false}
                 />
                 {/* <ViewSetting showProp={showProp} setShowProp={setShowProp} three={threeRef} /> */}
