@@ -4,6 +4,11 @@ const createCsvWriter = require("csv-writer").createObjectCsvWriter;
 const fs = require('fs');
 const { timeStampTo_Date } = require("./time");
 const constantObj = require("./config");
+const {
+  createLegacyHistoryCsvFileName,
+  normalizeHistoryRows,
+  parseHistoryRowData
+} = require('./collectionHistory');
 
 /**
  * 输入当前系统名  返回可执行数据库
@@ -56,34 +61,40 @@ function dbload(db, param, file, isPackaged) {
     db.all(selectQuery, param, (err, rows) => {
       if (err) {
         console.error(err);
+        reject(err)
       } else {
         // console.log(rows)
         //把时间 压力面积 平均压力数据push进csvWriter进行汇总
-        if (!rows.length) return;
+        if (!rows.length) {
+          reject(new Error(`未找到采集段：${param}`))
+          return
+        }
+        const normalized = normalizeHistoryRows(rows)
+        if (!normalized.rows.length) {
+          reject(new Error(`采集段没有可导出的有效数据：${param}`))
+          return
+        }
+        rows = normalized.rows
         const csvWriteBackData = [];
-        console.log(selectQuery, param, rows)
-        let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
+        let keyArr = Object.keys(normalized.pressArr)
 
         // 定义数据
         for (var i = 0, j = 0; i < rows.length; i++, j++) {
 
           const newData = {}
+          newData.time = timeStampTo_Date(rows[i][`timestamp`])
+          const rowData = parseHistoryRowData(rows[i]) || {}
 
           for (let j = 0; j < keyArr.length; j++) {
             const key = keyArr[j]
 
-            if (!JSON.parse(rows[i][`data`])[key]) continue
-            const data = JSON.parse(rows[i][`data`])[key].arr
-            if (!data) continue
-
-            if (j == 0) {
-              newData.time = timeStampTo_Date(rows[i][`timestamp`])
-            }
+            const data = rowData[key]?.arr
+            if (!Array.isArray(data)) continue
 
             const press = data.reduce((a, b) => a + b, 0);
             const area = data.filter((a) => a > 0).length;
             const max = Math.max(...data);
-            const aver = (press / area).toFixed(1)
+            const aver = area ? (press / area).toFixed(1) : '0.0'
 
             newData[`${key}pressureArea`] = area
             newData[`${key}pressure`] = press
@@ -127,9 +138,11 @@ function dbload(db, param, file, isPackaged) {
         if (isPackaged) {
           csvPath = 'resources/data'
         }
+        fs.mkdirSync(csvPath, { recursive: true })
+        const outputName = createLegacyHistoryCsvFileName(file, str)
 
         const csvWriter1 = createCsvWriter({
-          path: `${csvPath}/${file}${str}.csv`,
+          path: `${csvPath}/${outputName}`,
           // path: `./data/back${str}.csv`, // 指定输出文件的路径和名称
           header: handArr,
         });
@@ -139,7 +152,8 @@ function dbload(db, param, file, isPackaged) {
           .then(() => {
             console.log("导出csv成功！");
             let obj = {}
-            obj[param] = 'sussess'
+            obj[param] = 'success'
+            obj.fileName = outputName
             resolve(obj)
           })
           .catch((err) => {
@@ -283,7 +297,7 @@ async function changeDbName({ db, params }) {
 }
 
 async function dbGetData({ db, params }) {
-  const selectQuery = "select * from matrix WHERE date=?";
+  const selectQuery = "select * from matrix WHERE date=? ORDER BY timestamp ASC, id ASC";
 
   // const params = [time];
   return new Promise((resolve, reject) => {
@@ -292,6 +306,8 @@ async function dbGetData({ db, params }) {
         console.error(err);
         reject(err)
       } else {
+        const normalized = normalizeHistoryRows(rows)
+        rows = normalized.rows
         let length = rows.length;
         indexArr = [0, length - 1];
         timeStamp = [];
@@ -299,37 +315,12 @@ async function dbGetData({ db, params }) {
           timeStamp.push(rows[i].timestamp);
         }
         historyArr = [0, length];
-        let press = [],
-          area = [];
-        // console.log(rows , 'rows',params)
-        let keyArr = Object.keys(JSON.parse(rows[0][`data`]))
-        let pressValue = {}, areaValue = {}
-         for (let j = 0; j < keyArr.length; j++) {
-            const key = keyArr[j]
-            pressValue[key] = []
-            areaValue[key] = []
-          }
-        for (let i = 0; i < rows.length; i++) {
-
-          
-         
-          for (let j = 0; j < keyArr.length; j++) {
-            const key = keyArr[j]
-            if (!JSON.parse(rows[i][`data`])[key] || !JSON.parse(rows[i][`data`])[key].arr) continue
-            console.log(JSON.parse(rows[i][`data`])[key])
-            const data = JSON.parse(rows[i][`data`])[key].arr
-            pressValue[key].push(data.reduce((a, b) => a + b, 0))
-            areaValue[key].push(data.filter((a) => a > 0).length)
-          }
-          // press.push(pressValue);
-          // area.push(areaValue);
-        }
-
         resolve({
           length,
-          pressArr: pressValue,
-          areaArr: areaValue,
-          rows: rows
+          pressArr: normalized.pressArr,
+          areaArr: normalized.areaArr,
+          rows,
+          skippedRows: normalized.skippedRows
         })
 
         // server.clients.forEach(function each(client) {

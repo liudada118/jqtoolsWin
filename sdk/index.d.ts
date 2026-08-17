@@ -50,7 +50,7 @@ export interface CarAdaptiveStreamHandlers {
   onRawMessage?: (data: unknown, event: unknown) => void;
   /** 接收 Python 算法返回的 algorData 消息。 */
   onAlgorithmData?: (data: unknown, event: unknown) => void;
-  /** 接收从 control_command 中提取的 algorFeed 控制反馈。 */
+  /** 接收当前有效的 algorFeed 展示档位；具体来源见快照 airbagDisplaySource。 */
   onControlFeedback?: (data: unknown, event: unknown) => void;
   /** 接收主副传感器选择变化，sensorId=1 为主，sensorId=2 为副。 */
   onSensorChange?: (data: CarAdaptiveSensorSelection, event: unknown) => void;
@@ -69,8 +69,12 @@ export interface CarAdaptiveStreamHandlers {
  */
 export type CarAdaptiveControlMode = 'auto' | 'manual' | 'paused';
 
-/** 气囊控制模式状态。 */
-export interface CarAdaptiveControlModeState {
+/** 一路主驾或副驾的气囊控制模式状态。 */
+export interface CarAdaptiveSensorControlModeState {
+  /** 1 为主驾，2 为副驾。 */
+  sensorId: 1 | 2;
+  /** 当前通道中文角色。 */
+  role: '主' | '副';
   /** 当前模式。 */
   mode: CarAdaptiveControlMode;
   /** 上一个模式，从未切换过时为 null。 */
@@ -93,6 +97,14 @@ export interface CarAdaptiveControlModeState {
   view: string;
 }
 
+/** 气囊控制模式查询结果，顶层为目标通道并附带主副两路状态。 */
+export interface CarAdaptiveControlModeState extends CarAdaptiveSensorControlModeState {
+  /** 表示主、副通道采用独立控制状态。 */
+  independent: true;
+  /** 主、副两路完整控制模式。 */
+  sensors: CarAdaptiveSensorControlModeState[];
+}
+
 /** 切换控制模式后的返回状态，在模式状态之上附带本次切换的结果。 */
 export interface CarAdaptiveControlModeChange extends CarAdaptiveControlModeState {
   /** 本次调用是否真的改变了模式。重复设置同一模式为 false。 */
@@ -111,6 +123,36 @@ export interface CarAdaptiveSensorSelection {
   role: '主' | '副';
   /** 表示该选择只影响前端显示，不影响两路算法运行。 */
   displayOnly: true;
+}
+
+/** 主界面和原始数据页共享的全局采集状态。 */
+export interface CarAdaptiveCollectionState {
+  /** 是否正在把真实串口压力帧写入 SQLite。 */
+  collecting: boolean;
+  /** 当前采集段名称。 */
+  fileName: string;
+  /** 本次采集固定使用的主副驾通道。 */
+  sensorId: 1 | 2;
+  /** 当前采集通道中文角色。 */
+  role: '主' | '副';
+  /** 开始采集的毫秒时间戳。 */
+  startedAt: number;
+  /** 停止采集的毫秒时间戳，采集中为 0。 */
+  stoppedAt: number;
+  /** 已成功写入 SQLite 的帧数。 */
+  frameCount: number;
+}
+
+/** 原始采集段 CSV 导出结果。 */
+export interface CarAdaptiveCollectionExport {
+  /** Content-Disposition 返回的下载文件名。 */
+  fileName: string;
+  /** 响应内容类型。 */
+  contentType: string;
+  /** CSV 中实际包含的原始帧数。 */
+  frameCount: number;
+  /** UTF-8 CSV 字节，含 BOM。 */
+  data: Uint8Array;
 }
 
 /** 一路传感器的实时算法运行摘要。 */
@@ -133,6 +175,90 @@ export interface CarAdaptiveSensorStatus {
   feedbackOnline: boolean;
   /** 最近一条 ECU 回传的毫秒时间戳。 */
   feedbackStamp: number;
+  /** 该通道独立的算法控制模式。 */
+  controlMode: CarAdaptiveControlMode;
+  /** 当前是否有可供界面展示的气囊档位。 */
+  airbagDisplayAvailable: boolean;
+  /** 当前展示来源。 */
+  airbagDisplaySource: 'api' | 'ecu' | 'command' | 'none';
+  /** 是否正由接口覆盖界面展示。 */
+  airbagDisplayOverride: boolean;
+}
+
+/** 原始数据页使用的一条气囊命令诊断记录。 */
+export interface CarAdaptiveAirbagCommandRecord {
+  command: number[];
+  length: number;
+  gears: number[];
+  stamp: number;
+  source: 'algorithm' | 'api' | 'ecu';
+  target?: 'serial' | 'display';
+  queued?: boolean;
+  active?: boolean;
+  trusted?: boolean;
+  portPath?: string;
+  portPaths?: string[];
+  wireCommand?: number[];
+  clearedAt?: number;
+}
+
+/** 气囊指令历史的来源类型。 */
+export type CarAdaptiveAirbagCommandHistoryType =
+  | 'all'
+  | 'algorithmGenerated'
+  | 'algorithmSent'
+  | 'ecuFeedback'
+  | 'apiSerial'
+  | 'apiDisplay';
+
+/** 带主副驾、类型和顺序号的气囊指令历史记录。 */
+export interface CarAdaptiveAirbagCommandHistoryRecord extends CarAdaptiveAirbagCommandRecord {
+  id: string;
+  sequence: number;
+  sensorId: 1 | 2;
+  role: '主' | '副';
+  type: Exclude<CarAdaptiveAirbagCommandHistoryType, 'all'>;
+}
+
+/** 气囊指令历史查询结果。 */
+export interface CarAdaptiveAirbagCommandHistoryState {
+  sensorId: 1 | 2;
+  role: '主' | '副';
+  type: CarAdaptiveAirbagCommandHistoryType;
+  limit: number;
+  total: number;
+  counts: Record<CarAdaptiveAirbagCommandHistoryType, number>;
+  records: CarAdaptiveAirbagCommandHistoryRecord[];
+  /** 清空接口返回本次删除数量。 */
+  removed?: number;
+}
+
+/** 一路算法下发、ECU 回传和接口控制命令。 */
+export interface CarAdaptiveAirbagCommandTelemetry {
+  algorithmGenerated: CarAdaptiveAirbagCommandRecord | null;
+  algorithmSent: CarAdaptiveAirbagCommandRecord | null;
+  ecuFeedback: CarAdaptiveAirbagCommandRecord | null;
+  apiSerial: CarAdaptiveAirbagCommandRecord | null;
+  apiDisplay: CarAdaptiveAirbagCommandRecord | null;
+}
+
+/** 一路气囊界面展示状态。 */
+export interface CarAdaptiveSensorAirbagDisplayState {
+  sensorId: 1 | 2;
+  role: '主' | '副';
+  gears: number[];
+  available: boolean;
+  source: 'api' | 'ecu' | 'command' | 'none';
+  override: boolean;
+  stamp: number;
+  feedbackOnline: boolean;
+  feedbackStamp: number;
+}
+
+/** 气囊展示查询结果，顶层为目标通道并附带主副两路状态。 */
+export interface CarAdaptiveAirbagDisplayState extends CarAdaptiveSensorAirbagDisplayState {
+  independent: true;
+  sensors: CarAdaptiveSensorAirbagDisplayState[];
 }
 
 /** 一路传感器的完整前端数据快照。 */
@@ -153,16 +279,26 @@ export interface CarAdaptiveSensorSnapshot {
   /** 对应传感器的独立 Python 算法结果。 */
   algorData?: unknown;
   /**
-   * 24 路气囊档位反馈，来自 ECU 回传帧，代表硬件实际状态。
-   * 没有回传或回传中断时为空数组。
+   * 24 路当前有效展示档位，可能来自接口覆盖、ECU 回传或命令回落。
+   * 必须结合 airbagDisplaySource 判断来源。
    */
   algorFeed: number[];
-  /** 该路 ECU 回传是否在线。为 false 时 algorFeed 为空，界面气囊应全部熄灭。 */
+  /** 该路 ECU 回传是否在线，只表示真实硬件回传，不受展示覆盖影响。 */
   feedbackOnline: boolean;
   /** 最近一条 ECU 回传的毫秒时间戳。 */
   feedbackStamp: number;
   /** 反馈数据源，ecu 为 ECU 回传，command 为回落到已下发命令。 */
   feedbackSource: 'ecu' | 'command';
+  /** 当前是否有可展示的气囊状态。 */
+  airbagDisplayAvailable: boolean;
+  /** 当前展示来源。 */
+  airbagDisplaySource: 'api' | 'ecu' | 'command' | 'none';
+  /** 是否正由接口覆盖界面展示。 */
+  airbagDisplayOverride: boolean;
+  /** 当前展示状态的毫秒时间戳。 */
+  airbagDisplayStamp: number;
+  /** 最近算法、接口和 ECU 气囊命令诊断。 */
+  airbagCommands: CarAdaptiveAirbagCommandTelemetry;
   /** 生成该快照时的气囊控制模式。 */
   controlMode: CarAdaptiveControlMode;
 }
@@ -218,6 +354,33 @@ export class JqToolsCarClient {
   /** 获取主、副两路实时算法运行摘要。 */
   getCarAdaptiveSensors(): Promise<HttpResult<CarAdaptiveSensorStatus[]> | CarAdaptiveSensorStatus[]>;
 
+  /** 查询主界面和原始数据页共享的全局采集状态。 */
+  getCarAdaptiveCollection(): Promise<HttpResult<CarAdaptiveCollectionState> | CarAdaptiveCollectionState>;
+
+  /** 开始采集指定主副驾的真实串口压力数据。 */
+  startCarAdaptiveCollection(options?: {
+    sensorId?: 1 | 2;
+    fileName?: string;
+    select?: Record<string, unknown> | unknown[];
+  }): Promise<HttpResult<CarAdaptiveCollectionState> | CarAdaptiveCollectionState>;
+
+  /** 停止并保存当前全局采集任务。 */
+  stopCarAdaptiveCollection(): Promise<HttpResult<CarAdaptiveCollectionState> | CarAdaptiveCollectionState>;
+
+  /** 生成指定采集段的原始 145 字节帧 CSV 下载地址。 */
+  getCarAdaptiveCollectionExportUrl(options?: {
+    fileName?: string;
+    sensorId?: 1 | 2;
+  }): string;
+
+  /** 直接读取指定采集段的原始 145 字节帧 CSV 字节。 */
+  exportCarAdaptiveCollection(options?: {
+    fileName?: string;
+    sensorId?: 1 | 2;
+    timeout?: number;
+    signal?: AbortSignal;
+  }): Promise<CarAdaptiveCollectionExport>;
+
   /** 选择后端旧版单路兼容投影，不停止任何一路算法。 */
   selectCarAdaptiveSensor(sensorId: 1 | 2): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
 
@@ -228,10 +391,14 @@ export class JqToolsCarClient {
   processCarAdaptiveFrame(sensorData: number[], options?: ProcessCarAdaptiveFrameOptions): Promise<unknown>;
 
   /** 通过后端把已有的 Python control_command 写入汽车自适应串口。 */
-  writeCarAdaptiveCommand(controlCommand: number[], sensorId?: 1 | 2): Promise<HttpResult | unknown>;
+  writeCarAdaptiveCommand(
+    controlCommand: number[],
+    sensorId?: 1 | 2,
+    options?: { source?: 'api' | 'algorithm' }
+  ): Promise<HttpResult | unknown>;
 
-  /** 查询当前气囊控制模式。 */
-  getControlMode(): Promise<HttpResult<CarAdaptiveControlModeState> | CarAdaptiveControlModeState>;
+  /** 查询目标通道和主副两路独立气囊控制模式。 */
+  getControlMode(sensorId?: 1 | 2): Promise<HttpResult<CarAdaptiveControlModeState> | CarAdaptiveControlModeState>;
 
   /**
    * 切换气囊控制模式。
@@ -240,8 +407,35 @@ export class JqToolsCarClient {
    */
   setControlMode(
     mode: CarAdaptiveControlMode,
-    options?: { reason?: string }
+    options?: { sensorId?: 1 | 2; reason?: string }
   ): Promise<HttpResult<CarAdaptiveControlModeChange> | CarAdaptiveControlModeChange>;
+
+  /** 查询当前有效气囊展示状态及其来源。 */
+  getAirbagDisplay(sensorId?: 1 | 2): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;
+
+  /** 用 24 路档位覆盖目标通道的界面展示，不写串口。 */
+  setAirbagDisplay(
+    gears: number[],
+    sensorId?: 1 | 2
+  ): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;
+
+  /** 清除目标通道的接口展示覆盖。 */
+  clearAirbagDisplay(
+    sensorId?: 1 | 2
+  ): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;
+
+  /** 查询一路全部或指定类型的气囊指令历史，默认返回最新 200 条。 */
+  getAirbagCommandHistory(options?: {
+    sensorId?: 1 | 2;
+    type?: CarAdaptiveAirbagCommandHistoryType;
+    limit?: number;
+  }): Promise<HttpResult<CarAdaptiveAirbagCommandHistoryState> | CarAdaptiveAirbagCommandHistoryState>;
+
+  /** 清空一路全部或指定类型的气囊指令历史，不改变业务运行状态。 */
+  clearAirbagCommandHistory(options?: {
+    sensorId?: 1 | 2;
+    type?: CarAdaptiveAirbagCommandHistoryType;
+  }): Promise<HttpResult<CarAdaptiveAirbagCommandHistoryState> | CarAdaptiveAirbagCommandHistoryState>;
 
   /** 获取 SDK 本地 Python 算法参数和注释。 */
   getPythonConfig(): Promise<unknown>;

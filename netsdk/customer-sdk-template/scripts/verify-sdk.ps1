@@ -12,6 +12,13 @@ $sdkRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceDir = Join-Path $sdkRoot "mock-service"
 $frontendDir = Join-Path $sdkRoot "frontend-build"
 $realBackendDir = Join-Path $sdkRoot "real-backend"
+$customerSeatModelFileName = 'FAST27-' +
+    [char]0x524D +
+    [char]0x6392 +
+    [char]0x5EA7 +
+    [char]0x6905 +
+    '.glb'
+$customerSeatModel = Join-Path $frontendDir (Join-Path "model" $customerSeatModelFileName)
 $nodeExe = Join-Path $sdkRoot "runtime\node\node.exe"
 $appExe = Join-Path $sdkRoot "app\JqTools.CarAdaptive.ClientWpf.exe"
 $wpfDll = Join-Path $sdkRoot "wpf-control\JqTools.CarAdaptive.Wpf.dll"
@@ -130,6 +137,7 @@ Assert-File $nativeDll
 Assert-File (Join-Path $serviceDir "mock-service.js")
 Assert-File (Join-Path $frontendDir "index.html")
 Assert-File (Join-Path $frontendDir "model\seat2.glb")
+Assert-File $customerSeatModel
 Assert-File $apiDoc
 Assert-File $quickStartDoc
 Assert-File $realApiDoc
@@ -171,6 +179,34 @@ try {
         throw "Initial car adaptive control mode verification failed."
     }
     Write-Host "[OK] HTTP GET /carAdaptive/mode starts in auto mode"
+
+    $collectionState = Invoke-RestMethod "http://${HostName}:${HttpPort}/carAdaptive/collection"
+    if (
+        $collectionState.code -ne 0 -or
+        $collectionState.data.collecting -ne $false -or
+        $collectionState.data.sensorId -notin 1,2
+    ) {
+        throw "Initial car adaptive collection state verification failed."
+    }
+    Write-Host "[OK] HTTP GET /carAdaptive/collection shared collection state"
+
+    $missingCollectionName = "__jqtools_verify_missing_$([Guid]::NewGuid().ToString('N'))"
+    $collectionExportRouteVerified = $false
+    try {
+        Invoke-WebRequest `
+            "http://${HostName}:${HttpPort}/carAdaptive/collection/export?fileName=$missingCollectionName&sensorId=1" `
+            -UseBasicParsing `
+            -ErrorAction Stop | Out-Null
+    } catch {
+        $response = $_.Exception.Response
+        if ($null -ne $response -and [int]$response.StatusCode -eq 404) {
+            $collectionExportRouteVerified = $true
+        }
+    }
+    if (-not $collectionExportRouteVerified) {
+        throw "Raw collection CSV export route verification failed."
+    }
+    Write-Host "[OK] HTTP /carAdaptive/collection/export raw CSV route"
 
     $appPage = Invoke-WebRequest "http://${HostName}:${HttpPort}/app" -UseBasicParsing
     if ($appPage.StatusCode -ne 200 -or $appPage.Content -notmatch "JQTOOLS") {
@@ -329,6 +365,153 @@ try {
             throw "Automatic control mode WebSocket broadcast verification failed."
         }
         Write-Host "[OK] HTTP and WebSocket automatic/manual control mode"
+
+        # Driver and passenger control modes must remain independent.
+        $driverManualModeBody = @{
+            sensorId = 1
+            mode = "manual"
+            reason = "customer-sdk independent mode verification"
+        } | ConvertTo-Json -Compress
+        $driverManualMode = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/mode" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $driverManualModeBody
+        $independentModes = Invoke-RestMethod "http://${HostName}:${HttpPort}/carAdaptive/mode?sensorId=1"
+        $driverMode = @($independentModes.data.sensors | Where-Object { $_.sensorId -eq 1 })[0]
+        $passengerMode = @($independentModes.data.sensors | Where-Object { $_.sensorId -eq 2 })[0]
+        if (
+            $driverManualMode.code -ne 0 -or
+            $driverMode.mode -ne "manual" -or
+            $passengerMode.mode -ne "auto"
+        ) {
+            throw "Independent driver/passenger control mode verification failed."
+        }
+
+        $driverAutoModeBody = @{
+            sensorId = 1
+            mode = "auto"
+            reason = "customer-sdk independent mode verification complete"
+        } | ConvertTo-Json -Compress
+        $driverAutoMode = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/mode" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $driverAutoModeBody
+        if ($driverAutoMode.code -ne 0 -or $driverAutoMode.data.mode -ne "auto") {
+            throw "Restoring driver automatic mode failed."
+        }
+        Write-Host "[OK] HTTP independent driver/passenger control modes"
+
+        # Display overrides and API serial writes must be visible in diagnostics.
+        $displayGears = @(3) + @(0) * 23
+        $displayBody = @{
+            sensorId = 2
+            gears = $displayGears
+        } | ConvertTo-Json -Depth 4 -Compress
+        $displayOverride = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/display" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $displayBody
+        if (
+            $displayOverride.code -ne 0 -or
+            $displayOverride.data.source -ne "api" -or
+            $displayOverride.data.override -ne $true -or
+            @($displayOverride.data.gears).Count -ne 24 -or
+            $displayOverride.data.gears[0] -ne 3
+        ) {
+            throw "Airbag display override verification failed."
+        }
+
+        $verificationCommand = @(31)
+        for ($airbagIndex = 1; $airbagIndex -le 24; $airbagIndex++) {
+            $verificationCommand += $airbagIndex
+            $verificationCommand += 0
+        }
+        $verificationCommand += @(0, 0, 170, 85, 3, 153)
+        if ($verificationCommand.Count -ne 55) {
+            throw "Verification command is not 55 bytes."
+        }
+        $apiSerialBody = @{
+            sensorId = 2
+            controlCommand = $verificationCommand
+        } | ConvertTo-Json -Depth 4 -Compress
+        $apiSerial = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/writeCommand" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $apiSerialBody
+        if ($apiSerial.code -ne 0 -or $apiSerial.data.length -ne 55) {
+            throw "API airbag serial command verification failed."
+        }
+
+        $commandSnapshot = $null
+        for ($attempt = 0; $attempt -lt 12 -and -not $commandSnapshot; $attempt++) {
+            $message = Receive-WebSocketText -Socket $webSocket -CancellationToken $webSocketTimeout.Token |
+                ConvertFrom-Json
+            if ($message.PSObject.Properties.Name -contains "carAdaptiveSensorsData") {
+                $passengerSnapshot = @(
+                    $message.carAdaptiveSensorsData | Where-Object { $_.sensorId -eq 2 }
+                )[0]
+                if (
+                    $passengerSnapshot.airbagDisplaySource -eq "api" -and
+                    $passengerSnapshot.airbagDisplayOverride -eq $true -and
+                    $passengerSnapshot.airbagCommands.apiSerial.length -eq 55 -and
+                    $passengerSnapshot.airbagCommands.apiDisplay.length -eq 55
+                ) {
+                    $commandSnapshot = $passengerSnapshot
+                }
+            }
+        }
+        if (-not $commandSnapshot) {
+            throw "WebSocket airbag command telemetry verification failed."
+        }
+
+        $displayCleared = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/display/2" `
+            -Method Delete
+        if (
+            $displayCleared.code -ne 0 -or
+            $displayCleared.data.override -ne $false -or
+            $displayCleared.data.source -eq "api"
+        ) {
+            throw "Clearing airbag display override failed."
+        }
+        Write-Host "[OK] HTTP display override and WebSocket airbag command telemetry"
+
+        # The history API must include both display-only and serial API operations.
+        $commandHistory = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/commands/history?sensorId=2&limit=20" `
+            -Method Get
+        $historyTypes = @($commandHistory.data.records | ForEach-Object { $_.type })
+        if (
+            $commandHistory.code -ne 0 -or
+            $commandHistory.data.sensorId -ne 2 -or
+            $historyTypes -notcontains "apiSerial" -or
+            $historyTypes -notcontains "apiDisplay"
+        ) {
+            throw "Airbag command history query verification failed."
+        }
+
+        $serialHistoryCleared = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/commands/history/2?type=apiSerial" `
+            -Method Delete
+        if (
+            $serialHistoryCleared.code -ne 0 -or
+            $serialHistoryCleared.data.removed -lt 1 -or
+            $serialHistoryCleared.data.counts.apiSerial -ne 0
+        ) {
+            throw "Airbag command history type clear verification failed."
+        }
+
+        $allHistoryCleared = Invoke-RestMethod `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/commands/history/2" `
+            -Method Delete
+        if ($allHistoryCleared.code -ne 0 -or $allHistoryCleared.data.total -ne 0) {
+            throw "Airbag command history full clear verification failed."
+        }
+        Write-Host "[OK] HTTP airbag command history query and clear"
 
         $uiState = Invoke-RestMethod "http://${HostName}:${HttpPort}/carAdaptive/ui/state"
         if ($uiState.code -ne 0 -or $uiState.data.displayClients -lt 1) {

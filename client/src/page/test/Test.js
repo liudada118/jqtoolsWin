@@ -52,6 +52,11 @@ import {
     storeCarAdaptiveSensorId
 } from '../../util/carAdaptiveUiControl'
 import {
+    getCarAdaptiveHistoryPlaybackActive,
+    shouldFilterCarAdaptiveSingleStream,
+    shouldUseCarAdaptiveLiveSnapshot
+} from '../../util/carAdaptiveHistoryPlayback'
+import {
     connectCarAdaptiveDevice,
     shouldShowCarAdaptiveTitle
 } from '../../util/carAdaptiveStartup'
@@ -104,7 +109,7 @@ function Test() {
     const handle = useRef({})
     const controlsMode = useRef('algor')
     const algorFeed = useRef({})
-    // 气囊回传是否在线，用于在界面上区分“气囊未动作”和“收不到 ECU 回传”
+    // 当前是否有可展示的气囊状态；接口覆盖时可为 true，但不代表 ECU 已回传。
     const airbagFeedbackOnline = useRef(false)
 
 
@@ -117,6 +122,7 @@ function Test() {
     const [carAdaptiveSensorId, setCarAdaptiveSensorId] = useState(initialCarAdaptiveSensorId)
     const carAdaptiveSensorIdRef = useRef(initialCarAdaptiveSensorId)
     const carAdaptiveWsRef = useRef(null)
+    const carAdaptiveHistoryPlaybackRef = useRef(false)
     const carAdaptiveSensorCacheRef = useRef({ 1: null, 2: null })
     const carAdaptiveDualStreamRef = useRef(false)
     const carAdaptiveRemoteController = useRef(isCarAdaptiveRemoteController()).current
@@ -178,6 +184,16 @@ function Test() {
         return true
     }, [carAdaptiveRemoteController])
 
+    /**
+     * 每次进入或重新显示汽车自适应页面时执行完整的一键连接流程。
+     * connectCarAdaptiveDevice 会合并并发请求，远程命令和可见性恢复同时触发也只连接一次。
+     */
+    const reconnectCarAdaptiveDevice = useCallback((reason = '进入页面') => {
+        return connectCarAdaptiveDevice()
+            .then(() => console.info(`[car-adaptive] ${reason}，自动连接完成`))
+            .catch((error) => console.error(`[car-adaptive] ${reason}，自动连接失败:`, error))
+    }, [])
+
     useEffect(() => {
         const ws = new WebSocket(carAdaptiveWsUrl);
         carAdaptiveWsRef.current = ws
@@ -203,6 +219,13 @@ function Test() {
                 return
             }
 
+            if (
+                incomingMessage?.carAdaptiveUiCommand?.action ===
+                CAR_ADAPTIVE_UI_ACTIONS.OPEN_MODULE
+            ) {
+                reconnectCarAdaptiveDevice('远程重新打开页面')
+            }
+
             const acknowledgement = applyCarAdaptiveUiCommand(incomingMessage, {
                 sensorId: carAdaptiveSensorIdRef.current,
                 view: CAR_ADAPTIVE_UI_VIEWS.MODULE,
@@ -215,6 +238,11 @@ function Test() {
 
             let jsonObj = incomingMessage
 
+            carAdaptiveHistoryPlaybackRef.current = getCarAdaptiveHistoryPlaybackActive(
+                carAdaptiveHistoryPlaybackRef.current,
+                incomingMessage
+            )
+
             if (Array.isArray(incomingMessage.carAdaptiveSensorsData)) {
                 carAdaptiveDualStreamRef.current = true
                 incomingMessage.carAdaptiveSensorsData.forEach((sensorSnapshot) => {
@@ -225,16 +253,28 @@ function Test() {
                 })
 
                 const displaySnapshot = carAdaptiveSensorCacheRef.current[carAdaptiveSensorIdRef.current]
-                if (displaySnapshot) {
+                if (
+                    displaySnapshot &&
+                    shouldUseCarAdaptiveLiveSnapshot(
+                        incomingMessage,
+                        carAdaptiveHistoryPlaybackRef.current
+                    )
+                ) {
                     jsonObj = {
                         ...incomingMessage,
                         sitData: displaySnapshot.sitData,
                         algorData: displaySnapshot.algorData,
                         algorFeed: displaySnapshot.algorFeed,
-                        feedbackOnline: displaySnapshot.feedbackOnline
+                        feedbackOnline: displaySnapshot.feedbackOnline,
+                        airbagDisplayAvailable: displaySnapshot.airbagDisplayAvailable,
+                        airbagDisplaySource: displaySnapshot.airbagDisplaySource,
+                        airbagDisplayOverride: displaySnapshot.airbagDisplayOverride
                     }
                 }
-            } else if (carAdaptiveDualStreamRef.current) {
+            } else if (shouldFilterCarAdaptiveSingleStream(
+                incomingMessage,
+                carAdaptiveDualStreamRef.current
+            )) {
                 jsonObj = { ...incomingMessage }
                 if (jsonObj.sitData?.carAir) {
                     const nextSitData = { ...jsonObj.sitData }
@@ -562,7 +602,7 @@ function Test() {
                     useEquipStore.getState().setDisplayStatus(new Array(4096).fill(0))
                 }
 
-                if (jsonObj.index) {
+                if (jsonObj.index != null) {
                     setPlayBack(true)
                     const history = useEquipStore.getState().history
                     const obj = { ...history, index: jsonObj.index, }
@@ -599,7 +639,9 @@ function Test() {
                 controlsMode.current = 'algor'
             }
 
-            if ('feedbackOnline' in jsonObj) {
+            if ('airbagDisplayAvailable' in jsonObj) {
+                airbagFeedbackOnline.current = Boolean(jsonObj.airbagDisplayAvailable)
+            } else if ('feedbackOnline' in jsonObj) {
                 airbagFeedbackOnline.current = Boolean(jsonObj.feedbackOnline)
             }
 
@@ -621,30 +663,34 @@ function Test() {
             if (carAdaptiveWsRef.current === ws) carAdaptiveWsRef.current = null
             ws.close()
         }
-    }, [navigate, selectCarAdaptiveSensor])
+    }, [navigate, reconnectCarAdaptiveDevice, selectCarAdaptiveSensor])
 
     useEffect(() => {
         Scheduler.start()
     }, [])
 
     useEffect(() => {
-        let pageActive = true
+        reconnectCarAdaptiveDevice('页面启动')
+    }, [reconnectCarAdaptiveDevice])
 
-        /**
-         * 页面启动后执行现有的一键连接链路，串口成功后再初始化设备信息。
-         */
-        connectCarAdaptiveDevice()
-            .then(() => {
-                if (pageActive) console.info('[car-adaptive] 自动连接完成')
-            })
-            .catch((error) => {
-                if (pageActive) console.error('[car-adaptive] 自动连接失败:', error)
-            })
+    useEffect(() => {
+        let wasHidden = document.visibilityState === 'hidden'
 
-        return () => {
-            pageActive = false
+        /** WebView 或浏览器从隐藏状态恢复时重新连接真实串口。 */
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                wasHidden = true
+                return
+            }
+            if (!wasHidden) return
+
+            wasHidden = false
+            reconnectCarAdaptiveDevice('页面重新显示')
         }
-    }, [])
+
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }, [reconnectCarAdaptiveDevice])
 
     const [sitData, setSitData] = useState([])
 
@@ -871,7 +917,7 @@ function Test() {
                     showTrigger={false}
                 />
                 {/* <ViewSetting showProp={showProp} setShowProp={setShowProp} three={threeRef} /> */}
-                {col ? <ColAndHistory playBack={playBack} /> : ''}
+                {col ? <ColAndHistory playBack={playBack} sensorId={carAdaptiveSensorId} /> : ''}
                 {/* <Canvas /> 
                 {/* <Num /> */}
                 {/* <Aside /> */}

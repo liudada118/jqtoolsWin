@@ -7,6 +7,12 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $outRoot = Join-Path $PSScriptRoot "customer-sdk"
+$customerSeatModelFileName = 'FAST27-' +
+    [char]0x524D +
+    [char]0x6392 +
+    [char]0x5EA7 +
+    [char]0x6905 +
+    '.glb'
 
 function Invoke-Robocopy {
     param(
@@ -23,7 +29,10 @@ function Invoke-Robocopy {
 }
 
 function Reset-OutputDirectory {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string[]]$PreservePaths = @()
+    )
 
     function Remove-WithRetry {
         param([Parameter(Mandatory = $true)][string]$Target)
@@ -42,6 +51,42 @@ function Reset-OutputDirectory {
         }
     }
 
+    function Get-PreserveMode {
+        param([Parameter(Mandatory = $true)][string]$Target)
+
+        $targetPath = [IO.Path]::GetFullPath($Target).TrimEnd('\')
+        foreach ($preservePath in $PreservePaths) {
+            $normalizedPreservePath = [IO.Path]::GetFullPath($preservePath).TrimEnd('\')
+            if ($targetPath.Equals($normalizedPreservePath, [StringComparison]::OrdinalIgnoreCase)) {
+                return 'Exact'
+            }
+            if ($normalizedPreservePath.StartsWith(
+                "$targetPath\",
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+                return 'Ancestor'
+            }
+        }
+        return 'None'
+    }
+
+    function Clear-WithPreservedPaths {
+        param([Parameter(Mandatory = $true)][string]$Directory)
+
+        Get-ChildItem -LiteralPath $Directory -Force | ForEach-Object {
+            $mode = Get-PreserveMode -Target $_.FullName
+            if ($mode -eq 'Exact') {
+                Write-Host "Preserving customer runtime data: $($_.FullName)"
+                return
+            }
+            if ($mode -eq 'Ancestor' -and $_.PSIsContainer) {
+                Clear-WithPreservedPaths -Directory $_.FullName
+                return
+            }
+            Remove-WithRetry -Target $_.FullName
+        }
+    }
+
     $netsdkRoot = Resolve-Path $PSScriptRoot
     if (Test-Path -LiteralPath $Path) {
         $resolved = Resolve-Path -LiteralPath $Path
@@ -49,15 +94,15 @@ function Reset-OutputDirectory {
             throw "Refusing to delete unexpected path: $($resolved.Path)"
         }
 
-        Get-ChildItem -LiteralPath $resolved.Path -Force | ForEach-Object {
-            Remove-WithRetry -Target $_.FullName
-        }
+        Clear-WithPreservedPaths -Directory $resolved.Path
 
-        try {
-            Remove-WithRetry -Target $resolved.Path
-        }
-        catch {
-            Write-Warning "Output root is still in use, reusing existing empty directory: $($resolved.Path)"
+        if ($PreservePaths.Count -eq 0) {
+            try {
+                Remove-WithRetry -Target $resolved.Path
+            }
+            catch {
+                Write-Warning "Output root is still in use, reusing existing empty directory: $($resolved.Path)"
+            }
         }
     }
 
@@ -72,9 +117,17 @@ function Copy-FrontendBuild {
         throw "Frontend build not found. Expected: $frontendSource"
     }
 
+    $protectedModelPath = Join-Path $Destination (Join-Path "model" $customerSeatModelFileName)
+    $copyArgs = @()
+    if (Test-Path -LiteralPath $protectedModelPath -PathType Leaf) {
+        $copyArgs = @("/XF", $customerSeatModelFileName)
+        Write-Host "Preserving customer seat model: $protectedModelPath"
+    }
+
     Invoke-Robocopy `
         -Source $frontendSource `
-        -Destination $Destination
+        -Destination $Destination `
+        -ExtraArgs $copyArgs
 }
 
 Push-Location $repoRoot
@@ -96,7 +149,20 @@ try {
         & "C:\Program Files\CMake\bin\cmake.exe" --build ".\native-dll\JqToolsCarAdaptiveNative\build" --config Release
     }
 
-    Reset-OutputDirectory $outRoot
+    $preservedCustomerPaths = @()
+    $customerDatabasePath = Join-Path $outRoot "real-backend\db\carAir.db"
+    $customerDataPath = Join-Path $outRoot "real-backend\data"
+    $customerSeatModelPath = Join-Path $outRoot (Join-Path "frontend-build\model" $customerSeatModelFileName)
+    if (Test-Path -LiteralPath $customerDatabasePath -PathType Leaf) {
+        $preservedCustomerPaths += $customerDatabasePath
+    }
+    if (Test-Path -LiteralPath $customerDataPath -PathType Container) {
+        $preservedCustomerPaths += $customerDataPath
+    }
+    if (Test-Path -LiteralPath $customerSeatModelPath -PathType Leaf) {
+        $preservedCustomerPaths += $customerSeatModelPath
+    }
+    Reset-OutputDirectory $outRoot -PreservePaths $preservedCustomerPaths
 
     $appOut = Join-Path $outRoot "app"
     $serviceOut = Join-Path $outRoot "mock-service"
@@ -168,7 +234,13 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot "package-lock.json") -Destination $realBackendOut -Force
 
     New-Item -ItemType Directory -Force -Path (Join-Path $realBackendOut "db"), (Join-Path $realBackendOut "data"), (Join-Path $realBackendOut "python\app") | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repoRoot "db\carAir.db") -Destination (Join-Path $realBackendOut "db") -Force
+    $outputDatabasePath = Join-Path $realBackendOut "db\carAir.db"
+    if (-not (Test-Path -LiteralPath $outputDatabasePath -PathType Leaf)) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "db\carAir.db") -Destination (Join-Path $realBackendOut "db") -Force
+    }
+    else {
+        Write-Host "Preserved customer database: $outputDatabasePath"
+    }
     Copy-Item -LiteralPath (Join-Path $repoRoot "db\init.db") -Destination (Join-Path $realBackendOut "db") -Force
 
     $pythonAppFiles = @(

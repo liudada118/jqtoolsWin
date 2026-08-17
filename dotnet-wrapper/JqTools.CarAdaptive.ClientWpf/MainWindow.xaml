@@ -17,6 +17,7 @@
             Host="127.0.0.1"
             HttpPort="19245"
             WebSocketPort="19999"
+            StartupTimeoutSeconds="30"
             PagePath="/app" />
     </Grid>
 </Window>

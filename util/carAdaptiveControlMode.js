@@ -161,13 +161,14 @@ function applyCarAdaptiveControlMode(currentState, input, now = Date.now()) {
 /**
  * 返回某个 SDK 视图应当对应的气囊控制模式。
  *
- * 只有自适应模块主页 `module` 让算法接管气囊；宿主主页、原始数据页和其他页面
- * 都暂停算法。原始数据页只看串口原始帧，不需要算法运行。
+ * 自适应模块主页 `module` 让算法接管气囊；宿主主页和其他页面暂停算法。
+ * 原始数据页 `raw-serial` 是只读观察页，不改变当前控制模式。
  *
  * @param {string} view SDK 页面视图标识。
- * @returns {string} 目标控制模式。
+ * @returns {string|null} 目标控制模式；返回 null 表示保留当前模式。
  */
 function getCarAdaptiveModeForView(view) {
+  if (view === CAR_ADAPTIVE_UI_VIEWS.RAW_SERIAL) return null
   return view === CAR_ADAPTIVE_UI_VIEWS.MODULE
     ? CAR_ADAPTIVE_CONTROL_MODES.AUTO
     : CAR_ADAPTIVE_CONTROL_MODES.PAUSED

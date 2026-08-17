@@ -8,10 +8,14 @@
     "server/HttpResult.js",
     "server/serialServer.js",
     "util/aes_ecb.js",
+    "util/carAdaptiveAirbagDisplay.js",
+    "util/carAdaptiveCollectionExport.js",
+    "util/carAdaptiveCommandHistory.js",
     "util/carAdaptiveControlMode.js",
     "util/carAdaptiveProtocol.js",
     "util/carAdaptiveUiControl.js",
     "util/clientDevServer.js",
+    "util/collectionHistory.js",
     "util/config.js",
     "util/db.js",
     "util/getServer.js",
@@ -28,5 +32,5 @@
     "control.pyc",
     "tap_massage.pyc"
   ],
-  "packageSha256": "87d81720388f92490112115d4f98766e849e7bb8f30a35d7d274170d08b9d922"
+  "packageSha256": "136dd3c76ee9015974a503159467f3465f665ac3aef7329e400d6b1ef3321f84"
 }

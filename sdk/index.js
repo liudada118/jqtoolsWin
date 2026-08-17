@@ -331,6 +331,110 @@ class JqToolsCarClient {
     return this.request('GET', '/carAdaptive/sensors');
   }
 
+  /** 查询主界面和原始数据页共享的全局采集状态。 */
+  getCarAdaptiveCollection() {
+    return this.request('GET', '/carAdaptive/collection');
+  }
+
+  /**
+   * 开始采集指定主副驾的真实串口压力数据。
+   * 当前后端同一时间只运行一个全局采集任务。
+   *
+   * @param {Object} [options]
+   * @param {1|2} [options.sensorId=1] 采集主驾或副驾。
+   * @param {string} [options.fileName] 采集段名称，省略时由后端生成时间戳。
+   * @param {Object|Array} [options.select] 随采集帧保存的兼容元数据。
+   */
+  startCarAdaptiveCollection(options = {}) {
+    const sensorId = Number(options.sensorId ?? 1);
+    if (![1, 2].includes(sensorId)) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    return this.request('POST', '/startCol', {
+      body: {
+        sensorId,
+        fileName: options.fileName,
+        select: options.select || []
+      }
+    });
+  }
+
+  /** 停止并保存当前全局采集任务。 */
+  stopCarAdaptiveCollection() {
+    return this.request('GET', '/endCol');
+  }
+
+  /**
+   * 生成原始采集段 CSV 的下载地址。
+   * fileName 省略时由后端使用当前或最近一次采集段。
+   *
+   * @param {Object} [options]
+   * @param {string} [options.fileName] 采集段名称。
+   * @param {1|2} [options.sensorId] 只导出主驾或副驾。
+   * @returns {string} CSV 下载地址。
+   */
+  getCarAdaptiveCollectionExportUrl(options = {}) {
+    const query = {};
+    const fileName = String(options.fileName || '').trim();
+    if (fileName) query.fileName = fileName;
+    if (options.sensorId !== undefined) {
+      const sensorId = Number(options.sensorId);
+      if (![1, 2].includes(sensorId)) {
+        throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+      }
+      query.sensorId = sensorId;
+    }
+    return buildUrl(this.baseUrl, '/carAdaptive/collection/export', query);
+  }
+
+  /**
+   * 直接读取一个采集段的原始 145 字节帧 CSV。
+   * 返回 Uint8Array，由调用方决定保存路径或继续上传处理。
+   *
+   * @param {Object} [options]
+   * @param {string} [options.fileName] 采集段名称。
+   * @param {1|2} [options.sensorId] 只导出主驾或副驾。
+   * @returns {Promise<{fileName:string,contentType:string,frameCount:number,data:Uint8Array}>} CSV 数据。
+   */
+  async exportCarAdaptiveCollection(options = {}) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.timeout);
+    try {
+      const response = await this.fetch(this.getCarAdaptiveCollectionExportUrl(options), {
+        method: 'GET',
+        signal: options.signal || controller.signal
+      });
+      if (!response.ok) {
+        const payload = await parseResponse(response);
+        throw new JqToolsError(
+          payload?.data || payload?.message || `Collection export failed with HTTP ${response.status}`,
+          { status: response.status, payload }
+        );
+      }
+
+      const fallbackName = 'car-adaptive-raw.csv';
+      return {
+        fileName: resolveDownloadFileName(
+          response.headers.get('content-disposition'),
+          fallbackName
+        ),
+        contentType: response.headers.get('content-type') || 'text/csv; charset=utf-8',
+        frameCount: Number(response.headers.get('x-jqtools-frame-count')) || 0,
+        data: new Uint8Array(await response.arrayBuffer())
+      };
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new JqToolsError(`JQTools request timed out after ${options.timeout || this.timeout}ms`, {
+          cause: error
+        });
+      }
+      if (error instanceof JqToolsError) throw error;
+      throw new JqToolsError(`JQTools collection export failed: ${error.message}`, { cause: error });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   /**
    * 切换后端旧版单路兼容投影；不会影响主、副两路算法持续运行。
    *
@@ -372,7 +476,7 @@ class JqToolsCarClient {
     });
 
     if (options.writeSerial && result?.control_command) {
-      await this.writeCarAdaptiveCommand(result.control_command, sensorId);
+      await this.writeCarAdaptiveCommand(result.control_command, sensorId, { source: 'algorithm' });
     }
 
     return {
@@ -382,9 +486,13 @@ class JqToolsCarClient {
     };
   }
 
-  /** 查询当前气囊控制模式：`auto` 由算法自动写串口，`manual` 只接受手动下发。 */
-  getControlMode() {
-    return this.request('GET', '/carAdaptive/mode');
+  /** 查询目标主副驾的气囊控制模式；不传 sensorId 时返回当前展示通道和两路状态。 */
+  getControlMode(sensorId) {
+    if (sensorId !== undefined && ![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    const query = sensorId === undefined ? '' : `?sensorId=${Number(sensorId)}`;
+    return this.request('GET', `/carAdaptive/mode${query}`);
   }
 
   /**
@@ -399,31 +507,131 @@ class JqToolsCarClient {
    *
    * @param {'auto'|'manual'|'paused'} mode 目标模式。
    * @param {Object} [options]
+   * @param {1|2} [options.sensorId] 只切换指定通道；不传时兼容旧接口并同时切换两路。
    * @param {string} [options.reason] 变更原因，便于现场排查是谁切换的。
    */
   setControlMode(mode, options = {}) {
     if (!['auto', 'manual', 'paused'].includes(String(mode).trim().toLowerCase())) {
       throw new JqToolsError("mode must be 'auto', 'manual' or 'paused'.");
     }
+    if (options.sensorId !== undefined && ![1, 2].includes(Number(options.sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
     return this.request('POST', '/carAdaptive/mode', {
       body: {
         mode: String(mode).trim().toLowerCase(),
         source: 'api',
-        reason: options.reason
+        reason: options.reason,
+        ...(options.sensorId === undefined ? {} : { sensorId: Number(options.sensorId) })
       }
     });
+  }
+
+  /** 查询接口覆盖、ECU 回传或命令回落后的气囊界面展示状态。 */
+  getAirbagDisplay(sensorId) {
+    if (sensorId !== undefined && ![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    const query = sensorId === undefined ? '' : `?sensorId=${Number(sensorId)}`;
+    return this.request('GET', `/carAdaptive/display${query}`);
+  }
+
+  /**
+   * 用 24 路档位覆盖目标通道的前端气囊展示，不写串口、不伪造 ECU 回传。
+   * 调用 clearAirbagDisplay 后，界面重新跟随 ECU 回传。
+   */
+  setAirbagDisplay(gears, sensorId = 1) {
+    if (![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    if (!Array.isArray(gears) || gears.length !== 24 || gears.some((gear) => !Number.isInteger(gear) || gear < 0 || gear > 4)) {
+      throw new JqToolsError('gears must be an array with 24 integers between 0 and 4.');
+    }
+    return this.request('POST', '/carAdaptive/display', {
+      body: { sensorId: Number(sensorId), gears }
+    });
+  }
+
+  /** 清除目标通道的接口展示覆盖，恢复 ECU 回传或兼容命令回落。 */
+  clearAirbagDisplay(sensorId = 1) {
+    if (![1, 2].includes(Number(sensorId))) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    return this.request('DELETE', `/carAdaptive/display/${Number(sensorId)}`);
+  }
+
+  /**
+   * 查询一路气囊指令历史。
+   * type 可选 algorithmGenerated、algorithmSent、ecuFeedback、apiSerial、apiDisplay 或 all。
+   */
+  getAirbagCommandHistory(options = {}) {
+    const sensorId = options.sensorId === undefined ? 1 : Number(options.sensorId);
+    if (![1, 2].includes(sensorId)) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    const allowedTypes = [
+      'all',
+      'algorithmGenerated',
+      'algorithmSent',
+      'ecuFeedback',
+      'apiSerial',
+      'apiDisplay'
+    ];
+    const type = String(options.type || 'all').trim();
+    if (!allowedTypes.includes(type)) {
+      throw new JqToolsError(`unsupported airbag command history type: ${type}`);
+    }
+    const query = new URLSearchParams({ sensorId: String(sensorId) });
+    if (type !== 'all') query.set('type', type);
+    if (options.limit !== undefined) {
+      const limit = Number(options.limit);
+      if (!Number.isInteger(limit) || limit <= 0) {
+        throw new JqToolsError('limit must be a positive integer.');
+      }
+      query.set('limit', String(limit));
+    }
+    return this.request('GET', `/carAdaptive/commands/history?${query.toString()}`);
+  }
+
+  /**
+   * 清空一路全部或指定类型的气囊指令历史。
+   * 该操作只清理诊断记录，不会改变算法、串口、气囊和界面展示状态。
+   */
+  clearAirbagCommandHistory(options = {}) {
+    const sensorId = options.sensorId === undefined ? 1 : Number(options.sensorId);
+    if (![1, 2].includes(sensorId)) {
+      throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
+    }
+    const allowedTypes = [
+      'all',
+      'algorithmGenerated',
+      'algorithmSent',
+      'ecuFeedback',
+      'apiSerial',
+      'apiDisplay'
+    ];
+    const type = String(options.type || 'all').trim();
+    if (!allowedTypes.includes(type)) {
+      throw new JqToolsError(`unsupported airbag command history type: ${type}`);
+    }
+    const query = type === 'all' ? '' : `?type=${encodeURIComponent(type)}`;
+    return this.request('DELETE', `/carAdaptive/commands/history/${sensorId}${query}`);
   }
 
   /**
    * 通过后端把 Python 算法返回的 control_command 写入汽车自适应串口。
    * SDK 在本地计算算法结果；硬件串口访问仍由后端负责。
    */
-  writeCarAdaptiveCommand(controlCommand, sensorId = 1) {
+  writeCarAdaptiveCommand(controlCommand, sensorId = 1, options = {}) {
     if (![1, 2].includes(Number(sensorId))) {
       throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
     }
     return this.request('POST', '/carAdaptive/writeCommand', {
-      body: { controlCommand, sensorId: Number(sensorId) }
+      body: {
+        controlCommand,
+        sensorId: Number(sensorId),
+        source: options.source === 'algorithm' ? 'algorithm' : 'api'
+      }
     });
   }
 
@@ -541,6 +749,20 @@ function buildUrl(baseUrl, pathname, query) {
     }
   });
   return url.toString();
+}
+
+/** 从 Content-Disposition 中解析 UTF-8 文件名。 */
+function resolveDownloadFileName(disposition, fallbackName) {
+  const utf8Match = String(disposition || '').match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      // 非法转义时继续尝试普通 filename。
+    }
+  }
+  const plainMatch = String(disposition || '').match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] || fallbackName;
 }
 
 /** 解析 HTTP 响应；优先按 JSON 处理，无法解析时返回原始文本。 */

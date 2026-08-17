@@ -174,7 +174,9 @@ public sealed class CarAdaptiveMockServiceHost : IDisposable
             }
         }
 
-        throw new TimeoutException($"等待汽车自适应真实数据服务启动超时：{Options.DebugUri}");
+        throw new TimeoutException(
+            $"等待汽车自适应真实数据服务启动超过 {Options.StartupTimeout.TotalSeconds:0} 秒：" +
+            $"http://{Options.Host}:{Options.HttpPort}/health。服务进程仍在运行，但健康检查尚未就绪。");
     }
 
     /// <summary>

@@ -124,10 +124,10 @@ test('暂停模式的别名', () => {
   assert.equal(normalizeCarAdaptiveControlMode('STOP'), CAR_ADAPTIVE_CONTROL_MODES.PAUSED)
 })
 
-test('只有自适应模块主页让算法接管，其他视图暂停', () => {
+test('原始数据页只观察数据，不改变当前算法模式', () => {
   assert.equal(getCarAdaptiveModeForView('module'), CAR_ADAPTIVE_CONTROL_MODES.AUTO)
   assert.equal(getCarAdaptiveModeForView('host-home'), CAR_ADAPTIVE_CONTROL_MODES.PAUSED)
-  assert.equal(getCarAdaptiveModeForView('raw-serial'), CAR_ADAPTIVE_CONTROL_MODES.PAUSED)
+  assert.equal(getCarAdaptiveModeForView('raw-serial'), null)
   assert.equal(getCarAdaptiveModeForView('other'), CAR_ADAPTIVE_CONTROL_MODES.PAUSED)
   assert.equal(getCarAdaptiveModeForView(undefined), CAR_ADAPTIVE_CONTROL_MODES.PAUSED)
 })

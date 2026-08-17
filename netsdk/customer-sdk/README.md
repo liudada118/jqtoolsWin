@@ -50,9 +50,16 @@ powershell -ExecutionPolicy Bypass `
 HTTP: http://127.0.0.1:19245
 WebSocket: ws://127.0.0.1:19999
 真实前端: http://127.0.0.1:19245/app
+原始数据: http://127.0.0.1:19245/app#/raw-serial
 ```
 
-WPF 加载汽车自适应首页后会自动按顺序调用 `/connPort` 和 `/sendMac`，不需要客户再次点击“一键连接”。完整标题栏默认隐藏，页面最右上角保留一个不可见的 `48 x 48` 像素点击区域；点击可显示标题栏，再次点击可隐藏。现场调试也可通过参数默认打开：
+原始数据页可开始或停止真实采集，并把当前采集段直接导出为 CSV。导出文件保留每帧的
+传感器标识和 144 个原始压力字节，不包含算法或可视化处理值。
+
+WPF 默认允许真实后端和 Python 算法使用 30 秒完成首次启动。汽车自适应页首次加载、从其他
+页面返回、远程重新打开或 WebView 隐藏后恢复时，都会自动按顺序调用 `/connPort` 和
+`/sendMac`，不需要客户再次点击“一键连接”。完整标题栏默认隐藏，页面最右上角保留一个
+不可见的 `48 x 48` 像素点击区域；点击可显示标题栏，再次点击可隐藏。现场调试也可通过参数默认打开：
 
 ```text
 http://127.0.0.1:19245/app?showTitle=1
@@ -75,7 +82,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1
 - HTTP `/health`
 - HTTP `/getPort` 真实串口后端
 - HTTP `/algorithm/config` 内置 Python 算法与参数
+- HTTP `/carAdaptive/collection/export` 原始 CSV 下载路由
 - 主、副两套 `.pyc` 算法各处理一帧 144 点数据
+- 主驾和副驾的 `auto/manual/paused` 模式可以独立切换，互不影响
+- 接口可以覆盖并清除一路气囊展示状态，不伪造 ECU 回传在线状态
+- WebSocket 同时记录算法命令、ECU 回传、接口串口命令和接口展示命令
 - 局域网 UI 命令广播、主副驾切换和 SDK 页面执行回执
 - 第一方 Node/Python 明文源码已从交付目录删除
 - 当前前端和 Three.js 座椅模型资源
@@ -111,6 +122,7 @@ XAML 示例：
             Host="127.0.0.1"
             HttpPort="19245"
             WebSocketPort="19999"
+            StartupTimeoutSeconds="30"
             PagePath="/app"
             HomeUrl="https://customer.example/home" />
     </Grid>
@@ -196,6 +208,9 @@ http://127.0.0.1:19245/app#/raw-serial
 - 按现有座椅点图形状展示靠背、坐垫及左右侧区
 - 同时查看完整 145 字节帧、原始索引、刷新频率和统计值
 - 十进制/十六进制切换、数值显隐和实时暂停
+- 在右侧切换“气囊指令”，查看算法生成/下发、ECU 回传、接口写串口和接口展示覆盖
+- 点击“历史记录”打开弹窗，按来源筛选并查看完整字节、24 路档位或清空当前通道历史
+- 在页面顶部开始或停止当前主副驾的真实数据采集，并与主界面采集面板同步状态
 
 使用非默认 WebSocket 端口调试时，在 `/app` 后增加查询参数，例如：
 

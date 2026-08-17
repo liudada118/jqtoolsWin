@@ -39,6 +39,7 @@ dotnet build -c Release
             Host="127.0.0.1"
             HttpPort="19245"
             WebSocketPort="19999"
+            StartupTimeoutSeconds="30"
             PagePath="/app"
             HomeUrl="https://customer.example/home"
             HomeRequested="HandleCarAdaptiveHomeRequested"
@@ -74,6 +75,7 @@ await host.StartAsync(new CarAdaptiveDebugOptions
 {
     HttpPort = 19245,
     WebSocketPort = 19999,
+    StartupTimeout = TimeSpan.FromSeconds(30),
     PagePath = "/app",
     HomeUrl = "https://customer.example/home"
 });

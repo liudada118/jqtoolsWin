@@ -78,12 +78,17 @@ powershell -ExecutionPolicy Bypass `
     x:Name="CarAdaptiveControl"
     AutoStartService="True"
     StopServiceOnUnload="True"
+    StartupTimeoutSeconds="30"
     HomeUrl="https://customer.example/home"
     RemoteControlToken="customer-secret"
     HomeRequested="HandleCarAdaptiveHomeRequested" />
 ```
 
-控件加载后会自动依次调用 `/connPort` 和 `/sendMac`，不需要用户再点“一键连接”。标题栏默认隐藏，页面右上角有一个 `48 × 48` 的不可见热区，点击可显示或隐藏；也可以用 `/app?showTitle=1` 默认打开。
+控件默认等待真实服务启动 30 秒，可通过 `StartupTimeoutSeconds` 调整。汽车自适应页首次加载、
+从其他页面返回、收到 `open-module` 或 WebView 从隐藏状态恢复时，都会自动依次调用
+`/connPort` 和 `/sendMac`，不需要用户再点“一键连接”；同一时刻的重复触发会合并为一次。
+标题栏默认隐藏，页面右上角有一个 `48 × 48` 的不可见热区，点击可显示或隐藏；也可以用
+`/app?showTitle=1` 默认打开。
 
 `19245` 或 `19999` 被占用时，程序会保留窗口并提示端口冲突，关闭占用程序后点“重试”即可，不必重启。
 
@@ -150,9 +155,19 @@ main().catch((error) => console.error(error.message, error.payload));
 | `getCarAdaptiveSensors()` | `GET /carAdaptive/sensors` |
 | `getCarAdaptiveSensor()` | `GET /carAdaptive/sensor` |
 | `selectCarAdaptiveSensor(sensorId)` | `POST /carAdaptive/sensor` |
+| `getCarAdaptiveCollection()` | `GET /carAdaptive/collection` |
+| `startCarAdaptiveCollection(options)` | `POST /startCol` |
+| `stopCarAdaptiveCollection()` | `GET /endCol` |
+| `getCarAdaptiveCollectionExportUrl(options)` | 生成 `GET /carAdaptive/collection/export` 下载地址 |
+| `exportCarAdaptiveCollection(options)` | `GET /carAdaptive/collection/export`，返回 CSV 字节 |
 | `writeCarAdaptiveCommand(command, sensorId)` | `POST /carAdaptive/writeCommand` |
-| `getControlMode()` | `GET /carAdaptive/mode` |
+| `getControlMode(sensorId?)` | `GET /carAdaptive/mode` |
 | `setControlMode(mode, options)` | `POST /carAdaptive/mode` |
+| `getAirbagDisplay(sensorId?)` | `GET /carAdaptive/display` |
+| `setAirbagDisplay(gears, sensorId)` | `POST /carAdaptive/display`，只改界面 |
+| `clearAirbagDisplay(sensorId)` | `DELETE /carAdaptive/display/:sensorId` |
+| `getAirbagCommandHistory(options)` | `GET /carAdaptive/commands/history` |
+| `clearAirbagCommandHistory(options)` | `DELETE /carAdaptive/commands/history/:sensorId` |
 | `processCarAdaptiveFrame(data, options)` | **本地 Python** `server`；`writeSerial: true` 时再调 `writeCommand` |
 | `getPythonConfig()` / `setPythonParam()` / `callPythonFunction()` | **本地 Python** `getParam` / `setParam` / 任意函数 |
 | `stopPythonAlgorithm()` | 结束本地 Python 进程 |
@@ -206,7 +221,7 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 
 ### 3.1 三种控制模式
 
-模式是**全局的**，主副驾同时生效。
+模式按 `sensorId` **主副驾独立保存和执行**。请求带 `sensorId` 时只改目标一路；旧客户端不传 `sensorId` 时仍兼容为主、副两路同时切换。
 
 | 模式 | 算法 | 自动写串口 | 手动 `writeCommand` | 典型场景 |
 | --- | --- | --- | --- | --- |
@@ -220,14 +235,14 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 
 `paused` 下算法完全停止：不再调用 Python，`algorData` 停止更新，`frame_count` 冻结。**气囊保持当前充气量不动**，不会自动放气。压力数据照常推送，所以原始数据页仍可正常使用。
 
-`algorFeed`（24 路气囊档位反馈）由 ECU 回传驱动，反映**硬件实际状态**，与当前模式无关。没有回传时为空数组。
+`algorFeed` 是界面当前使用的 24 路档位，优先级为：接口展示覆盖、ECU 回传、可选命令回落。是否真的收到 ECU 回传必须看 `feedbackOnline`，不能只看 `algorFeed`。
 
 **恢复到 `auto` 时的两种行为**：
 
 | 来源 | 后端动作 | 响应字段 |
 | --- | --- | --- |
 | 从 `manual` 恢复 | 调 Python `resetMessage` 清空按摩状态，避免手动期间的按压被当成拍打触发信号 | `massageReset: true` |
-| 从 `paused` 恢复 | 调 Python `resetSystem` **重建两路算法实例**，帧计数、在离座历史、自适应状态全部从零开始 | `algorithmReset: true` |
+| 从 `paused` 恢复 | 调 Python `resetSystem(sensor_id)`，只重建恢复运行的目标算法实例 | `algorithmReset: true` |
 
 **在 `auto` 模式下调 `writeCommand` 不会被拒绝**，但你的命令会在下一个 500 ms 周期被算法命令覆盖。要让手动命令稳定生效，先切 `manual`。
 
@@ -239,9 +254,9 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 
 | 页面视图 | 目标模式 | 说明 |
 | --- | --- | --- |
-| `module` 自适应模块主页 | `auto` | 算法接管气囊，并重新初始化 |
+| `module` 自适应模块主页 | 恢复各路原模式 | 主、副分别恢复暂停前的 `auto` 或 `manual` |
 | `host-home` 宿主主页 | `paused` | 离开 SDK，暂停算法 |
-| `raw-serial` 原始数据页 | `paused` | 只看串口原始帧，不需要算法 |
+| `raw-serial` 原始数据页 | 保持不变 | 观察压力和气囊命令，不干预算法 |
 | `other` | `paused` | 同上 |
 
 **只在视图真正发生变化时才切换。** 在模块页内切换主副驾会重复上报 `view=module`，不会打断你正在进行的手动标定 —— 也就是说页面上切到 `manual` 后，切主副驾、刷新状态都不会把你拉回 `auto`，只有真正离开再回来才会。
@@ -257,7 +272,7 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 
 ### 3.2 切换模式：软件开关
 
-**`GET /carAdaptive/mode`** — 查询当前模式：
+**`GET /carAdaptive/mode?sensorId=1`** — 查询目标通道。响应顶层是目标通道，`sensors` 同时包含主、副两路状态：
 
 ```json
 {
@@ -271,7 +286,12 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
     "sequence": 0,
     "changedAt": 1785305414424,
     "autoWrite": true,
-    "commandIntervalMs": 500
+    "commandIntervalMs": 500,
+    "independent": true,
+    "sensors": [
+      { "sensorId": 1, "role": "主", "mode": "auto", "autoWrite": true },
+      { "sensorId": 2, "role": "副", "mode": "manual", "autoWrite": false }
+    ]
   }
 }
 ```
@@ -279,6 +299,8 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `mode` | `"auto" \| "manual" \| "paused"` | 当前模式 |
+| `sensorId` / `role` | `1\|2` / `主\|副` | 顶层状态对应的目标通道 |
+| `sensors` | `array` | 主、副两路独立模式状态 |
 | `previousMode` | `string \| null` | 上一个模式，从未切换过为 `null` |
 | `source` | `"default" \| "api" \| "view" \| "ecu"` | 谁改的：启动默认值 / 接口调用 / 页面视图切换 / 整车回传 |
 | `reason` | `string` | 变更原因，最长 120 字符 |
@@ -294,13 +316,14 @@ GET  /carAdaptive/sensors    确认目标通道 online: true
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `mode` | `string` | 是 | `auto` / `manual` / `paused`；也接受别名 `algor`、`handle`、`pause`、`stop` 和协议字节 `0` / `1` |
+| `sensorId` | `1 \| 2` | 否 | 指定后只改主驾或副驾；不传时兼容旧接口并同时修改两路 |
 | `reason` | `string` | 否 | 变更原因，会记入状态并广播，便于现场排查 |
 | `source` | `string` | 否 | `api`（默认）/ `ecu`，未知来源回落到 `api` |
 
 ```bash
 curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"manual","reason":"产线标定"}'
+  -d '{"sensorId":1,"mode":"manual","reason":"主驾产线标定"}'
 ```
 
 ```json
@@ -531,7 +554,7 @@ await jqtools.request('POST', '/carAdaptive/processFrame', {
 `writeCommand` 有几个必须知道的限制：
 
 - 后端**只校验数组非空且每项是 `0..255` 整数，不校验长度必须为 55**。协议完整性由你保证，传错长度不会报错但硬件行为不可预期。
-- **返回 `code: 0` 只代表参数通过校验并进入写入队列**，不代表硬件已执行。接口不返回硬件 ACK。
+- **返回 `code: 0` 不代表硬件已执行**。响应中的 `queued` 才表示是否进入串口队列；它仍然不是硬件 ACK。
 - 目标通道还没记录来源串口时，会尝试写到**所有已打开的 `carAir` 串口**。
 - **没有可用串口时接口仍可能返回成功**，但不产生任何物理写入。
 - 串口异步写入错误只记录后端日志，**不会回写到本次 HTTP 响应**。
@@ -550,23 +573,23 @@ await jqtools.writeCarAdaptiveCommand(command, 1);
 1. `GET /carAdaptive/sensors` 看目标通道 `online` 是否为 `true`。
 2. `GET /getPort` / `GET /connPort` 确认串口已连接。
 3. 检查命令长度是否为 55、帧头 `31`、帧尾 `[170, 85, 3, 153]`。
-4. 看 WebSocket 的 `algorFeed`，它反映最近一次真正进入写入队列的命令，能确认后端是否收下了你的命令。
-5. `GET /carAdaptive/mode` 看是否处于 `auto`——自动写入每 500 ms 会覆盖你的手动命令，标定时应先切 `manual`。
+4. 打开 `#/raw-serial` 的「气囊指令」，检查算法下发、接口写串口和 ECU 回传三类记录。
+5. `GET /carAdaptive/mode?sensorId=1` 看目标通道是否处于 `auto`，标定时应先切 `manual`。
 6. 查后端控制台日志里的串口写错误。
 
 ### 3.7 界面气囊亮暗的语义
 
-**`algorFeed` 由 ECU 回传帧驱动，代表气囊硬件的实际状态，不是我们下发的命令。**
+默认情况下 `algorFeed` 由 ECU 回传驱动。调用展示接口后，`algorFeed` 会临时使用接口档位，`airbagDisplaySource` 变为 `api`；但 `feedbackOnline` 仍只表示真实 ECU 回传。
 
 ```text
 算法 / 手动命令  --写入-->  串口  -->  ECU  --回传 51 字节-->  algorFeed  -->  界面亮暗
 ```
 
-这条链路是单向验证的：命令下发和状态回传是两件独立的事。写串口成功不会点亮界面，只有 ECU 报回该气囊处于某档位才会。
+命令下发和状态回传仍是两件独立的事。展示覆盖只解决“ECU 不回传但需要由接口控制界面”的场景，不会伪造硬件 ACK。
 
 自适应页面「区域调节」的 24 个气囊图标，判定条件是**档位严格等于 `3`（快速充气）**。档位 `0` 保持、`1` 慢速、`2` 中速、`4` 放气都不点亮。下发 `1`/`2` 档时硬件在动但界面无变化，这是预期行为。
 
-**没有回传时 `algorFeed` 为空数组，界面全部气囊熄灭。** 判定为无回传的情况：
+未设置展示覆盖且未启用命令回落时，没有回传会让 `algorFeed` 为空数组、界面全部气囊熄灭：
 
 | 情况 | 结果 |
 | --- | --- |
@@ -582,6 +605,35 @@ await jqtools.writeCarAdaptiveCommand(command, 1);
 **模式位不参与控制**：回传帧第 49 字节的模式位只记录在 `feedbackMode` 里做诊断，**不会**改变 `/carAdaptive/mode` 的状态。因为算法和手动命令下发的模式位恒为 `0`，跟随它会把软件手动开关强行拉回自动。
 
 **兼容开关**：如果某批硬件确认不回传，可以设 `JQTOOLS_AIRBAG_FEEDBACK_SOURCE=command` 让 `algorFeed` 回落到最近一次写入串口的命令。这样界面不会全灭，但亮的含义退化为"已下发"，不能用来判断硬件真实状态。默认值是 `ecu`。
+
+**接口直接控制展示**：
+
+```bash
+# 主驾第 1 个气囊点亮，其余熄灭；只改界面，不写串口
+curl -X POST http://127.0.0.1:19245/carAdaptive/display \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":1,"gears":[3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}'
+
+# 清除覆盖，恢复跟随 ECU
+curl -X DELETE http://127.0.0.1:19245/carAdaptive/display/1
+```
+
+查询 `GET /carAdaptive/display?sensorId=1`。`source=api` 和 `override=true` 表示正在覆盖；界面目前只把档位 `3` 显示为点亮。
+
+**气囊指令历史**：打开 `http://127.0.0.1:19245/app#/raw-serial`，右侧切到“气囊指令”，点击“历史记录”即可打开弹窗。弹窗按当前主驾/副驾显示算法生成、算法实际下发、ECU 回传、接口写串口和接口展示五类记录，支持筛选、自动刷新、查看完整字节/24 路档位和清空。
+
+```javascript
+const history = await jqtools.getAirbagCommandHistory({
+  sensorId: 1,
+  type: 'all',
+  limit: 200
+});
+
+// 只清空主驾“接口写串口”历史；不会改变算法、串口或气囊状态
+await jqtools.clearAirbagCommandHistory({ sensorId: 1, type: 'apiSerial' });
+```
+
+REST 调用为 `GET /carAdaptive/commands/history?sensorId=1&type=ecuFeedback&limit=200` 和 `DELETE /carAdaptive/commands/history/1?type=ecuFeedback`。`type` 可省略或使用 `algorithmGenerated`、`algorithmSent`、`ecuFeedback`、`apiSerial`、`apiDisplay`。历史只保存在当前服务进程内，每个通道每种类型最多 500 条，服务退出后清空。
 
 界面不亮但命令正常的另一种情况：目标通道不是当前显示的那一路，前端只渲染当前选中通道的快照。
 
@@ -653,7 +705,7 @@ await jqtools.writeCarAdaptiveCommand(command, 1);
 
 **主副驾切换只影响前端展示**，两路串口数据、算法实例和控制命令始终独立运行，不会因为切换展示通道而暂停。该功能没有在现有页面上增加任何按钮。
 
-**页面跳转会影响算法**：`return-home` 和 `open-raw-serial` 使视图离开自适应模块，后端随之把控制模式切为 `paused`，算法暂停、气囊冻结；`open-module` 切回 `auto` 并重新初始化算法。详见 [3.1.1](#311-模式跟随页面自动切换)。串口采集始终不受影响。
+**页面跳转会影响算法**：`return-home` 会把主、副两路切为 `paused`；`open-module` 分别恢复两路暂停前的模式。`open-raw-serial` 是只读观察页，不改变模式。串口采集始终不受影响。
 
 ### 4.1 两种控制端
 
@@ -847,7 +899,7 @@ ws://127.0.0.1:19999?role=data&clientId=my-client
 }
 ```
 
-`algorFeed` 是按 `command[2 * i + 2]` 从 **ECU 回传帧**中提取的 24 路当前档位，代表气囊硬件实际状态，可直接驱动界面上的气囊指示。没有回传或回传中断超过 `2000 ms` 时为空数组，此时 `feedbackOnline` 为 `false`。`feedbackStamp` 是最近一条回传的时间戳，`feedbackSource` 是当前数据源，`controlMode` 是生成该快照时的控制模式。详见 [3.7](#37-界面气囊亮暗的语义)。
+`algorFeed` 是当前有效展示档位。`airbagDisplaySource` 为 `api`、`ecu`、`command` 或 `none`；`airbagDisplayAvailable` 表示界面是否有状态可画；`feedbackOnline` 只表示 ECU 真实回传。`airbagCommands` 同时给出 `algorithmGenerated`、`algorithmSent`、`ecuFeedback`、`apiSerial` 和 `apiDisplay`，原始数据页据此展示完整命令链路。
 
 144 点布局：靠背 72 点 + 坐垫 72 点，每块为左侧翼 `1×4`（索引 `0-3`）、右侧翼 `1×4`（`4-7`）、中心区 `8×8`（`8-71`）。
 
@@ -861,7 +913,8 @@ ws://127.0.0.1:19999?role=data&clientId=my-client
 | `carAdaptiveUiCommand` | 远程 UI 命令下发 | 已广播命令，含 `action`、`sequence`，`return-home` 可能带 `homeUrl` |
 | `carAdaptiveUiState` | 随命令一起广播 | 与 `GET /carAdaptive/ui/state` 相同 |
 | `algorData` / `algorFeed` | 兼容单路推送 | 当前投影通道的算法结果和气囊反馈 |
-| `sitData` | 实时数据、回放 | 压力数据映射；回放时附带 `index`、`timestamp` |
+| `sitData` | 实时数据、回放 | 压力数据映射；回放时附带 `carAdaptiveHistoryFrame=true`、`index`、`timestamp` |
+| `carAdaptiveHistoryState` | 载入或取消回放 | `{ active, name?, length? }`；`active=false` 后恢复双路实时展示 |
 | `playEnd` | 回放开始 / 结束 | `true` 开始，`false` 结束 |
 | `contrastData` | 对比数据载入 | `{ left, right }` |
 
@@ -886,10 +939,16 @@ ws://127.0.0.1:19999?role=data&clientId=my-client
 | `POST` | `/carAdaptive/processFrame` | 提交 144 点算法帧 |
 | `POST` | `/carAdaptive/writeCommand` | 写入 55 字节气囊控制命令 |
 | `GET` `POST` | `/carAdaptive/mode` | 查询 / 切换自动、手动控制模式 |
+| `GET` `POST` | `/carAdaptive/display` | 查询 / 覆盖气囊界面展示，不写串口 |
+| `DELETE` | `/carAdaptive/display/:sensorId` | 清除目标通道的界面展示覆盖 |
+| `GET` | `/carAdaptive/commands/history` | 查询一路气囊指令历史，可按类型筛选 |
+| `DELETE` | `/carAdaptive/commands/history/:sensorId` | 清空一路全部或指定类型历史 |
 | `GET` | `/carAdaptive/feedbackDiagnostics` | 诊断 ECU 是否回传气囊状态 |
 | `GET` `POST` | `/algorithm/config` | 读取 / 批量保存算法参数 |
 | `GET` | `/carAdaptive/ui/state` | 查询远程 UI 状态 |
 | `POST` | `/carAdaptive/ui/command` | 下发远程 UI 命令 |
+| `GET` | `/carAdaptive/collection` | 查询主界面和原始数据页共享的采集状态 |
+| `GET` | `/carAdaptive/collection/export` | 直接下载指定采集段的原始帧 CSV |
 | `POST` | `/startCol` · `GET /endCol` | 采集开始 / 停止 |
 | `GET` | `/getColHistory` | 采集历史列表 |
 | `POST` | `/getDbHistory` 等 | 回放相关，见 6.5 |
@@ -984,21 +1043,49 @@ Python 落盘后会**重建主副两套算法实例**使参数立即生效。响
 
 | 接口 | 请求体 | 说明 |
 | --- | --- | --- |
-| `POST /startCol` | `{ fileName, select }` | 开始采集；传感器类型不匹配返回 `message="error"` |
-| `GET /endCol` | — | 停止采集 |
+| `GET /carAdaptive/collection` | — | 查询是否采集中、名称、主副驾、起止时间和已保存帧数 |
+| `GET /carAdaptive/collection/export?fileName=...&sensorId=1` | — | 直接下载原始帧 CSV；`sensorId` 可省略 |
+| `POST /startCol` | `{ fileName, sensorId, select }` | 开始采集；`sensorId` 为 `1` 主驾或 `2` 副驾 |
+| `GET /endCol` | — | 停止采集并返回最终状态 |
 | `GET /getColHistory` | — | 最近 500 条记录的 `date`、`timestamp`、`select` |
-| `POST /getDbHistory` | `{ time }` | 按 `date` 载入整段，返回 `{ length, pressArr, areaArr }` 并重置游标 |
+| `POST /getDbHistory` | `{ time }` | 按 `date` 载入整段，返回 `{ length, pressArr, areaArr, skippedRows, playbackHz }` 并推送第一帧 |
 | `POST /getDbHistoryPlay` | — | 开始回放；未载入数据返回 `code=1` |
 | `POST /getDbHistoryStop` | — | 暂停回放 |
 | `POST /cancalDbPlay` | — | 取消回放并清空已载入数据 |
 | `POST /changeDbplaySpeed` | `{ speed }` | 推送频率为 `原始频率 × speed` |
 | `POST /getDbHistoryIndex` | `{ index }` | 跳转并立即推送；未载入数据返回 `code=555` |
-| `POST /downlaod` | `{ fileArr }` | 导出 CSV 到 `data/`；空数组返回 `code=555` |
+| `POST /downlaod` | `{ fileArr }` | 导出 CSV 到 `data/`；自动替换 Windows 非法文件名字符；空数组返回 `code=555` |
 | `POST /delete` | `{ fileArr }` | 删除采集记录 |
 | `POST /changeDbName` | `{ newDate, oldDate }` | 重命名采集日期 |
 | `POST /getCsvData` | `{ fileName }` | 读取 CSV 文件内容 |
 
-回放数据通过 WebSocket 的 `sitData` / `index` / `timestamp` / `playEnd` 推送。**采集回放共享单一全局游标，同一时间只支持一路回放。**
+回放数据通过 WebSocket 的 `carAdaptiveHistoryState` / `carAdaptiveHistoryFrame` / `sitData` /
+`index` / `timestamp` / `playEnd` 推送。损坏 JSON 会跳过并通过 `skippedRows` 报告，单帧记录
+默认按 `12 Hz` 回放。**采集回放共享单一全局游标，同一时间只支持一路回放。**
+
+采集也是单一全局任务。主界面和 `#/raw-serial` 原始数据页都会轮询
+`GET /carAdaptive/collection`，因此从任一页面开始或停止后，另一页面会同步显示状态。
+开始采集时后端会自动退出历史回放，并把本次 `sensorId` 固定到整个采集段；之后切换
+页面显示的主副驾不会改变正在存储的通道。没有连接汽车传感器时，开始接口会返回明确错误。
+
+`/carAdaptive/collection/export` 直接从 SQLite 读取指定采集段，不经过算法、滤波或点图
+插值。CSV 每行是一帧，字段固定为 `frameIndex,timestamp,datetime,sensorId,p0...p143`，
+即 4 个元数据字段和 144 个原始压力字节。响应头 `X-JQTools-Frame-Count` 返回导出帧数；
+名称不存在或筛选后没有有效帧时返回 HTTP `404`。
+
+Node SDK 可直接取得文件字节：
+
+```js
+const fs = require('node:fs');
+
+const exported = await jqtools.exportCarAdaptiveCollection({
+  fileName: '副驾测试',
+  sensorId: 2
+});
+
+fs.writeFileSync(exported.fileName, exported.data);
+console.log(exported.frameCount);
+```
 
 ### 6.6 远程 UI 状态字段
 

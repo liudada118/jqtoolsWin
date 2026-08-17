@@ -89,6 +89,16 @@
             WebSocketPort 依赖属性。
             </summary>
         </member>
+        <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StartupTimeoutSeconds">
+            <summary>
+            等待真实数据服务监听 HTTP 端口的最长秒数。
+            </summary>
+        </member>
+        <member name="F:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.StartupTimeoutSecondsProperty">
+            <summary>
+            StartupTimeoutSeconds 依赖属性，默认允许首次解密和 Python 初始化使用 30 秒。
+            </summary>
+        </member>
         <member name="P:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.NodeExecutablePath">
             <summary>
             Node.js 可执行文件路径。

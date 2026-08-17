@@ -41,6 +41,30 @@ const {
   isCarAdaptiveAlgorithmRunning,
   isCarAdaptiveAutoMode
 } = require('../util/carAdaptiveControlMode')
+const {
+  CAR_ADAPTIVE_AIRBAG_COUNT,
+  extractCarAdaptiveAirbagGears,
+  parseCarAdaptiveAirbagDisplayInput,
+  resolveCarAdaptiveAirbagDisplayState,
+  restoreCarAdaptiveFeedbackCommand
+} = require('../util/carAdaptiveAirbagDisplay')
+const {
+  appendCarAdaptiveCommandHistory,
+  clearCarAdaptiveCommandHistory,
+  countCarAdaptiveCommandHistory,
+  listCarAdaptiveCommandHistory,
+  normalizeCarAdaptiveCommandHistoryQueryLimit,
+  normalizeCarAdaptiveCommandHistoryType
+} = require('../util/carAdaptiveCommandHistory')
+const {
+  createCarAdaptiveCollectionCsv,
+  createCarAdaptiveCollectionExportFileName,
+  normalizeCollectionSensorId
+} = require('../util/carAdaptiveCollectionExport')
+const {
+  createHistoryPlaybackPayload,
+  getHistoryPlaybackHz
+} = require('../util/collectionHistory')
 
 
 console.log('userData from env:', typeof process.env.isPackaged);
@@ -210,6 +234,7 @@ var file = result.value, baudRate = 1000000, parserArr = {}, dataMap = {},
   HZ = 30, MaxHZ, colFlag = false, colName, historyFlag = false, historyPlayFlag = false, playIndex = 0, colTimer, colMaxHZ, colplayHZ, playtimer
 let splitBuffer = Buffer.from(splitArr);
 let linkIngPort = [], currentDb, macInfo = {}, selectArr = []
+let colSensorId = CAR_ADAPTIVE_MAIN_SENSOR_ID, colStartedAt = 0, colStoppedAt = 0, colFrameCount = 0
 const ALGOR = 'algor', HANDLE = 'handle'
 // controlMode 只是 carAdaptiveControlModeState 的历史命名镜像，唯一写入点是 setCarAdaptiveControlMode。
 // ECU 回传帧恢复启用时，应调用 applyCarAdaptiveControlMode({mode, source: 'ecu'}) 而不是直接赋值。
@@ -248,9 +273,13 @@ const CAR_ADAPTIVE_FEEDBACK_SOURCE =
     : 'ecu'
 const adaptiveWriteQueues = {}
 let selectedCarAdaptiveSensorId = CAR_ADAPTIVE_MAIN_SENSOR_ID
+let carAdaptiveCommandHistorySequence = 0
 let carAdaptiveUiState = createCarAdaptiveUiState(CAR_ADAPTIVE_MAIN_SENSOR_ID)
-let carAdaptiveControlModeState = createCarAdaptiveControlModeState(
-  process.env.JQTOOLS_CONTROL_MODE
+const carAdaptiveControlModeStates = Object.fromEntries(
+  CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => [
+    sensorId,
+    createCarAdaptiveControlModeState(process.env.JQTOOLS_CONTROL_MODE)
+  ])
 )
 const carAdaptiveSensorStates = Object.fromEntries(
   CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => [sensorId, createCarAdaptiveSensorState(sensorId)])
@@ -267,11 +296,29 @@ function createCarAdaptiveSensorState(sensorId) {
     portPath: undefined,
     algorData: undefined,
     controlCommand: undefined,
+    algorithmCommandStamp: 0,
+    algorithmSentCommand: undefined,
+    algorithmSentStamp: 0,
+    algorithmSentPorts: [],
     writtenCommand: undefined,
+    writtenCommandStamp: 0,
+    apiSerialCommand: undefined,
+    apiSerialCommandStamp: 0,
+    apiSerialCommandQueued: false,
+    apiSerialCommandPorts: [],
+    apiDisplayCommand: undefined,
+    apiDisplayCommandStamp: 0,
+    apiDisplayClearedAt: 0,
+    displayOverrideGears: undefined,
+    displayOverrideStamp: 0,
     // 以下三项只由 ECU 回传帧写入，代表气囊硬件实际状态
     feedbackGears: undefined,
     feedbackStamp: 0,
-    feedbackMode: undefined
+    feedbackMode: undefined,
+    feedbackCommand: undefined,
+    feedbackWireCommand: undefined,
+    feedbackPortPath: undefined,
+    airbagCommandHistory: []
   }
 }
 
@@ -294,6 +341,7 @@ function getCarAdaptiveSensorsStatus() {
   const now = Date.now()
   return CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => {
     const state = getCarAdaptiveSensorState(sensorId)
+    const display = getCarAdaptiveAirbagDisplayState(sensorId)
     return {
       sensorId,
       role: state.role,
@@ -303,7 +351,11 @@ function getCarAdaptiveSensorsStatus() {
       algorithmReady: Boolean(state.algorData),
       frameCount: state.algorData?.frame_count || 0,
       feedbackOnline: isCarAdaptiveFeedbackOnline(state),
-      feedbackStamp: state.feedbackStamp
+      feedbackStamp: state.feedbackStamp,
+      controlMode: getCarAdaptiveControlModeState(sensorId).mode,
+      airbagDisplayAvailable: display.available,
+      airbagDisplaySource: display.source,
+      airbagDisplayOverride: display.override
     }
   })
 }
@@ -339,6 +391,7 @@ function getCarAdaptiveControlFeedback(command) {
 function createCarAdaptiveSensorSnapshot(sensorId) {
   const state = getCarAdaptiveSensorState(sensorId)
   const online = Boolean(state.stamp && Date.now() - state.stamp < 1000)
+  const display = getCarAdaptiveAirbagDisplayState(sensorId)
 
   return {
     sensorId,
@@ -354,12 +407,17 @@ function createCarAdaptiveSensorSnapshot(sensorId) {
       }
     },
     algorData: state.algorData,
-    // 气囊反馈来自 ECU 回传，代表硬件实际状态；没有回传时为空数组，前端全灭。
-    algorFeed: getCarAdaptiveAirbagFeedback(sensorId),
+    // 兼容旧前端字段；实际来源由 airbagDisplaySource 标识，不能据此判断 ECU 是否回传。
+    algorFeed: display.gears,
     feedbackOnline: isCarAdaptiveFeedbackOnline(state),
     feedbackStamp: state.feedbackStamp,
     feedbackSource: CAR_ADAPTIVE_FEEDBACK_SOURCE,
-    controlMode: carAdaptiveControlModeState.mode
+    airbagDisplayAvailable: display.available,
+    airbagDisplaySource: display.source,
+    airbagDisplayOverride: display.override,
+    airbagDisplayStamp: display.stamp,
+    airbagCommands: getCarAdaptiveAirbagCommandTelemetry(sensorId),
+    controlMode: getCarAdaptiveControlModeState(sensorId).mode
   }
 }
 
@@ -537,7 +595,7 @@ function recordSerialFrameDiagnostics(path, frame) {
     state.feedbackFrames++
     // 只有方向位为上行、帧头和编号布局都正确的帧才作为气囊真实状态使用
     const trusted = decoded.isUpstream && decoded.headerMatches && decoded.airbagIdsMatch
-    const attribution = trusted ? applyCarAdaptiveFeedbackFrame(path, decoded) : null
+    const attribution = trusted ? applyCarAdaptiveFeedbackFrame(path, decoded, frame) : null
     state.lastFeedback = {
       at: now,
       ...decoded,
@@ -577,9 +635,10 @@ function recordSerialFrameDiagnostics(path, frame) {
  *
  * @param {string} path 收到回传帧的串口路径。
  * @param {object} decoded 已解析的回传帧。
+ * @param {number[]} frame 业务层收到的 51 字节原始帧。
  * @returns {{sensorIds: number[], sharedPort: boolean}} 归属结果。
  */
-function applyCarAdaptiveFeedbackFrame(path, decoded) {
+function applyCarAdaptiveFeedbackFrame(path, decoded, frame) {
   const now = Date.now()
   const sensorIds = CAR_ADAPTIVE_SENSOR_IDS.filter(
     (sensorId) => getCarAdaptiveSensorState(sensorId).portPath === path
@@ -590,6 +649,15 @@ function applyCarAdaptiveFeedbackFrame(path, decoded) {
     state.feedbackGears = decoded.gears
     state.feedbackStamp = now
     state.feedbackMode = decoded.mode
+    state.feedbackCommand = [...frame]
+    state.feedbackWireCommand = restoreCarAdaptiveFeedbackCommand(frame)
+    state.feedbackPortPath = path
+    appendCarAdaptiveAirbagCommandHistory(sensorId, 'ecuFeedback', frame, now, {
+      source: 'ecu',
+      wireCommand: state.feedbackWireCommand,
+      portPath: path,
+      trusted: true
+    })
   })
 
   return { sensorIds, sharedPort: sensorIds.length > 1 }
@@ -601,26 +669,182 @@ function isCarAdaptiveFeedbackOnline(state) {
 }
 
 /**
- * 返回一路气囊的 24 路档位反馈。
- *
- * 默认只认 ECU 回传：没有回传或回传中断时返回空数组，前端气囊全灭。
- * `JQTOOLS_AIRBAG_FEEDBACK_SOURCE=command` 时回落到最近一次写入串口的命令。
+ * 返回一路气囊的有效界面展示状态。
+ * 接口展示覆盖优先于 ECU 回传；清除覆盖后自动恢复 ECU 或兼容命令回落。
  *
  * @param {number} sensorId 传感器标识。
- * @returns {number[]} 24 路档位，无数据时为空数组。
+ * @returns {{gears: number[], available: boolean, source: string, override: boolean, stamp: number}} 展示状态。
  */
-function getCarAdaptiveAirbagFeedback(sensorId) {
+function getCarAdaptiveAirbagDisplayState(sensorId) {
   const state = getCarAdaptiveSensorState(sensorId)
+  return resolveCarAdaptiveAirbagDisplayState({
+    overrideGears: state.displayOverrideGears,
+    overrideStamp: state.displayOverrideStamp,
+    feedbackOnline: isCarAdaptiveFeedbackOnline(state),
+    feedbackGears: state.feedbackGears,
+    feedbackStamp: state.feedbackStamp,
+    allowCommandFallback: CAR_ADAPTIVE_FEEDBACK_SOURCE === 'command',
+    fallbackCommand: state.writtenCommand || state.controlCommand,
+    fallbackStamp: state.writtenCommandStamp || state.algorithmCommandStamp
+  })
+}
 
-  if (isCarAdaptiveFeedbackOnline(state) && Array.isArray(state.feedbackGears)) {
-    return state.feedbackGears
+/** 返回旧版 WebSocket 使用的 24 路气囊展示档位。 */
+function getCarAdaptiveAirbagFeedback(sensorId) {
+  return getCarAdaptiveAirbagDisplayState(sensorId).gears
+}
+
+/**
+ * 将一条命令整理为原始数据页可直接展示的诊断记录。
+ *
+ * @param {unknown} command 51 或 55 字节命令。
+ * @param {number} stamp 命令时间戳。
+ * @param {object} [extra] 来源、队列和串口等附加信息。
+ * @returns {object|null} 命令诊断记录。
+ */
+function createCarAdaptiveAirbagCommandRecord(command, stamp, extra = {}) {
+  if (!Array.isArray(command)) return null
+  return {
+    command: [...command],
+    length: command.length,
+    gears: extractCarAdaptiveAirbagGears(command),
+    stamp: Number(stamp) || 0,
+    ...extra
   }
+}
 
-  if (CAR_ADAPTIVE_FEEDBACK_SOURCE === 'command') {
-    return getCarAdaptiveControlFeedback(state.writtenCommand || state.controlCommand)
+/**
+ * 把一路气囊命令追加到服务生命周期内的诊断历史。
+ * 高频来源按类型独立裁剪，不会覆盖低频接口操作。
+ *
+ * @param {number} sensorId 主副传感器标识。
+ * @param {string} type 历史类型。
+ * @param {unknown} command 51 或 55 字节命令。
+ * @param {number} stamp 命令时间戳。
+ * @param {object} [extra] 来源、串口和展示状态等附加信息。
+ * @returns {object|null} 已追加记录。
+ */
+function appendCarAdaptiveAirbagCommandHistory(sensorId, type, command, stamp, extra = {}) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  const commandRecord = createCarAdaptiveAirbagCommandRecord(command, stamp, extra)
+  if (!commandRecord) return null
+
+  carAdaptiveCommandHistorySequence += 1
+  return appendCarAdaptiveCommandHistory(state.airbagCommandHistory, {
+    id: `${sensorId}-${carAdaptiveCommandHistorySequence}`,
+    sequence: carAdaptiveCommandHistorySequence,
+    sensorId,
+    role: state.role,
+    type,
+    ...commandRecord
+  })
+}
+
+/**
+ * 判断两条气囊命令字节是否完全一致。
+ *
+ * @param {unknown} left 第一条命令。
+ * @param {unknown} right 第二条命令。
+ * @returns {boolean} 长度和每个字节都相同时返回 true。
+ */
+function areCarAdaptiveCommandBytesEqual(left, right) {
+  return Array.isArray(left) &&
+    Array.isArray(right) &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+}
+
+/**
+ * 返回一路可供历史弹窗读取的命令记录。
+ *
+ * @param {number} sensorId 主副传感器标识。
+ * @param {{type?: string, limit?: number}} [options] 查询筛选项。
+ * @returns {object} 历史记录、总数和分类计数。
+ */
+function getCarAdaptiveCommandHistoryPublicState(sensorId, options = {}) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  const type = normalizeCarAdaptiveCommandHistoryType(options.type)
+  const limit = normalizeCarAdaptiveCommandHistoryQueryLimit(options.limit)
+  const counts = countCarAdaptiveCommandHistory(state.airbagCommandHistory)
+  const records = listCarAdaptiveCommandHistory(state.airbagCommandHistory, { type, limit })
+  return {
+    sensorId,
+    role: state.role,
+    type: type || 'all',
+    limit,
+    total: type ? counts[type] : counts.all,
+    counts,
+    records
   }
+}
 
-  return []
+/** 返回一路算法、接口和 ECU 的最近气囊命令，供原始数据页诊断。 */
+function getCarAdaptiveAirbagCommandTelemetry(sensorId) {
+  const state = getCarAdaptiveSensorState(sensorId)
+  return {
+    algorithmGenerated: createCarAdaptiveAirbagCommandRecord(
+      state.controlCommand,
+      state.algorithmCommandStamp,
+      { source: 'algorithm', queued: false }
+    ),
+    algorithmSent: createCarAdaptiveAirbagCommandRecord(
+      state.algorithmSentCommand,
+      state.algorithmSentStamp,
+      { source: 'algorithm', queued: true, portPaths: [...state.algorithmSentPorts] }
+    ),
+    ecuFeedback: createCarAdaptiveAirbagCommandRecord(
+      state.feedbackCommand,
+      state.feedbackStamp,
+      {
+        source: 'ecu',
+        wireCommand: Array.isArray(state.feedbackWireCommand) ? [...state.feedbackWireCommand] : [],
+        portPath: state.feedbackPortPath,
+        trusted: true
+      }
+    ),
+    apiSerial: createCarAdaptiveAirbagCommandRecord(
+      state.apiSerialCommand,
+      state.apiSerialCommandStamp,
+      {
+        source: 'api',
+        target: 'serial',
+        queued: state.apiSerialCommandQueued,
+        portPaths: [...state.apiSerialCommandPorts]
+      }
+    ),
+    apiDisplay: createCarAdaptiveAirbagCommandRecord(
+      state.apiDisplayCommand,
+      state.apiDisplayCommandStamp,
+      {
+        source: 'api',
+        target: 'display',
+        active: Array.isArray(state.displayOverrideGears),
+        clearedAt: state.apiDisplayClearedAt
+      }
+    )
+  }
+}
+
+/** 返回一路或全部气囊界面展示状态，明确区分展示覆盖和 ECU 回传。 */
+function getCarAdaptiveAirbagDisplayPublicState(sensorId = selectedCarAdaptiveSensorId) {
+  const targetSensorId = normalizeCarAdaptiveSensorId(sensorId) || selectedCarAdaptiveSensorId
+  const sensors = CAR_ADAPTIVE_SENSOR_IDS.map((id) => {
+    const state = getCarAdaptiveSensorState(id)
+    const display = getCarAdaptiveAirbagDisplayState(id)
+    return {
+      sensorId: id,
+      role: state.role,
+      gears: display.gears,
+      available: display.available,
+      source: display.source,
+      override: display.override,
+      stamp: display.stamp,
+      feedbackOnline: isCarAdaptiveFeedbackOnline(state),
+      feedbackStamp: state.feedbackStamp
+    }
+  })
+  const target = sensors.find((item) => item.sensorId === targetSensorId)
+  return { ...target, independent: true, sensors }
 }
 
 /** 返回全部串口的帧诊断信息，用于确认 ECU 回传是否存在。 */
@@ -641,7 +865,9 @@ function getSerialFrameDiagnostics() {
         feedbackOnline: isCarAdaptiveFeedbackOnline(state),
         feedbackStamp: state.feedbackStamp,
         feedbackMode: state.feedbackMode,
-        gears: state.feedbackGears || []
+        gears: state.feedbackGears || [],
+        display: getCarAdaptiveAirbagDisplayState(sensorId),
+        commands: getCarAdaptiveAirbagCommandTelemetry(sensorId)
       }
     }),
     ports: Object.fromEntries(
@@ -657,15 +883,32 @@ function getSerialFrameDiagnostics() {
   }
 }
 
-/** 返回气囊控制模式的对外状态。 */
-function getCarAdaptiveControlModePublicState() {
+/** 返回指定主副驾的内部控制模式状态。 */
+function getCarAdaptiveControlModeState(sensorId) {
+  const normalizedSensorId = normalizeCarAdaptiveSensorId(sensorId)
+  return carAdaptiveControlModeStates[normalizedSensorId || selectedCarAdaptiveSensorId]
+}
+
+/** 返回一路控制模式的对外状态。 */
+function createCarAdaptiveControlModePublicState(sensorId) {
+  const state = getCarAdaptiveControlModeState(sensorId)
   return {
-    ...carAdaptiveControlModeState,
-    autoWrite: isCarAdaptiveAutoMode(carAdaptiveControlModeState),
-    algorithmRunning: isCarAdaptiveAlgorithmRunning(carAdaptiveControlModeState),
+    ...state,
+    sensorId,
+    role: getCarAdaptiveSensorRole(sensorId),
+    autoWrite: isCarAdaptiveAutoMode(state),
+    algorithmRunning: isCarAdaptiveAlgorithmRunning(state),
     commandIntervalMs: CAR_ADAPTIVE_COMMAND_INTERVAL,
     view: carAdaptiveUiState.view
   }
+}
+
+/** 返回目标通道及主副两路控制模式，兼容旧客户端读取顶层 mode。 */
+function getCarAdaptiveControlModePublicState(sensorId = selectedCarAdaptiveSensorId) {
+  const targetSensorId = normalizeCarAdaptiveSensorId(sensorId) || selectedCarAdaptiveSensorId
+  const sensors = CAR_ADAPTIVE_SENSOR_IDS.map(createCarAdaptiveControlModePublicState)
+  const target = sensors.find((item) => item.sensorId === targetSensorId)
+  return { ...target, independent: true, sensors }
 }
 
 /** 广播当前气囊控制模式，让所有前端和业务客户端同步开关状态。 */
@@ -679,52 +922,94 @@ function broadcastCarAdaptiveControlMode() {
  * 应用一次气囊控制模式变更。
  * 手动切回自动时清空按摩状态，避免手动期间的拍打被算法立刻当成触发信号。
  *
- * @param {unknown} input 形如 `{mode, source, reason}` 的请求体。
+ * 未传 `sensorId` 时为兼容旧客户端，同时应用到主、副两路；传入后只修改目标一路。
+ *
+ * @param {unknown} input 形如 `{sensorId?, mode, source, reason}` 的请求体。
  * @returns {Promise<object>} 应用结果，附带 `massageReset` 表示是否已清空按摩状态。
  */
 async function setCarAdaptiveControlMode(input) {
-  const result = applyCarAdaptiveControlMode(carAdaptiveControlModeState, input)
-  if (!result.ok) return result
+  const hasSensorId = Object.prototype.hasOwnProperty.call(input || {}, 'sensorId')
+  const requestedSensorId = hasSensorId ? normalizeCarAdaptiveSensorId(input?.sensorId) : null
+  if (hasSensorId && requestedSensorId === null) {
+    return { ok: false, message: 'sensorId 只允许为 1（主驾）或 2（副驾）' }
+  }
 
-  carAdaptiveControlModeState = result.state
-  controlMode = isCarAdaptiveAutoMode(result.state) ? ALGOR : HANDLE
-
+  const targetSensorIds = requestedSensorId === null
+    ? [...CAR_ADAPTIVE_SENSOR_IDS]
+    : [requestedSensorId]
+  const changes = []
   let massageReset = false
   let algorithmReset = false
 
-  if (result.changed && result.state.mode === CAR_ADAPTIVE_CONTROL_MODES.AUTO) {
-    if (result.previousMode === CAR_ADAPTIVE_CONTROL_MODES.PAUSED) {
-      // 从暂停恢复相当于重新进入模块：重建两路算法实例，帧计数和在离座历史从零开始
+  for (const sensorId of targetSensorIds) {
+    const result = applyCarAdaptiveControlMode(getCarAdaptiveControlModeState(sensorId), input)
+    if (!result.ok) return result
+    carAdaptiveControlModeStates[sensorId] = result.state
+
+    let sensorMassageReset = false
+    let sensorAlgorithmReset = false
+    if (
+      result.changed &&
+      result.previousMode === CAR_ADAPTIVE_CONTROL_MODES.PAUSED &&
+      result.state.mode !== CAR_ADAPTIVE_CONTROL_MODES.PAUSED
+    ) {
+      // 仅重建恢复运行的目标算法实例，另一侧状态不受影响。
       try {
-        await callPy('resetSystem')
+        await callPy('resetSystem', { sensor_id: sensorId })
+        sensorAlgorithmReset = true
         algorithmReset = true
-        CAR_ADAPTIVE_SENSOR_IDS.forEach((sensorId) => {
-          const state = getCarAdaptiveSensorState(sensorId)
-          state.algorData = undefined
-          state.controlCommand = undefined
-        })
+        const state = getCarAdaptiveSensorState(sensorId)
+        state.algorData = undefined
+        state.controlCommand = undefined
+        state.algorithmCommandStamp = 0
       } catch (err) {
-        console.error('[car-adaptive] resetSystem failed:', err.message)
+        console.error(`[car-adaptive] sensor ${sensorId} resetSystem failed:`, err.message)
       }
-    } else {
-      // 手动切回自动只清按摩状态，避免手动期间的按压被当成拍打触发信号
+    } else if (
+      result.changed &&
+      result.previousMode === CAR_ADAPTIVE_CONTROL_MODES.MANUAL &&
+      result.state.mode === CAR_ADAPTIVE_CONTROL_MODES.AUTO
+    ) {
+      // 手动切回自动只清目标通道的按摩状态。
       try {
-        await callPy('resetMessage')
+        await callPy('resetMessage', { sensor_id: sensorId })
+        sensorMassageReset = true
         massageReset = true
       } catch (err) {
-        console.error('[car-adaptive] resetMessage failed:', err.message)
+        console.error(`[car-adaptive] sensor ${sensorId} resetMessage failed:`, err.message)
       }
     }
+
+    if (result.changed) {
+      console.log(
+        `[car-adaptive] sensor ${sensorId} control mode: ${result.previousMode} -> ${result.state.mode} (${result.state.source})`
+      )
+    }
+    changes.push({
+      sensorId,
+      ...result,
+      massageReset: sensorMassageReset,
+      algorithmReset: sensorAlgorithmReset
+    })
   }
 
-  if (result.changed) {
-    console.log(
-      `[car-adaptive] control mode: ${result.previousMode} -> ${result.state.mode} (${result.state.source})`
-    )
+  controlMode = isCarAdaptiveAutoMode(getCarAdaptiveControlModeState(selectedCarAdaptiveSensorId))
+    ? ALGOR
+    : HANDLE
+  const changed = changes.some((item) => item.changed)
+  if (changed) {
     broadcastCarAdaptiveControlMode()
+    broadcastCarAdaptiveSensorSnapshots()
   }
 
-  return { ...result, massageReset, algorithmReset }
+  return {
+    ok: true,
+    changed,
+    massageReset,
+    algorithmReset,
+    sensorId: requestedSensorId,
+    changes
+  }
 }
 
 /**
@@ -741,15 +1026,32 @@ async function syncCarAdaptiveControlModeWithView(previousView, nextView) {
   if (!nextView || previousView === nextView) return
 
   const targetMode = getCarAdaptiveModeForView(nextView)
-  if (targetMode === carAdaptiveControlModeState.mode) return
+  if (targetMode === null) return
 
-  await setCarAdaptiveControlMode({
-    mode: targetMode,
-    source: 'view',
-    reason: targetMode === CAR_ADAPTIVE_CONTROL_MODES.AUTO
-      ? '进入自适应模块'
-      : `离开自适应模块（${nextView}）`
-  })
+  if (targetMode === CAR_ADAPTIVE_CONTROL_MODES.PAUSED) {
+    await setCarAdaptiveControlMode({
+      mode: targetMode,
+      source: 'view',
+      reason: `离开自适应模块（${nextView}）`
+    })
+    return
+  }
+
+  // 返回模块时分别恢复两路暂停前的 auto/manual 状态，保持主副驾独立开关。
+  for (const sensorId of CAR_ADAPTIVE_SENSOR_IDS) {
+    const state = getCarAdaptiveControlModeState(sensorId)
+    if (state.mode !== CAR_ADAPTIVE_CONTROL_MODES.PAUSED) continue
+    const restoreMode = [CAR_ADAPTIVE_CONTROL_MODES.AUTO, CAR_ADAPTIVE_CONTROL_MODES.MANUAL]
+      .includes(state.previousMode)
+      ? state.previousMode
+      : CAR_ADAPTIVE_CONTROL_MODES.AUTO
+    await setCarAdaptiveControlMode({
+      sensorId,
+      mode: restoreMode,
+      source: 'view',
+      reason: '进入自适应模块'
+    })
+  }
 }
 
 /** 保存一路 145 字节串口帧解析后的 144 点压力数据。 */
@@ -768,13 +1070,25 @@ function updateCarAdaptiveSensorFrame(sensorId, sensorData, stamp, portPath) {
 /** 保存指定传感器的独立算法结果及其最新控制命令。 */
 function updateCarAdaptiveAlgorithmResult(sensorId, result) {
   const state = getCarAdaptiveSensorState(sensorId)
+  const now = Date.now()
+  const previousCommand = state.controlCommand
   state.algorData = {
     ...result,
     sensor_id: sensorId,
     sensor_role: state.role
   }
   if (result?.control_command) {
-    state.controlCommand = result.control_command
+    state.controlCommand = [...result.control_command]
+    state.algorithmCommandStamp = now
+    if (!areCarAdaptiveCommandBytesEqual(previousCommand, state.controlCommand)) {
+      appendCarAdaptiveAirbagCommandHistory(
+        sensorId,
+        'algorithmGenerated',
+        state.controlCommand,
+        now,
+        { source: 'algorithm', queued: false }
+      )
+    }
   }
   return state.algorData
 }
@@ -840,31 +1154,70 @@ function enqueueCarAdaptiveCommand(path, port, commandBuffer) {
   writeNext()
 }
 
-/** 将一路控制命令写回产生该路数据的串口，算法自动写入和业务手动写入共用该入口。 */
-function writeCarAdaptiveCommand(command, sensorId = selectedCarAdaptiveSensorId) {
+/**
+ * 将一路控制命令写回产生该路数据的串口，并记录算法或接口命令诊断。
+ *
+ * @param {number[]} command 51 或 55 字节控制命令。
+ * @param {number} [sensorId] 目标传感器。
+ * @param {'algorithm'|'api'} [source] 命令来源。
+ * @returns {{queued: boolean, portPaths: string[], length: number}|null} 入队结果。
+ */
+function writeCarAdaptiveCommand(command, sensorId = selectedCarAdaptiveSensorId, source = 'api') {
   const commandBuffer = normalizeControlCommand(command)
-  if (!commandBuffer) return
+  if (!commandBuffer) return null
 
+  const now = Date.now()
+  const commandBytes = [...commandBuffer]
   const targetPorts = getCarAdaptivePorts(sensorId)
-  if (!targetPorts.length) return
-
-  // 记录真正进入写入队列的命令，手动模式下前端气囊反馈才能反映实际下发值。
+  const portPaths = targetPorts.map((item) => item.path)
+  const queued = targetPorts.length > 0
   const sensorState = getCarAdaptiveSensorState(sensorId)
-  if (sensorState) {
-    sensorState.writtenCommand = Array.isArray(command) ? [...command] : command
+
+  if (source === 'api') {
+    sensorState.apiSerialCommand = commandBytes
+    sensorState.apiSerialCommandStamp = now
+    sensorState.apiSerialCommandQueued = queued
+    sensorState.apiSerialCommandPorts = portPaths
+    appendCarAdaptiveAirbagCommandHistory(sensorId, 'apiSerial', commandBytes, now, {
+      source: 'api',
+      target: 'serial',
+      queued,
+      portPaths
+    })
   }
+
+  if (source === 'algorithm' && queued) {
+    sensorState.algorithmSentCommand = commandBytes
+    sensorState.algorithmSentStamp = now
+    sensorState.algorithmSentPorts = portPaths
+    appendCarAdaptiveAirbagCommandHistory(sensorId, 'algorithmSent', commandBytes, now, {
+      source: 'algorithm',
+      queued: true,
+      portPaths
+    })
+  }
+
+  if (!queued) {
+    return { queued: false, portPaths: [], length: commandBuffer.length }
+  }
+
+  // writtenCommand 只记录真正进入队列的命令，可供兼容模式回落展示。
+  sensorState.writtenCommand = commandBytes
+  sensorState.writtenCommandStamp = now
 
   targetPorts.forEach(({ path, port }) => {
     enqueueCarAdaptiveCommand(path, port, commandBuffer)
   })
+  return { queued: true, portPaths, length: commandBuffer.length }
 }
 
-/** 依次写入主、副两路最新算法命令。 */
+/** 只为处于 auto 的主、副通道依次写入各自最新算法命令。 */
 function writeAllCarAdaptiveCommands() {
   CAR_ADAPTIVE_SENSOR_IDS.forEach((sensorId) => {
+    if (!isCarAdaptiveAutoMode(getCarAdaptiveControlModeState(sensorId))) return
     const command = getCarAdaptiveSensorState(sensorId).controlCommand
     if (command) {
-      writeCarAdaptiveCommand(command, sensorId)
+      writeCarAdaptiveCommand(command, sensorId, 'algorithm')
     }
   })
 }
@@ -891,7 +1244,8 @@ app.get('/health', (req, res) => {
     httpPort: port,
     webSocketPort: wsPort,
     frontendBuildDir: FRONTEND_BUILD_DIR,
-    controlMode: carAdaptiveControlModeState.mode
+    controlMode: getCarAdaptiveControlModeState(selectedCarAdaptiveSensorId).mode,
+    controlModes: CAR_ADAPTIVE_SENSOR_IDS.map(createCarAdaptiveControlModePublicState)
   }, 'success'))
 })
 
@@ -996,34 +1350,153 @@ app.get('/connPort', async (req, res) => {
 
 })
 
+/** 返回主界面和原始数据页共享的全局采集状态。 */
+function getCarAdaptiveCollectionPublicState() {
+  return {
+    collecting: colFlag,
+    fileName: colName || '',
+    sensorId: colSensorId,
+    role: getCarAdaptiveSensorRole(colSensorId),
+    startedAt: colStartedAt,
+    stoppedAt: colStoppedAt,
+    frameCount: colFrameCount
+  }
+}
+
+/** 判断当前是否已经连接可用于汽车压力采集的真实串口。 */
+function hasCarAdaptiveCollectionSource() {
+  return Object.values(dataMap).some((item) => {
+    const type = String(item?.type || '')
+    return type === CAR_ADAPTIVE_TYPE || (file && type.includes(file))
+  })
+}
+
+/**
+ * 将旧版单路存储对象固定投影为本次采集选中的主驾或副驾。
+ * @param {object} data 当前发送给旧版页面的数据对象。
+ * @param {number} sensorId 本次采集的传感器标识。
+ * @returns {object} 可写入 SQLite 的采集数据。
+ */
+function createCarAdaptiveCollectionData(data, sensorId) {
+  const collectionData = JSON.parse(JSON.stringify(data || {}))
+  const state = getCarAdaptiveSensorState(sensorId)
+  const online = Boolean(state.stamp && Date.now() - state.stamp < 1000)
+  collectionData[CAR_ADAPTIVE_TYPE] = {
+    ...(collectionData[CAR_ADAPTIVE_TYPE] || {}),
+    status: online ? 'online' : 'offline',
+    arr: Array.isArray(state.sensorData) ? [...state.sensorData] : [],
+    stamp: state.stamp,
+    HZ: state.HZ,
+    sensorId: state.sensorId
+  }
+  return collectionData
+}
+
+// 查询当前采集状态，供主界面和原始数据页同步同一个全局采集任务。
+app.get('/carAdaptive/collection', (req, res) => {
+  res.json(new HttpResult(0, getCarAdaptiveCollectionPublicState(), 'success'))
+})
+
+/**
+ * 按采集段名称读取全部 SQLite 原始帧。
+ * @param {string} fileName 采集段名称。
+ * @returns {Promise<object[]>} 按时间和主键排序的采集记录。
+ */
+function getCarAdaptiveCollectionExportRows(fileName) {
+  return new Promise((resolve, reject) => {
+    currentDb.all(
+      'SELECT data, timestamp, date FROM matrix WHERE date=? ORDER BY timestamp ASC, id ASC',
+      [fileName],
+      (error, rows) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(rows || [])
+      }
+    )
+  })
+}
+
+// 下载一个采集段的真实 145 字节原始帧 CSV。
+app.get('/carAdaptive/collection/export', async (req, res) => {
+  try {
+    const fileName = String(req.query?.fileName || colName || '').trim().slice(0, 120)
+    if (!fileName) {
+      res.status(400).json(new HttpResult(1, '请先完成一次数据采集', 'error'))
+      return
+    }
+
+    const sensorId = normalizeCollectionSensorId(req.query?.sensorId) ||
+      (fileName === colName ? colSensorId : null)
+    const rows = await getCarAdaptiveCollectionExportRows(fileName)
+    const exported = createCarAdaptiveCollectionCsv(rows, { sensorId })
+    if (!exported.frameCount) {
+      res.status(404).json(new HttpResult(1, '该采集段没有可导出的原始帧', 'error'))
+      return
+    }
+
+    const downloadName = createCarAdaptiveCollectionExportFileName(
+      fileName,
+      exported.sensorId
+    )
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="car-adaptive-raw.csv"; filename*=UTF-8''${encodeURIComponent(downloadName)}`
+    )
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-JQTools-Frame-Count', String(exported.frameCount))
+    res.send(exported.csv)
+  } catch (error) {
+    console.error('[collection] export failed:', error)
+    res.status(500).json(new HttpResult(1, error.message || '导出原始数据失败', 'error'))
+  }
+})
+
 // 开始采集
 app.post('/startCol', async (req, res) => {
   try {
     const { fileName, select } = req.body
-    selectArr = select
-    const sensorArr = Object.keys(dataMap).map((a) => dataMap[a].type)
-
-    const length = sensorArr.filter((a) => a.includes(file)).length
-    console.log(sensorArr, file, length)
-    if (length > 0) {
-      colFlag = true
-      colName = fileName
-      res.json(new HttpResult(0, port, '开始采集'));
-    } else {
-      res.json(new HttpResult(0, '请选择正确传感器类型', 'error'));
+    if (colFlag) {
+      res.json(new HttpResult(0, getCarAdaptiveCollectionPublicState(), '采集已在进行'))
+      return
     }
 
-  } catch {
+    if (!hasCarAdaptiveCollectionSource()) {
+      res.json(new HttpResult(1, '没有可采集的汽车传感器，请先连接串口', 'error'))
+      return
+    }
 
+    const sensorId = normalizeCarAdaptiveSensorId(req.body?.sensorId) || selectedCarAdaptiveSensorId
+    selectArr = select && typeof select === 'object' ? select : []
+    colFlag = true
+    colName = String(fileName || `${Date.now()}`).trim().slice(0, 120) || `${Date.now()}`
+    colSensorId = sensorId
+    colStartedAt = Date.now()
+    colStoppedAt = 0
+    colFrameCount = 0
+
+    // 开始新采集时退出历史回放，保证实时串口帧能够进入 storageData。
+    historyFlag = false
+    historyPlayFlag = false
+    if (colTimer) {
+      clearInterval(colTimer)
+      colTimer = null
+    }
+
+    res.json(new HttpResult(0, getCarAdaptiveCollectionPublicState(), '开始采集'))
+  } catch (err) {
+    console.error('[collection] start failed:', err)
+    res.status(500).json(new HttpResult(1, err.message || '开始采集失败', 'error'))
   }
-
 })
-
 
 // 停止采集
 app.get('/endCol', async (req, res) => {
   colFlag = false
-  res.json(new HttpResult(0, 'success', '停止采集'));
+  colStoppedAt = Date.now()
+  res.json(new HttpResult(0, getCarAdaptiveCollectionPublicState(), '停止采集'))
 })
 
 // 获取数据库所有存取列表
@@ -1051,6 +1524,7 @@ app.get('/getColHistory', async (req, res) => {
   currentDb.all(selectQuery, params, (err, rows) => {
     if (err) {
       console.error(err);
+      res.status(500).json(new HttpResult(1, err.message || '读取采集历史失败', 'error'))
     } else {
 
       let jsonData;
@@ -1094,15 +1568,17 @@ app.get('/getColHistory', async (req, res) => {
 // 下载成csv
 app.post('/downlaod', async (req, res) => {
   try {
-    const { fileArr } = req.body
+    const fileArr = Array.isArray(req.body?.fileArr) ? req.body.fileArr : []
     if (!fileArr.length) {
-      res.json(new HttpResult(555, '请选择先数据', 'error'));
+      res.json(new HttpResult(555, '请先选择数据', 'error'));
+      return
     }
     const params = fileArr;
     const data = await dbLoadCsv({ db: currentDb, params, file, isPackaged })
     res.json(new HttpResult(0, data, '下载'));
-  } catch {
-
+  } catch (err) {
+    console.error('[history] download failed:', err)
+    res.status(500).json(new HttpResult(1, err.message || '下载历史数据失败', 'error'))
   }
 })
 
@@ -1135,23 +1611,39 @@ app.post('/changeDbName', async (req, res) => {
 
 // 获取数据库某个时间的所有数据
 app.post('/getDbHistory', async (req, res) => {
-  const { time } = req.body
+  try {
+    const time = String(req.body?.time || '')
+    const { length, pressArr, areaArr, rows, skippedRows } = await dbGetData({
+      db: currentDb,
+      params: [time]
+    })
+    if (!length) {
+      res.status(404).json(new HttpResult(1, '该采集段没有可回放的有效数据', 'error'))
+      return
+    }
 
-  const selectQuery = "select * from matrix WHERE date=?";
+    historyDbArr = rows
+    colMaxHZ = getHistoryPlaybackHz(historyDbArr)
+    colplayHZ = colMaxHZ
+    historyFlag = true
+    historyPlayFlag = false
+    playIndex = 0
+    socketSendData(server, JSON.stringify({
+      carAdaptiveHistoryState: { active: true, name: time, length }
+    }))
+    socketSendData(server, JSON.stringify(createHistoryPlaybackPayload(historyDbArr[0], 0)))
 
-  const params = [time];
-
-  const { length, pressArr, areaArr, rows } = await dbGetData({ db: currentDb, params })
-
-  const data = { length, pressArr, areaArr, }
-
-  historyDbArr = rows
-  colMaxHZ = 1000 / (historyDbArr[1].timestamp - historyDbArr[0].timestamp)
-  colplayHZ = colMaxHZ
-  historyFlag = true
-  playIndex = 0
-
-  res.json(new HttpResult(0, data, 'success'));
+    res.json(new HttpResult(0, {
+      length,
+      pressArr,
+      areaArr,
+      skippedRows,
+      playbackHz: colMaxHZ
+    }, 'success'));
+  } catch (err) {
+    console.error('[history] load failed:', err)
+    res.status(500).json(new HttpResult(1, err.message || '载入回放失败', 'error'))
+  }
 })
 
 app.post('/getContrastData', async (req, res) => {
@@ -1195,11 +1687,17 @@ app.post('/changeDbDataName', async (req, res) => {
 app.post('/cancalDbPlay', async (req, res) => {
   // 将回放flag置为false 并且将当前数据数组置为空
   historyFlag = false
+  historyPlayFlag = false
   historyDbArr = null
 
   if (colTimer) {
     clearInterval(colTimer)
+    colTimer = null
   }
+
+  socketSendData(server, JSON.stringify({
+    carAdaptiveHistoryState: { active: false }
+  }))
 
   res.json(new HttpResult(0, {}, 'success'));
 })
@@ -1226,11 +1724,9 @@ app.post('/getDbHistoryPlay', async (req, res) => {
     colTimer = setInterval(() => {
       if (historyPlayFlag && historyDbArr) {
 
-        socketSendData(server, JSON.stringify({
-          sitData: JSON.parse(historyDbArr[playIndex].data),
-          index: playIndex,
-          timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
-        }))
+        socketSendData(server, JSON.stringify(
+          createHistoryPlaybackPayload(historyDbArr[playIndex], playIndex)
+        ))
         if (playIndex < historyDbArr.length - 1) {
           playIndex++
         } else {
@@ -1259,11 +1755,9 @@ app.post('/changeDbplaySpeed', async (req, res) => {
     colTimer = setInterval(() => {
       if (historyPlayFlag) {
 
-        socketSendData(server, JSON.stringify({
-          sitData: JSON.parse(historyDbArr[playIndex].data),
-          index: playIndex,
-          timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
-        }))
+        socketSendData(server, JSON.stringify(
+          createHistoryPlaybackPayload(historyDbArr[playIndex], playIndex)
+        ))
         if (playIndex < historyDbArr.length - 1) {
           playIndex++
         } else {
@@ -1301,19 +1795,22 @@ app.post('/getDbHistoryStop', async (req, res) => {
 
 // 获取某个时间的数据的某个索引数据
 app.post('/getDbHistoryIndex', async (req, res) => {
-  const { index } = req.body
+  const index = Number(req.body?.index)
 
   if (!historyDbArr) {
     res.json(new HttpResult(555, '请选择回放时间段', 'error'));
     return
   }
 
+  if (!Number.isInteger(index) || index < 0 || index >= historyDbArr.length) {
+    res.status(400).json(new HttpResult(1, '回放索引超出范围', 'error'))
+    return
+  }
+
   playIndex = index
-  socketSendData(server, JSON.stringify({
-    sitData: JSON.parse(historyDbArr[playIndex].data),
-    index: playIndex,
-    timestamp: JSON.parse(historyDbArr[playIndex].timestamp)
-  }))
+  socketSendData(server, JSON.stringify(
+    createHistoryPlaybackPayload(historyDbArr[playIndex], playIndex)
+  ))
   res.json(new HttpResult(0, historyDbArr[index], 'success'));
 })
 
@@ -1438,9 +1935,59 @@ app.get('/carAdaptive/feedbackDiagnostics', (req, res) => {
   res.json(new HttpResult(0, getSerialFrameDiagnostics(), 'success'))
 })
 
+// 查询一路气囊指令历史；可按 type 筛选，默认返回最新 200 条。
+app.get('/carAdaptive/commands/history', (req, res) => {
+  const sensorId = normalizeCarAdaptiveSensorId(
+    req.query?.sensorId ?? selectedCarAdaptiveSensorId
+  )
+  const type = normalizeCarAdaptiveCommandHistoryType(req.query?.type)
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+  if (type === null) {
+    res.status(400).json(new HttpResult(1, {}, '气囊指令历史类型不合法'))
+    return
+  }
+
+  res.json(new HttpResult(0, getCarAdaptiveCommandHistoryPublicState(sensorId, {
+    type,
+    limit: req.query?.limit
+  }), 'success'))
+})
+
+// 清空一路全部历史或指定类型历史，不改变算法、串口和展示状态。
+app.delete('/carAdaptive/commands/history/:sensorId', (req, res) => {
+  const sensorId = normalizeCarAdaptiveSensorId(req.params?.sensorId)
+  const type = normalizeCarAdaptiveCommandHistoryType(req.query?.type)
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+  if (type === null) {
+    res.status(400).json(new HttpResult(1, {}, '气囊指令历史类型不合法'))
+    return
+  }
+
+  const state = getCarAdaptiveSensorState(sensorId)
+  const removed = clearCarAdaptiveCommandHistory(state.airbagCommandHistory, type)
+  res.json(new HttpResult(0, {
+    ...getCarAdaptiveCommandHistoryPublicState(sensorId, { type, limit: req.query?.limit }),
+    removed
+  }, '气囊指令历史已清空'))
+})
+
 // 查询当前气囊控制模式：auto 为算法自动写串口，manual 为只接受手动下发。
 app.get('/carAdaptive/mode', (req, res) => {
-  res.json(new HttpResult(0, getCarAdaptiveControlModePublicState(), 'success'))
+  const hasSensorId = req.query?.sensorId !== undefined
+  const sensorId = hasSensorId
+    ? normalizeCarAdaptiveSensorId(req.query.sensorId)
+    : selectedCarAdaptiveSensorId
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+  res.json(new HttpResult(0, getCarAdaptiveControlModePublicState(sensorId), 'success'))
 })
 
 // 切换气囊控制模式。手动模式只停止算法自动写串口，两路算法继续运行并继续推送数据。
@@ -1451,12 +1998,89 @@ app.post('/carAdaptive/mode', async (req, res) => {
     return
   }
 
+  const responseSensorId = normalizeCarAdaptiveSensorId(req.body?.sensorId) || selectedCarAdaptiveSensorId
   res.json(new HttpResult(0, {
-    ...getCarAdaptiveControlModePublicState(),
+    ...getCarAdaptiveControlModePublicState(responseSensorId),
     changed: result.changed,
     massageReset: result.massageReset,
-    algorithmReset: result.algorithmReset
+    algorithmReset: result.algorithmReset,
+    changes: result.changes
   }, result.changed ? '控制模式已切换' : '控制模式未变化'))
+})
+
+// 查询接口覆盖、ECU 回传或兼容命令回落后的气囊界面展示状态。
+app.get('/carAdaptive/display', (req, res) => {
+  const hasSensorId = req.query?.sensorId !== undefined
+  const sensorId = hasSensorId
+    ? normalizeCarAdaptiveSensorId(req.query.sensorId)
+    : selectedCarAdaptiveSensorId
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), 'success'))
+})
+
+// 只覆盖前端气囊展示，不写串口，也不伪造 ECU feedbackOnline。
+app.post('/carAdaptive/display', (req, res) => {
+  const sensorId = normalizeCarAdaptiveSensorId(req.body?.sensorId)
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+
+  const parsed = parseCarAdaptiveAirbagDisplayInput(req.body)
+  if (!parsed.ok) {
+    res.status(400).json(new HttpResult(1, {}, parsed.message))
+    return
+  }
+
+  const state = getCarAdaptiveSensorState(sensorId)
+  const now = Date.now()
+  state.displayOverrideGears = parsed.gears
+  state.displayOverrideStamp = now
+  state.apiDisplayCommand = parsed.command
+  state.apiDisplayCommandStamp = now
+  state.apiDisplayClearedAt = 0
+  appendCarAdaptiveAirbagCommandHistory(sensorId, 'apiDisplay', parsed.command, now, {
+    source: 'api',
+    target: 'display',
+    active: true,
+    clearedAt: 0
+  })
+  broadcastCarAdaptiveSensorSnapshots()
+  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '气囊展示状态已覆盖'))
+})
+
+// 清除一路接口展示覆盖，界面重新跟随 ECU 回传或配置的命令回落。
+app.delete('/carAdaptive/display/:sensorId', (req, res) => {
+  const sensorId = normalizeCarAdaptiveSensorId(req.params?.sensorId)
+  if (sensorId === null) {
+    res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'))
+    return
+  }
+
+  const state = getCarAdaptiveSensorState(sensorId)
+  const previousDisplayCommand = state.apiDisplayCommand
+  state.displayOverrideGears = undefined
+  state.displayOverrideStamp = 0
+  state.apiDisplayClearedAt = Date.now()
+  if (Array.isArray(previousDisplayCommand)) {
+    appendCarAdaptiveAirbagCommandHistory(
+      sensorId,
+      'apiDisplay',
+      previousDisplayCommand,
+      state.apiDisplayClearedAt,
+      {
+        source: 'api',
+        target: 'display',
+        active: false,
+        clearedAt: state.apiDisplayClearedAt
+      }
+    )
+  }
+  broadcastCarAdaptiveSensorSnapshots()
+  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '气囊展示覆盖已清除'))
 })
 
 // 查询当前 SDK 页面、主副驾选择和最近一次远程命令执行状态。
@@ -1534,7 +2158,7 @@ app.post('/carAdaptive/processFrame', async (req, res) => {
     const sensorAlgorithmData = updateCarAdaptiveAlgorithmResult(sensorId, result)
 
     if (writeSerial && result?.control_command) {
-      writeCarAdaptiveCommand(result.control_command, sensorId)
+      writeCarAdaptiveCommand(result.control_command, sensorId, 'algorithm')
     }
 
     broadcastCarAdaptiveSensorSnapshots()
@@ -1563,12 +2187,16 @@ app.post('/carAdaptive/writeCommand', async (req, res) => {
       return
     }
 
-    writeCarAdaptiveCommand(controlCommand, sensorId)
+    const commandSource = req.body?.source === 'algorithm' ? 'algorithm' : 'api'
+    const writeResult = writeCarAdaptiveCommand(controlCommand, sensorId, commandSource)
+    broadcastCarAdaptiveSensorSnapshots()
     // 返回当前模式：自动模式下该命令会在下一个 500ms 周期被算法命令覆盖。
     res.json(new HttpResult(0, {
       length: commandBuffer.length,
       sensorId,
-      controlMode: carAdaptiveControlModeState.mode
+      controlMode: getCarAdaptiveControlModeState(sensorId).mode,
+      queued: Boolean(writeResult?.queued),
+      portPaths: writeResult?.portPaths || []
     }, 'success'));
   } catch (err) {
     res.json(new HttpResult(1, {}, err.message || 'car adaptive write command failed'));
@@ -1636,6 +2264,15 @@ server.on("connection", function connection(ws, req) {
   socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
   broadcastCarAdaptiveControlMode()
   broadcastCarAdaptiveSensorSnapshots()
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      carAdaptiveHistoryState: {
+        active: Boolean(historyFlag && historyDbArr?.length),
+        name: historyDbArr?.[0]?.date || '',
+        length: historyDbArr?.length || 0
+      }
+    }))
+  }
 
   ws.on("message", (rawMessage) => {
     let message
@@ -2192,7 +2829,7 @@ async function connectPort() {
 
           oldTimeObj[sensorTimeKey] = dataItem.stamp
           // 暂停模式只停算法，上面的串口采集、压力数据和 HZ 统计照常进行
-          if (isCarAdaptiveAlgorithmRunning(carAdaptiveControlModeState)) {
+          if (isCarAdaptiveAlgorithmRunning(getCarAdaptiveControlModeState(sensorId))) {
             try {
               const result = await callPy('server', {
                 sensor_data: sensorData,
@@ -2324,7 +2961,7 @@ function colAndSendData() {
     }
 
     if (colFlag) {
-      storageData(obj)
+      storageData(createCarAdaptiveCollectionData(obj, colSensorId))
     }
   }
 
@@ -2452,6 +3089,7 @@ function storageData(data) {
         console.error(err);
         return;
       }
+      colFrameCount++
       console.log(`Event inserted with ID ${this.lastID}`);
     }
   );
@@ -2484,10 +3122,8 @@ setInterval(() => {
 
 
 setInterval(async () => {
-  // 手动模式只停止算法自动写串口，算法本身继续处理每一帧并推送数据。
-  if (isCarAdaptiveAutoMode(carAdaptiveControlModeState)) {
-    writeAllCarAdaptiveCommands()
-  }
+  // 每路独立判断 auto/manual/paused，只自动写入处于 auto 的通道。
+  writeAllCarAdaptiveCommands()
 
   socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
   broadcastCarAdaptiveSensorSnapshots()

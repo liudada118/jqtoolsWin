@@ -59,3 +59,17 @@ test('并发触发时复用同一个连接请求', async () => {
         ['/sendMac'],
     ])
 })
+
+test('前一次完成后重新进入页面会再次执行完整连接流程', async () => {
+    axios.get.mockResolvedValue({ data: { code: 0 } })
+
+    await connectCarAdaptiveDevice()
+    await connectCarAdaptiveDevice()
+
+    expect(axios.get.mock.calls).toEqual([
+        ['/connPort'],
+        ['/sendMac'],
+        ['/connPort'],
+        ['/sendMac'],
+    ])
+})

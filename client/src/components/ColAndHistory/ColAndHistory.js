@@ -75,7 +75,10 @@ const ColAndHistory = memo((props) => {
     }
 
     const download = () => {
-        console.log(operateStatus, selectArr)
+        if (!selectArr.length) {
+            message.info('请先选择数据')
+            return
+        }
         axios({
             method: 'post',
             url: 'http://localhost:19245/downlaod',
@@ -84,15 +87,16 @@ const ColAndHistory = memo((props) => {
             }
         }).then((res) => {
             console.log(res)
-            if (res.data.message == 'error') {
-                message.info(res.data.data)
+            if (res.data.code !== 0 || res.data.message == 'error') {
+                message.error(res.data.data || '下载失败')
             } else {
                 message.success('下载成功')
+                setSelectArr([])
             }
 
 
         }).catch((err) => {
-            message.error('下载失败')
+            message.error(err.response?.data?.data || err.message || '下载失败')
 
         })
     }
@@ -350,7 +354,9 @@ const ColAndHistory = memo((props) => {
                                                         arr.push(a)
                                                     }
                                                     setSelectArr(arr)
-                                                } else {
+                                                 } else {
+                                                    useEquipStore.getState().setStatus(new Array(4096).fill(0))
+                                                    useEquipStore.getState().setDisplayStatus(new Array(4096).fill(0))
                                                     axios({
                                                         method: 'post',
                                                         url: 'http://localhost:19245/getDbHistory',
@@ -359,13 +365,15 @@ const ColAndHistory = memo((props) => {
                                                         }
                                                     }).then((res) => {
                                                         console.log(res)
-                                                        setCurrentName(a)
-                                                        if (res.status == 200) {
+                                                        if (res.status == 200 && res.data.code === 0) {
+                                                            setCurrentName(a)
                                                             const { length } = res.data.data
                                                             setDataLength(length)
-                                                            useEquipStore.getState().setStatus(new Array(4096).fill(0))
-                                                            useEquipStore.getState().setDisplayStatus(new Array(4096).fill(0))
+                                                        } else {
+                                                            message.error(res.data.data || '载入回放失败')
                                                         }
+                                                    }).catch((err) => {
+                                                        message.error(err.response?.data?.data || err.message || '载入回放失败')
                                                     })
                                                 }
 
@@ -457,7 +465,7 @@ const ColAndHistory = memo((props) => {
                 <div className='colAndHistory'>
                     {
                         !historyDrawer ?
-                            <ColControl getColHistory={getColHistory} />
+                            <ColControl getColHistory={getColHistory} sensorId={props.sensorId} />
                             : <DataPlay dataLength={dataLength} name={currentName} />
                     }
                 </div>

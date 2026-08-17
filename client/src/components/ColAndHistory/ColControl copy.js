@@ -88,7 +88,7 @@ function ColControl(props) {
                     >&#xe623;</i></div>
             </div>
             <div className='colButton'>
-                <Col startTime={startTime} setStartTime={setStartTime} colName={colName} HZ={HZ} col={col} setCol={setCol} />
+                <Col startTime={startTime} setStartTime={setStartTime} colName={colName} HZ={HZ} col={col} setCol={setCol} sensorId={props.sensorId} />
             </div>
             <div className='colTimeAndHistory'>
                 <div className='colTime fs16'>

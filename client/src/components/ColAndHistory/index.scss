@@ -1,16 +1,19 @@
 .colAndHContent {
     position: fixed;
     bottom: 5%;
+    z-index: 30;
     width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
+    pointer-events: none;
 
     .colAndHistory {
         display: flex;
         flex-direction: column;
         align-items: center;
+        pointer-events: auto;
     }
 
     .colInfo {

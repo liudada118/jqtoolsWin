@@ -286,6 +286,9 @@ jqtools.stopPythonAlgorithm();
 - `getCarAdaptiveSensors()`
 - `processCarAdaptiveFrame(sensorData, { sensorId, writeSerial })`
 - `writeCarAdaptiveCommand(controlCommand, sensorId)`
+- `getAirbagDisplay(sensorId)` / `setAirbagDisplay(gears, sensorId)` / `clearAirbagDisplay(sensorId)`
+- `getAirbagCommandHistory({ sensorId, type, limit })`
+- `clearAirbagCommandHistory({ sensorId, type })`
 - `connectStream(handlers)`
 - `connectCarAdaptiveStream(handlers)`
 - `getPythonConfig()`

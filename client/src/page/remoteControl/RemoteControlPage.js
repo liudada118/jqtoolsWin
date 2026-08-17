@@ -71,6 +71,11 @@ function getViewLabel(view) {
     }[view] || '--';
 }
 
+/** 返回主副驾控制模式的中文名称。 */
+function getControlModeLabel(mode) {
+    return { auto: '自动', manual: '手动', paused: '暂停' }[mode] || '--';
+}
+
 /**
  * 独立的局域网 SDK 控制调试页面。
  * @returns {React.ReactElement} 调试控制页面。
@@ -217,7 +222,7 @@ function RemoteControlPage() {
 
     /** 切换气囊控制模式：auto 算法接管，manual 人工控制，paused 暂停算法。 */
     const changeControlMode = useCallback(async (mode) => {
-        const operationKey = `mode-${mode}`;
+        const operationKey = `mode-${airbagSensorId}-${mode}`;
         setBusyAction(operationKey);
         setNotice({ type: 'pending', text: mode === 'manual' ? '正在切换手动模式' : '正在恢复自动模式' });
 
@@ -228,7 +233,7 @@ function RemoteControlPage() {
                     'Content-Type': 'application/json',
                     ...(token ? { 'X-JQTools-Control-Token': token } : {}),
                 },
-                body: JSON.stringify({ mode, reason: '局域网控制台' }),
+                body: JSON.stringify({ sensorId: airbagSensorId, mode, reason: '局域网控制台' }),
             });
             const payload = await response.json();
             if (!response.ok || payload.code !== 0) {
@@ -238,20 +243,20 @@ function RemoteControlPage() {
             setModeState(payload.data);
             setNotice({
                 type: 'success',
-                text: {
+                text: `${airbagSensorId === 2 ? '副驾' : '主驾'}${{
                     manual: '已切到手动模式，算法继续运行但不再写串口',
                     paused: '算法已暂停，气囊冻结在当前充气量',
                     auto: payload.data.algorithmReset
                         ? '算法已重新初始化并接管气囊'
                         : '已恢复自动模式，算法接管气囊',
-                }[payload.data.mode] || '模式已切换',
+                }[payload.data.mode] || '模式已切换'}`,
             });
         } catch (error) {
             setNotice({ type: 'error', text: error.message || '模式切换失败' });
         } finally {
             setBusyAction('');
         }
-    }, [token]);
+    }, [airbagSensorId, token]);
 
     /** 向目标通道下发一条 55 字节气囊控制命令。 */
     const sendAirbagCommand = useCallback(async (controlCommand, description, operationKey) => {
@@ -315,7 +320,9 @@ function RemoteControlPage() {
     }, []);
 
     const airbagGears = sensorGears[airbagSensorId] || [];
-    const currentMode = modeState?.mode;
+    const modeStates = Array.isArray(modeState?.sensors) ? modeState.sensors : [];
+    const targetModeState = modeStates.find((item) => Number(item.sensorId) === airbagSensorId) || modeState;
+    const currentMode = targetModeState?.mode;
     const isAutoMode = currentMode === 'auto';
     const isPausedMode = currentMode === 'paused';
     const targetSensor = sensorStatus.find((item) => Number(item.sensorId) === airbagSensorId);
@@ -372,9 +379,14 @@ function RemoteControlPage() {
                     <strong>{Number(controlState?.selectedSensorId) === 2 ? '副驾' : '主驾'}</strong>
                 </div>
                 <div>
-                    <span>气囊模式</span>
+                    <span>主副模式</span>
                     <strong className={isAutoMode ? 'is-success' : isPausedMode ? 'is-error' : 'is-warning'}>
-                        {modeState ? { auto: '自动', manual: '手动', paused: '已暂停' }[currentMode] : '--'}
+                        {modeState
+                            ? SENSOR_IDS.map((id) => {
+                                const state = modeStates.find((item) => Number(item.sensorId) === id);
+                                return `${id === 1 ? '主' : '副'}${getControlModeLabel(state?.mode || modeState.mode)}`;
+                            }).join(' / ')
+                            : '--'}
                     </strong>
                 </div>
                 <div>
@@ -430,7 +442,7 @@ function RemoteControlPage() {
 
                     <div className="remote-section-heading remote-section-heading--spaced">
                         <h2>显示通道</h2>
-                        <span>两路算法始终同时运行</span>
+                        <span>只切换界面展示</span>
                     </div>
                     <div className="remote-command-grid remote-command-grid--sensor">
                         <Button
@@ -480,7 +492,7 @@ function RemoteControlPage() {
                                         size="small"
                                         icon={<RobotOutlined />}
                                         type={currentMode === 'auto' ? 'primary' : 'default'}
-                                        loading={busyAction === 'mode-auto'}
+                                        loading={busyAction === `mode-${airbagSensorId}-auto`}
                                         onClick={() => changeControlMode('auto')}
                                     >
                                         自动
@@ -491,7 +503,7 @@ function RemoteControlPage() {
                                         size="small"
                                         icon={<SlidersOutlined />}
                                         type={currentMode === 'manual' ? 'primary' : 'default'}
-                                        loading={busyAction === 'mode-manual'}
+                                        loading={busyAction === `mode-${airbagSensorId}-manual`}
                                         onClick={() => changeControlMode('manual')}
                                     >
                                         手动
@@ -502,7 +514,7 @@ function RemoteControlPage() {
                                         size="small"
                                         icon={<PauseCircleOutlined />}
                                         type={currentMode === 'paused' ? 'primary' : 'default'}
-                                        loading={busyAction === 'mode-paused'}
+                                        loading={busyAction === `mode-${airbagSensorId}-paused`}
                                         onClick={() => changeControlMode('paused')}
                                     >
                                         暂停
@@ -653,7 +665,7 @@ function RemoteControlPage() {
 
                     <div className="remote-history-heading">
                         <h2>通道状态</h2>
-                        <span>两路始终独立运行</span>
+                        <span>主副驾独立控制</span>
                     </div>
                     <div className="remote-sensor-list">
                         {SENSOR_IDS.map((id) => {
@@ -666,6 +678,7 @@ function RemoteControlPage() {
                                     </span>
                                     <span>{item?.HZ ? `${item.HZ} Hz` : '--'}</span>
                                     <span>{item?.frameCount ? `${item.frameCount} 帧` : '--'}</span>
+                                    <span>{getControlModeLabel(item?.controlMode)}</span>
                                     <span className={item?.feedbackOnline ? 'is-success' : 'is-error'}>
                                         {item?.feedbackOnline ? '有回传' : '无回传'}
                                     </span>

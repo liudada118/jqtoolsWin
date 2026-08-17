@@ -57,7 +57,7 @@ public sealed class CarAdaptiveDebugOptions
     /// <summary>
     /// 等待真实数据 HTTP 服务启动成功的最长时间。
     /// </summary>
-    public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(8);
+    public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// 当前配置对应的调试页面地址。

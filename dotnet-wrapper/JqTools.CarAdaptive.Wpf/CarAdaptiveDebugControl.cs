@@ -153,6 +153,25 @@ public sealed class CarAdaptiveDebugControl : UserControl
         DependencyProperty.Register(nameof(WebSocketPort), typeof(int), typeof(CarAdaptiveDebugControl), new PropertyMetadata(19999));
 
     /// <summary>
+    /// 等待真实数据服务监听 HTTP 端口的最长秒数。
+    /// </summary>
+    public int StartupTimeoutSeconds
+    {
+        get => (int)GetValue(StartupTimeoutSecondsProperty);
+        set => SetValue(StartupTimeoutSecondsProperty, value);
+    }
+
+    /// <summary>
+    /// StartupTimeoutSeconds 依赖属性，默认允许首次解密和 Python 初始化使用 30 秒。
+    /// </summary>
+    public static readonly DependencyProperty StartupTimeoutSecondsProperty =
+        DependencyProperty.Register(
+            nameof(StartupTimeoutSeconds),
+            typeof(int),
+            typeof(CarAdaptiveDebugControl),
+            new PropertyMetadata(30));
+
+    /// <summary>
     /// Node.js 可执行文件路径。
     /// </summary>
     public string NodeExecutablePath
@@ -307,6 +326,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
             Host = Host,
             HttpPort = HttpPort,
             WebSocketPort = WebSocketPort,
+            StartupTimeout = TimeSpan.FromSeconds(Math.Clamp(StartupTimeoutSeconds, 1, 300)),
             NodeExecutablePath = NodeExecutablePath,
             MockSdkDirectory = MockSdkDirectory,
             PagePath = PagePath,
