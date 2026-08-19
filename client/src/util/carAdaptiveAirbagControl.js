@@ -139,19 +139,6 @@ export function buildCarAdaptiveControlCommand(gears = {}, options = {}) {
 }
 
 /**
- * 构造把全部气囊设为同一档位的命令。
- * @param {number} gear 目标档位。
- * @returns {number[]} 55 个字节的控制命令。
- */
-export function buildUniformControlCommand(gear) {
-    const gears = {};
-    for (let id = 1; id <= CAR_ADAPTIVE_AIRBAG_COUNT; id += 1) {
-        gears[id] = gear;
-    }
-    return buildCarAdaptiveControlCommand(gears);
-}
-
-/**
  * 从控制命令或回传帧中提取 24 路档位。
  * 兼容 55 字节完整命令和去掉 4 字节帧尾后的 51 字节回传帧。
  *

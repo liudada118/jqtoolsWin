@@ -46,7 +46,8 @@ const {
   extractCarAdaptiveAirbagGears,
   parseCarAdaptiveAirbagDisplayInput,
   resolveCarAdaptiveAirbagDisplayState,
-  restoreCarAdaptiveFeedbackCommand
+  restoreCarAdaptiveFeedbackCommand,
+  validateCarAdaptiveManualWriteCommand
 } = require('../util/carAdaptiveAirbagDisplay')
 const {
   appendCarAdaptiveCommandHistory,
@@ -355,7 +356,9 @@ function getCarAdaptiveSensorsStatus() {
       controlMode: getCarAdaptiveControlModeState(sensorId).mode,
       airbagDisplayAvailable: display.available,
       airbagDisplaySource: display.source,
-      airbagDisplayOverride: display.override
+      airbagDisplayBaseSource: display.baseSource,
+      airbagDisplayOverride: display.override,
+      airbagDisplayOverrideAirbagIds: display.overrideAirbagIds
     }
   })
 }
@@ -414,7 +417,9 @@ function createCarAdaptiveSensorSnapshot(sensorId) {
     feedbackSource: CAR_ADAPTIVE_FEEDBACK_SOURCE,
     airbagDisplayAvailable: display.available,
     airbagDisplaySource: display.source,
+    airbagDisplayBaseSource: display.baseSource,
     airbagDisplayOverride: display.override,
+    airbagDisplayOverrideAirbagIds: display.overrideAirbagIds,
     airbagDisplayStamp: display.stamp,
     airbagCommands: getCarAdaptiveAirbagCommandTelemetry(sensorId),
     controlMode: getCarAdaptiveControlModeState(sensorId).mode
@@ -670,10 +675,10 @@ function isCarAdaptiveFeedbackOnline(state) {
 
 /**
  * 返回一路气囊的有效界面展示状态。
- * 接口展示覆盖优先于 ECU 回传；清除覆盖后自动恢复 ECU 或兼容命令回落。
+ * 3、4、5、6 号只采用 API 状态，未设置时熄灭；其余 20 路采用 ECU 回传或兼容命令回落。
  *
  * @param {number} sensorId 传感器标识。
- * @returns {{gears: number[], available: boolean, source: string, override: boolean, stamp: number}} 展示状态。
+ * @returns {{gears: number[], available: boolean, source: string, baseSource: string, override: boolean, overrideAirbagIds: number[], stamp: number}} 展示状态。
  */
 function getCarAdaptiveAirbagDisplayState(sensorId) {
   const state = getCarAdaptiveSensorState(sensorId)
@@ -837,7 +842,9 @@ function getCarAdaptiveAirbagDisplayPublicState(sensorId = selectedCarAdaptiveSe
       gears: display.gears,
       available: display.available,
       source: display.source,
+      baseSource: display.baseSource,
       override: display.override,
+      overrideAirbagIds: display.overrideAirbagIds,
       stamp: display.stamp,
       feedbackOnline: isCarAdaptiveFeedbackOnline(state),
       feedbackStamp: state.feedbackStamp
@@ -2008,7 +2015,7 @@ app.post('/carAdaptive/mode', async (req, res) => {
   }, result.changed ? '控制模式已切换' : '控制模式未变化'))
 })
 
-// 查询接口覆盖、ECU 回传或兼容命令回落后的气囊界面展示状态。
+// 查询四路 API 状态与其余二十路 ECU（或兼容命令回落）合并后的气囊界面状态。
 app.get('/carAdaptive/display', (req, res) => {
   const hasSensorId = req.query?.sensorId !== undefined
   const sensorId = hasSensorId
@@ -2021,7 +2028,7 @@ app.get('/carAdaptive/display', (req, res) => {
   res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), 'success'))
 })
 
-// 只覆盖前端气囊展示，不写串口，也不伪造 ECU feedbackOnline。
+// 只设置前端 3、4、5、6 号气囊展示；其余 20 路继续跟随 ECU，不写串口也不伪造 feedbackOnline。
 app.post('/carAdaptive/display', (req, res) => {
   const sensorId = normalizeCarAdaptiveSensorId(req.body?.sensorId)
   if (sensorId === null) {
@@ -2049,10 +2056,10 @@ app.post('/carAdaptive/display', (req, res) => {
     clearedAt: 0
   })
   broadcastCarAdaptiveSensorSnapshots()
-  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '气囊展示状态已覆盖'))
+  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '3、4、5、6 号气囊展示状态已覆盖'))
 })
 
-// 清除一路接口展示覆盖，界面重新跟随 ECU 回传或配置的命令回落。
+// 清除一路 3–6 号 API 展示状态并将其熄灭；其余 20 路继续跟随 ECU 或命令回落。
 app.delete('/carAdaptive/display/:sensorId', (req, res) => {
   const sensorId = normalizeCarAdaptiveSensorId(req.params?.sensorId)
   if (sensorId === null) {
@@ -2080,7 +2087,7 @@ app.delete('/carAdaptive/display/:sensorId', (req, res) => {
     )
   }
   broadcastCarAdaptiveSensorSnapshots()
-  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '气囊展示覆盖已清除'))
+  res.json(new HttpResult(0, getCarAdaptiveAirbagDisplayPublicState(sensorId), '3、4、5、6 号 API 展示状态已清除并熄灭'))
 })
 
 // 查询当前 SDK 页面、主副驾选择和最近一次远程命令执行状态。
@@ -2168,32 +2175,35 @@ app.post('/carAdaptive/processFrame', async (req, res) => {
   }
 })
 
-// Car adaptive: write an existing Python control_command to the target serial port.
+// 客户手动气囊接口：只允许 3、4、5、6 号气囊出现非零档位。
 app.post('/carAdaptive/writeCommand', async (req, res) => {
   try {
     const { controlCommand } = req.body
     const sensorId = normalizeCarAdaptiveSensorId(
       req.body?.sensorId ?? selectedCarAdaptiveSensorId
     )
-    const commandBuffer = normalizeControlCommand(controlCommand)
-
-    if (!commandBuffer) {
-      res.json(new HttpResult(1, {}, 'controlCommand must be a byte array'));
-      return
-    }
-
     if (sensorId === null) {
-      res.json(new HttpResult(1, {}, 'sensorId must be 1 (main) or 2 (secondary)'));
+      res.status(400).json(new HttpResult(1, {}, 'sensorId 只允许为 1（主驾）或 2（副驾）'));
       return
     }
 
-    const commandSource = req.body?.source === 'algorithm' ? 'algorithm' : 'api'
-    const writeResult = writeCarAdaptiveCommand(controlCommand, sensorId, commandSource)
+    const validation = validateCarAdaptiveManualWriteCommand(controlCommand)
+
+    if (!validation.ok) {
+      res.status(400).json(new HttpResult(1, {}, validation.message));
+      return
+    }
+
+    const commandBuffer = normalizeControlCommand(validation.command)
+
+    // HTTP 调用始终归类为客户 API，不能通过伪造 source=algorithm 绕过白名单。
+    const writeResult = writeCarAdaptiveCommand(validation.command, sensorId, 'api')
     broadcastCarAdaptiveSensorSnapshots()
     // 返回当前模式：自动模式下该命令会在下一个 500ms 周期被算法命令覆盖。
     res.json(new HttpResult(0, {
       length: commandBuffer.length,
       sensorId,
+      allowedAirbagIds: [3, 4, 5, 6],
       controlMode: getCarAdaptiveControlModeState(sensorId).mode,
       queued: Boolean(writeResult?.queued),
       portPaths: writeResult?.portPaths || []
@@ -2350,6 +2360,8 @@ function parseData(parserArr, objs, type) {
   Object.keys(objs).forEach((key) => {
     const obj = parserArr[key]
     const data = objs[key]
+    // 串口刚建立但尚未识别类型时不生成 "undefined" 状态项，避免污染前端在线状态。
+    if (!data?.type || !obj?.port) return
     if (obj.port.isOpen) {
       let blueArr = []
 
@@ -2401,8 +2413,9 @@ function parseData(parserArr, objs, type) {
  */
 
 var sendMacNum = 0, successNum = 0, sendDataLength = 0
+let connectPortTask = null
 const oldTimeObj = {}
-async function connectPort() {
+async function connectPortOnce() {
   macInfo = {}
   let ports = await SerialPort.list()
   ports = getPort(ports)
@@ -2420,13 +2433,10 @@ async function connectPort() {
     const parserItem = parserArr[path] = parserArr[path] ? parserArr[path] : {}
     const dataItem = dataMap[path] = dataMap[path] ? dataMap[path] : {}
     // parserItem 
-    parserItem.parser = new DelimiterParser({ delimiter: splitBuffer })
-
-    const { parser } = parserItem
-
-    // if()
-
-    if (!(parserItem.port && parserItem.port.isOpen)) {
+    // 已打开或正在打开时直接复用，外部和主界面同时一键连接不会重复占用串口。
+    if (!(parserItem.port && (parserItem.port.isOpen || parserItem.port.opening))) {
+      parserItem.parser = new DelimiterParser({ delimiter: splitBuffer })
+      const { parser } = parserItem
       const port = newSerialPortLink({ path, parser: parserItem.parser, baudRate })
 
       // linkIngPort.push(port)
@@ -2916,6 +2926,18 @@ async function connectPort() {
   return ports
 }
 
+/** 合并同时到达的一键连接请求，整个服务只执行一次串口枚举和打开流程。 */
+async function connectPort() {
+  if (connectPortTask) return connectPortTask
+
+  connectPortTask = connectPortOnce()
+  try {
+    return await connectPortTask
+  } finally {
+    connectPortTask = null
+  }
+}
+
 // 关闭正在连接的串口
 async function stopPort() {
   // let ports = await SerialPort.list()
@@ -3100,7 +3122,11 @@ setInterval(() => {
   if (Object.keys(parserArr).length) {
     Object.keys(parserArr).map((path) => {
       // parserArr[path].port
-      if (parserArr[path] && !parserArr[path].port.isOpen) {
+      if (
+        parserArr[path] &&
+        !parserArr[path].port.isOpen &&
+        !parserArr[path].port.opening
+      ) {
         parserArr[path].port = new SerialPort(
           {
             path: path,

@@ -62,8 +62,10 @@ customer-sdk/
 目标通道的周期自动写入，目标算法仍逐帧运行；`paused` 只暂停目标算法。显式
 `/carAdaptive/writeCommand` 继续可用，模式变化通过 `carAdaptiveControlMode` 广播。
 
-界面气囊状态按“`/carAdaptive/display` 接口覆盖、ECU 回传、可选命令回落”取值，
-`feedbackOnline` 始终只表示真实 ECU 回传。`#/raw-serial` 同时展示算法下发、ECU 回传、
+界面气囊状态按固定归属合并：`/carAdaptive/display` 独占 3–6 号，未设置或清除时四路为 `0`；
+1、2、7–24 号持续使用 ECU 回传或可选命令回落，ECU/命令中的 3–6 号始终被忽略；
+`feedbackOnline` 始终只表示真实 ECU 回传。`GET /carAdaptive/feedbackDiagnostics`
+是只读诊断接口，用于先判断 ECU 是否回传、回传帧长度是否为 51。`#/raw-serial` 同时展示算法下发、ECU 回传、
 接口写串口和接口展示覆盖，便于核对完整命令链路。后端为每路传感器按五种来源维护独立
 内存历史队列，每种最多 500 条；`GET`/`DELETE /carAdaptive/commands/history` 供历史弹窗
 轮询、筛选和清空，清空操作不参与控制链路。

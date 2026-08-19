@@ -249,7 +249,11 @@ export interface CarAdaptiveSensorAirbagDisplayState {
   gears: number[];
   available: boolean;
   source: 'api' | 'ecu' | 'command' | 'none';
+  /** ECU 所属其余 20 路的基础来源。 */
+  baseSource: 'ecu' | 'command' | 'none';
   override: boolean;
+  /** 覆盖生效时固定为 3、4、5、6，否则为空数组。 */
+  overrideAirbagIds: number[];
   stamp: number;
   feedbackOnline: boolean;
   feedbackStamp: number;
@@ -279,8 +283,8 @@ export interface CarAdaptiveSensorSnapshot {
   /** 对应传感器的独立 Python 算法结果。 */
   algorData?: unknown;
   /**
-   * 24 路当前有效展示档位，可能来自接口覆盖、ECU 回传或命令回落。
-   * 必须结合 airbagDisplaySource 判断来源。
+   * 24 路当前有效展示档位：3–6 号只来自 API，未设置时为 0；其余 20 路来自 ECU 或命令回落。
+   * 必须结合 airbagDisplaySource 和 airbagDisplayBaseSource 判断来源。
    */
   algorFeed: number[];
   /** 该路 ECU 回传是否在线，只表示真实硬件回传，不受展示覆盖影响。 */
@@ -293,8 +297,12 @@ export interface CarAdaptiveSensorSnapshot {
   airbagDisplayAvailable: boolean;
   /** 当前展示来源。 */
   airbagDisplaySource: 'api' | 'ecu' | 'command' | 'none';
-  /** 是否正由接口覆盖界面展示。 */
+  /** ECU 所属其余 20 路的基础来源。 */
+  airbagDisplayBaseSource: 'ecu' | 'command' | 'none';
+  /** 3–6 号是否正由接口覆盖界面展示。 */
   airbagDisplayOverride: boolean;
+  /** 覆盖生效时固定为 3、4、5、6，否则为空数组。 */
+  airbagDisplayOverrideAirbagIds: number[];
   /** 当前展示状态的毫秒时间戳。 */
   airbagDisplayStamp: number;
   /** 最近算法、接口和 ECU 气囊命令诊断。 */
@@ -385,16 +393,15 @@ export class JqToolsCarClient {
   selectCarAdaptiveSensor(sensorId: 1 | 2): Promise<HttpResult<CarAdaptiveSensorSelection> | CarAdaptiveSensorSelection>;
 
   /**
-   * 提交一帧 144 点汽车自适应传感器数据给 SDK 本地 Python 算法。
-   * 设置 writeSerial=true 时，会把返回的 control_command 写入汽车自适应串口。
+   * 提交一帧 144 点汽车自适应传感器数据给 Python 算法。
+   * writeSerial=false 使用 SDK 本地算法；writeSerial=true 由真实后端完成算法和内部串口写入。
    */
   processCarAdaptiveFrame(sensorData: number[], options?: ProcessCarAdaptiveFrameOptions): Promise<unknown>;
 
-  /** 通过后端把已有的 Python control_command 写入汽车自适应串口。 */
+  /** 通过客户手动接口写入完整 55 字节命令，仅 3、4、5、6 号气囊允许非零档位。 */
   writeCarAdaptiveCommand(
     controlCommand: number[],
-    sensorId?: 1 | 2,
-    options?: { source?: 'api' | 'algorithm' }
+    sensorId?: 1 | 2
   ): Promise<HttpResult | unknown>;
 
   /** 查询目标通道和主副两路独立气囊控制模式。 */
@@ -410,16 +417,16 @@ export class JqToolsCarClient {
     options?: { sensorId?: 1 | 2; reason?: string }
   ): Promise<HttpResult<CarAdaptiveControlModeChange> | CarAdaptiveControlModeChange>;
 
-  /** 查询当前有效气囊展示状态及其来源。 */
+  /** 查询 API 独占四路与 ECU 其余 20 路合并后的气囊展示状态及来源。 */
   getAirbagDisplay(sensorId?: 1 | 2): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;
 
-  /** 用 24 路档位覆盖目标通道的界面展示，不写串口。 */
+  /** 用 24 项数组设置 3–6 号展示；其余项必须为 0 并继续跟随 ECU。 */
   setAirbagDisplay(
     gears: number[],
     sensorId?: 1 | 2
   ): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;
 
-  /** 清除目标通道的接口展示覆盖。 */
+  /** 清除目标通道 3–6 号的 API 展示状态并将四路熄灭。 */
   clearAirbagDisplay(
     sensorId?: 1 | 2
   ): Promise<HttpResult<CarAdaptiveAirbagDisplayState> | CarAdaptiveAirbagDisplayState>;

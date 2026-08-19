@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$HostName = "127.0.0.1",
     [int]$HttpPort = 19545,
     [int]$WsPort = 19599,
@@ -21,11 +21,15 @@ $customerSeatModelFileName = 'FAST27-' +
 $customerSeatModel = Join-Path $frontendDir (Join-Path "model" $customerSeatModelFileName)
 $nodeExe = Join-Path $sdkRoot "runtime\node\node.exe"
 $appExe = Join-Path $sdkRoot "app\JqTools.CarAdaptive.ClientWpf.exe"
+$appWebViewRuntimeData = "$appExe.WebView2"
+$sqliteBuildTempData = Join-Path $realBackendDir "node_modules\sqlite3\build-tmp-napi-v6"
 $wpfDll = Join-Path $sdkRoot "wpf-control\JqTools.CarAdaptive.Wpf.dll"
 $nativeDll = Join-Path $sdkRoot "native-dll\JqToolsCarAdaptiveNative.dll"
 $apiDoc = Join-Path $sdkRoot "docs\API.md"
 $quickStartDoc = Join-Path $sdkRoot "docs\QUICKSTART.md"
-$realApiDoc = Join-Path $sdkRoot "docs\REAL_API.md"
+$protectedHost = Join-Path $realBackendDir "backend-host.exe"
+$encryptedPackage = Join-Path $realBackendDir "backend.jqpack"
+$protectionManifest = Join-Path $realBackendDir "protection-manifest.json"
 $logFile = Join-Path ([System.IO.Path]::GetTempPath()) "jqtools-customer-sdk-verify-$PID.log"
 $verificationHomeUrl = "http://customer.local/home"
 
@@ -43,6 +47,64 @@ function Assert-PathMissing {
         throw "Plaintext first-party source must not be shipped: $Path"
     }
     Write-Host "[OK] source removed: $Path"
+}
+
+function Assert-RuntimePathMissing {
+    param([string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        throw "Runtime cache must not be shipped in the customer SDK: $Path"
+    }
+    Write-Host "[OK] runtime cache excluded: $Path"
+}
+
+# 校验加密宿主与业务包来自同一次构建，避免只覆盖部分文件后出现解密失败。
+function Assert-ProtectedBackendIntegrity {
+    param(
+        [string]$HostPath,
+        [string]$PackagePath,
+        [string]$ManifestPath
+    )
+
+    try {
+        $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 |
+            ConvertFrom-Json
+    } catch {
+        throw "Protection manifest cannot be read: $($_.Exception.Message)"
+    }
+
+    $expectedHostHash = [string]$manifest.hostSha256
+    $expectedPackageHash = [string]$manifest.packageSha256
+    if (-not $expectedHostHash -or -not $expectedPackageHash) {
+        throw "Protection manifest is missing hostSha256 or packageSha256. Copy the latest complete customer-sdk."
+    }
+
+    $actualHostHash = (Get-FileHash -LiteralPath $HostPath -Algorithm SHA256).Hash
+    $actualPackageHash = (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash
+    if (
+        $actualHostHash -ne $expectedHostHash -or
+        $actualPackageHash -ne $expectedPackageHash
+    ) {
+        throw "Protected backend files are mismatched or damaged. Delete the target customer-sdk and copy the complete folder again."
+    }
+
+    Write-Host "[OK] protected backend host/package integrity"
+}
+
+function Remove-WpfRuntimeData {
+    if (-not (Test-Path -LiteralPath $appWebViewRuntimeData)) {
+        return
+    }
+
+    $resolvedSdkRoot = [IO.Path]::GetFullPath($sdkRoot.Path).TrimEnd('\')
+    $resolvedRuntimeData = (Resolve-Path -LiteralPath $appWebViewRuntimeData).Path
+    if (-not $resolvedRuntimeData.StartsWith(
+        "$resolvedSdkRoot\",
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Refusing to remove unexpected WebView2 runtime path: $resolvedRuntimeData"
+    }
+
+    Remove-Item -LiteralPath $resolvedRuntimeData -Recurse -Force
 }
 
 function Stop-TestPorts {
@@ -71,6 +133,41 @@ function Wait-ServiceHealth {
     } while ((Get-Date) -lt $deadline)
 
     throw "Service health check timed out after ${TimeoutSeconds}s: $lastError"
+}
+
+function Invoke-JsonRequestAllowHttpError {
+    param(
+        [string]$Uri,
+        [string]$Method = "Get",
+        [string]$Body = ""
+    )
+
+    try {
+        $request = @{
+            Uri = $Uri
+            Method = $Method
+            ContentType = "application/json; charset=utf-8"
+        }
+        if ($Body) {
+            $request["Body"] = $Body
+        }
+        return Invoke-RestMethod @request
+    } catch {
+        $json = $_.ErrorDetails.Message
+        if (-not $json -and $_.Exception.Response) {
+            try {
+                $reader = New-Object IO.StreamReader($_.Exception.Response.GetResponseStream())
+                $json = $reader.ReadToEnd()
+                $reader.Dispose()
+            } catch {
+                $json = ""
+            }
+        }
+        if (-not $json) {
+            throw
+        }
+        return $json | ConvertFrom-Json
+    }
 }
 
 function Invoke-AlgorithmFrame {
@@ -140,19 +237,24 @@ Assert-File (Join-Path $frontendDir "model\seat2.glb")
 Assert-File $customerSeatModel
 Assert-File $apiDoc
 Assert-File $quickStartDoc
-Assert-File $realApiDoc
 Assert-File $nodeExe
-Assert-File (Join-Path $realBackendDir "backend-host.exe")
-Assert-File (Join-Path $realBackendDir "backend.jqpack")
-Assert-File (Join-Path $realBackendDir "protection-manifest.json")
+Assert-File $protectedHost
+Assert-File $encryptedPackage
+Assert-File $protectionManifest
 Assert-File (Join-Path $realBackendDir "python\Python311\python.exe")
 Assert-File (Join-Path $realBackendDir "python\app\server.pyc")
 Assert-File (Join-Path $realBackendDir "python\app\integrated_system.pyc")
 Assert-File (Join-Path $realBackendDir "node_modules\express\package.json")
+Assert-RuntimePathMissing $appWebViewRuntimeData
+Assert-RuntimePathMissing $sqliteBuildTempData
 Assert-PathMissing (Join-Path $realBackendDir "server\serialServer.js")
 Assert-PathMissing (Join-Path $realBackendDir "pyWorker.js")
 Assert-PathMissing (Join-Path $realBackendDir "python\app\server.py")
 Assert-PathMissing (Join-Path $realBackendDir "util")
+Assert-ProtectedBackendIntegrity `
+    -HostPath $protectedHost `
+    -PackagePath $encryptedPackage `
+    -ManifestPath $protectionManifest
 
 Stop-TestPorts
 
@@ -403,8 +505,26 @@ try {
         }
         Write-Host "[OK] HTTP independent driver/passenger control modes"
 
-        # Display overrides and API serial writes must be visible in diagnostics.
-        $displayGears = @(3) + @(0) * 23
+        # API display and serial control only allow airbag 3-6; ECU never controls these four display channels.
+        $blockedDisplayGears = @(0) * 24
+        $blockedDisplayGears[6] = 3
+        $blockedDisplayBody = @{
+            sensorId = 2
+            gears = $blockedDisplayGears
+        } | ConvertTo-Json -Depth 4 -Compress
+        $blockedDisplay = Invoke-JsonRequestAllowHttpError `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/display" `
+            -Method Post `
+            -Body $blockedDisplayBody
+        if (
+            $blockedDisplay.code -eq 0 -or
+            $blockedDisplay.message -notmatch "3、4、5、6"
+        ) {
+            throw "Backend display whitelist did not reject airbag 7."
+        }
+
+        $displayGears = @(0) * 24
+        $displayGears[2] = 3
         $displayBody = @{
             sensorId = 2
             gears = $displayGears
@@ -418,21 +538,47 @@ try {
             $displayOverride.code -ne 0 -or
             $displayOverride.data.source -ne "api" -or
             $displayOverride.data.override -ne $true -or
+            (@($displayOverride.data.overrideAirbagIds) -join ',') -ne '3,4,5,6' -or
             @($displayOverride.data.gears).Count -ne 24 -or
-            $displayOverride.data.gears[0] -ne 3
+            $displayOverride.data.gears[2] -ne 3
         ) {
             throw "Airbag display override verification failed."
         }
+        Write-Host "[OK] HTTP display whitelist rejects airbag 7 and accepts airbag 3"
 
         $verificationCommand = @(31)
+        $blockedCommand = @(31)
         for ($airbagIndex = 1; $airbagIndex -le 24; $airbagIndex++) {
             $verificationCommand += $airbagIndex
-            $verificationCommand += 0
+            $verificationCommand += $(if ($airbagIndex -eq 3) { 3 } else { 0 })
+            $blockedCommand += $airbagIndex
+            $blockedCommand += $(if ($airbagIndex -eq 7) { 3 } else { 0 })
         }
         $verificationCommand += @(0, 0, 170, 85, 3, 153)
-        if ($verificationCommand.Count -ne 55) {
-            throw "Verification command is not 55 bytes."
+        $blockedCommand += @(0, 0, 170, 85, 3, 153)
+        if ($verificationCommand.Count -ne 55 -or $blockedCommand.Count -ne 55) {
+            throw "Verification commands are not 55 bytes."
         }
+
+        # 即使伪造 source=algorithm，客户 HTTP 接口也必须拒绝 7 号气囊动作。
+        $blockedSerialBody = @{
+            sensorId = 2
+            source = "algorithm"
+            controlCommand = $blockedCommand
+        } | ConvertTo-Json -Depth 4 -Compress
+        $blockedSerial = Invoke-JsonRequestAllowHttpError `
+            -Uri "http://${HostName}:${HttpPort}/carAdaptive/writeCommand" `
+            -Method Post `
+            -Body $blockedSerialBody
+        if (
+            $blockedSerial.code -eq 0 -or
+            $blockedSerial.message -notmatch "3、4、5、6"
+        ) {
+            throw "Backend manual airbag whitelist did not reject airbag 7."
+        }
+        Write-Host "[OK] HTTP manual airbag whitelist rejects airbag 7 and source spoofing"
+
+        # 3 号气囊是白名单通道，合法完整帧必须继续接受。
         $apiSerialBody = @{
             sensorId = 2
             controlCommand = $verificationCommand
@@ -442,9 +588,14 @@ try {
             -Method Post `
             -ContentType "application/json; charset=utf-8" `
             -Body $apiSerialBody
-        if ($apiSerial.code -ne 0 -or $apiSerial.data.length -ne 55) {
+        if (
+            $apiSerial.code -ne 0 -or
+            $apiSerial.data.length -ne 55 -or
+            (@($apiSerial.data.allowedAirbagIds) -join ',') -ne '3,4,5,6'
+        ) {
             throw "API airbag serial command verification failed."
         }
+        Write-Host "[OK] HTTP manual airbag whitelist accepts airbag 3"
 
         $commandSnapshot = $null
         for ($attempt = 0; $attempt -lt 12 -and -not $commandSnapshot; $attempt++) {
@@ -471,14 +622,17 @@ try {
         $displayCleared = Invoke-RestMethod `
             -Uri "http://${HostName}:${HttpPort}/carAdaptive/display/2" `
             -Method Delete
+        $clearedGears = @($displayCleared.data.gears)
         if (
             $displayCleared.code -ne 0 -or
             $displayCleared.data.override -ne $false -or
-            $displayCleared.data.source -eq "api"
+            $displayCleared.data.source -eq "api" -or
+            $displayCleared.message -notmatch "熄灭" -or
+            ($clearedGears.Count -gt 0 -and ($clearedGears.Count -ne 24 -or $clearedGears[2] -ne 0 -or $clearedGears[5] -ne 0))
         ) {
-            throw "Clearing airbag display override failed."
+            throw "Clearing API-owned airbags 3-6 did not leave them off."
         }
-        Write-Host "[OK] HTTP display override and WebSocket airbag command telemetry"
+        Write-Host "[OK] HTTP display state, WebSocket telemetry, and clearing airbags 3-6 off"
 
         # The history API must include both display-only and serial API operations.
         $commandHistory = Invoke-RestMethod `
@@ -625,6 +779,9 @@ try {
                 -WindowStyle Hidden `
                 -Wait | Out-Null
         }
+        Start-Sleep -Milliseconds 500
+        Remove-WpfRuntimeData
+        Assert-RuntimePathMissing $appWebViewRuntimeData
         Write-Host "[OK] WPF app smoke test"
     }
 

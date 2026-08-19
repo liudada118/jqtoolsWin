@@ -259,10 +259,17 @@ class JqToolsCarClient {
       const payload = await parseResponse(response);
 
       if (!response.ok) {
-        throw new JqToolsError(`JQTools backend returned HTTP ${response.status}`, {
-          status: response.status,
-          payload
-        });
+        // 参数校验失败会同时带 HTTP 400 和 HttpResult，优先抛出后端写明的原因。
+        throw new JqToolsError(
+          isHttpResult(payload) && payload.message
+            ? payload.message
+            : `JQTools backend returned HTTP ${response.status}`,
+          {
+            status: response.status,
+            code: isHttpResult(payload) ? payload.code : undefined,
+            payload
+          }
+        );
       }
 
       return this.unwrapResult(payload, options);

@@ -13,9 +13,11 @@ $nodeExe = (Resolve-Path -LiteralPath (Join-Path $customerRoot "runtime\node\nod
 $pythonExe = (Resolve-Path -LiteralPath (Join-Path $backendRoot "python\Python311\python.exe")).Path
 $pythonAppRoot = (Resolve-Path -LiteralPath (Join-Path $backendRoot "python\app")).Path
 $generator = Join-Path $PSScriptRoot "protected-backend\create-protected-payload.js"
+$manifestFinalizer = Join-Path $PSScriptRoot "protected-backend\finalize-protection-manifest.js"
 $pythonCompiler = Join-Path $PSScriptRoot "protected-backend\compile-python-bytecode.py"
 $workRoot = Join-Path $PSScriptRoot ".protected-backend-work"
 $hostExe = Join-Path $backendRoot "backend-host.exe"
+$protectionManifestPath = Join-Path $backendRoot "protection-manifest.json"
 $seaConfig = Join-Path $workRoot "sea-config.json"
 $seaBlob = Join-Path $workRoot "sea-prep.blob"
 $pythonSources = @(
@@ -55,6 +57,9 @@ Assert-PathInside -Path $workRoot -Parent $netsdkRoot -Description "Protection w
 
 if (-not (Test-Path -LiteralPath $generator -PathType Leaf)) {
     throw "Protected backend generator not found: $generator"
+}
+if (-not (Test-Path -LiteralPath $manifestFinalizer -PathType Leaf)) {
+    throw "Protection manifest finalizer not found: $manifestFinalizer"
 }
 if (-not (Test-Path -LiteralPath $pythonCompiler -PathType Leaf)) {
     throw "Python bytecode compiler not found: $pythonCompiler"
@@ -96,6 +101,16 @@ try {
         --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
     if ($LASTEXITCODE -ne 0) {
         throw "Node.js SEA injection failed with exit code $LASTEXITCODE"
+    }
+
+    # SEA 注入后宿主文件才最终定型，将宿主哈希写入清单以校验交付文件是否配套。
+    Write-Host "Finalizing protected backend manifest..."
+    & $nodeExe $manifestFinalizer $protectionManifestPath $hostExe
+    if ($LASTEXITCODE -ne 0) {
+        throw "Protection manifest finalization failed with exit code $LASTEXITCODE"
+    }
+    if (-not [System.IO.File]::ReadAllText($protectionManifestPath).Contains('"hostSha256"')) {
+        throw "Protection manifest finalization did not write hostSha256"
     }
 
     Write-Host "Compiling first-party Python algorithms to sourceless bytecode..."

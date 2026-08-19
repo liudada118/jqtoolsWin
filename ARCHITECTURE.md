@@ -1,6 +1,6 @@
 # 项目架构
 
-最后更新于：2026-08-17
+最后更新于：2026-08-19
 
 ## 概览
 
@@ -20,19 +20,25 @@
 - WPF 真实服务启动等待默认从 8 秒延长到 30 秒，并可通过 `StartupTimeoutSeconds` 配置；汽车自适应模块首次挂载、路由返回、远程 `open-module` 和 WebView 隐藏后恢复都会重新执行 `/connPort`、`/sendMac`，并发重连由前端共享请求锁合并。
 - 新增 `native-dll/` 标准 C/C++ Native DLL 方案，WPF 可通过 P/Invoke 启动调试服务并加载调试页面。
 - `netsdk/customer-sdk/` 已改为独立真实数据交付包，第一方 Node 业务代码交付为 SEA 宿主加 AES-256-GCM 加密包，第一方 Python 算法交付为 sourceless `.pyc`，不再暴露后端业务源码。
-- 客户 SDK 新增 `docs/REAL_API.md`，只记录当前汽车 SDK 业务实际使用的启动、串口、算法、55 字节控制命令、采集、远程控制和 WebSocket 接口；平台遗留接口不对客户展开，假数据文档不再作为真实协议入口。
+- 客户 SDK 仅交付 `docs/API.md` 和 `docs/QUICKSTART.md`，只记录当前汽车 SDK 业务实际使用的启动、串口、算法、55 字节控制命令、采集、远程控制和 WebSocket 接口。
+- 保护清单同时记录 `backend-host.exe` 和 `backend.jqpack` 的 SHA-256；真实服务及验收脚本均在启动前校验这对文件，阻止增量覆盖导致的 AES 密钥不匹配。
+- 新电脑运行 WPF 需要 .NET 8 Desktop Runtime 和 WebView2 Runtime；Node.js 与 Python 随客户 SDK 交付，无硬件验收和 WPF 冒烟测试由 `scripts/verify-sdk.ps1` 统一执行。
 - 汽车前端新增算法参数抽屉，通过 HTTP 批量修改 YAML 参数并重建常驻 Python 算法实例。
 - 气囊控制模式为主、副驾独立三态：`GET`/`POST /carAdaptive/mode` 带 `sensorId` 时只修改目标通道，不传时兼容旧客户端并同时修改两路。`manual` 只停该路自动写串口，`paused` 只停该路算法；恢复时 Python `resetMessage/resetSystem` 都带目标 `sensor_id`。状态通过 `carAdaptiveControlMode.sensors` 和每路快照广播。
 - 控制模式跟随 SDK 页面视图自动切换：`host-home` 和其他宿主视图暂停两路，`module` 分别恢复每路暂停前的 `auto/manual`；`raw-serial` 是只读观察页，不改变算法模式。触发点为 `POST /carAdaptive/ui/command` 和 WebSocket `carAdaptiveUiReport`。
-- 气囊展示状态按接口覆盖、ECU 回传、可选命令回落的优先级解析。`POST /carAdaptive/display` 可在 ECU 不回传时直接控制某一路界面，`DELETE /carAdaptive/display/:sensorId` 清除覆盖；`feedbackOnline` 始终只表示真实 ECU 回传，展示覆盖不会伪造 ACK。串口回传的 51 字节业务帧同时保留还原后的 55 字节诊断帧。
-- 局域网 `#/remote-control` 调试页扩展为完整客户控制台：主副驾与页面跳转、气囊三态模式切换、24 项气囊按分组点选下发档位、全部保持与全部放气预设、通道在线与回传状态；气囊目标通道独立于显示通道，命令构造由 `client/src/util/carAdaptiveAirbagControl.js` 提供。
+- 气囊展示状态按固定归属合并：`POST /carAdaptive/display` 独占 3、4、5、6 号，未设置或 `DELETE /carAdaptive/display/:sensorId` 清除后四路固定为 `0`；ECU 和可选命令回落中的 3–6 号始终被忽略，1、2、7–24 号持续采用 ECU 回传或回落状态。`feedbackOnline` 始终只表示真实 ECU 回传，API 展示状态不会伪造 ACK。串口回传的 51 字节业务帧同时保留还原后的 55 字节诊断帧。
+- 区域调节面板通过 `client/src/airComponents/aside/airAsideDisplayData.js` 独立组装合并后的 24 路展示档位；气囊点亮不再依赖 `algorData` 是否已经产出，因此算法未就绪或传感器离线时，`POST /carAdaptive/display` 的 3–6 号接口覆盖仍会立即显示。
+- 局域网 `#/remote-control` 调试页提供主副驾与页面跳转、气囊三态模式、3/4/5/6 号手动档位、保持/放气预设、通道在线与回传状态；气囊目标通道独立于显示通道。
+- 新增 `#/api-debug` 真实接口工作台，集中调试 HTTP/WS、串口、主副驾独立模式、展示覆盖和远程页面命令，并保留请求/响应记录；真实串口控制面和 UI 展示控制面都只开放 3、4、5、6 号。`POST /carAdaptive/writeCommand` 后端强制校验完整 55 字节协议和非零档位白名单，`POST /carAdaptive/display` 只替换四路界面状态；算法内部完整 24 路通过独立调用链写入，不受手动接口限制。
 - 主驾、副驾完整快照通过 `carAdaptiveSensorsData` 同时推送，前端各自缓存并在本地切换展示。
+- 双通道页面只使用 `carAdaptiveSensorsData` 更新汽车连接状态；兼容旧协议时会从单路 `sitData` 中移除 `carAir` 和串口尚未识别类型时产生的 `undefined` 状态，避免旧消息覆盖当前主副驾快照并导致“一键连接”和在线状态闪烁。
 - 主副驾共用完全相同的 Three.js 内容；外层 `mirrorGroup` 包含保存整体位置的 `sceneRoot` 和以座椅包围盒中心旋转、缩放的 `overallPivot`，并以场景 `X=0` 对应的画布中央纵线为固定镜像轴。切换副驾时仅设置 `mirrorGroup.scale.x = -1`，座椅、整体视图变换和全部压力点同步翻转，外部业务 UI 和 WebGL 画布保持原方向。
 - 前端 `#/raw-serial` 串口原始数据页同时提供“压力帧”和“气囊指令”视图：前者显示 145 字节完整帧和 144 点座椅形状，后者分别显示算法生成/下发、ECU 回传、接口写串口和接口展示覆盖；“历史记录”弹窗按主副驾和五类来源筛选服务内存记录，支持完整字节、24 路档位、自动刷新和清空；页面工具栏可直接开始、停止和导出真实数据采集。
 - 主界面和原始数据页通过 `client/src/util/carAdaptiveCollection.js` 共用同一套采集 API 与全局采集状态。后端同一时间只允许一个采集任务，启动时固定 `sensorId=1/2`，切换前端展示通道不会改变正在写入 SQLite 的采集通道。
 - 原始数据页可通过 `GET /carAdaptive/collection/export` 直接导出 SQLite 采集段；CSV 每帧保留 `sensorId` 和 `p0...p143` 原始字节，不经过 Python 算法、滤波或 Three.js 插值，浏览器和 Node SDK 共用同一下载接口。
 - 历史采集兼容层统一处理 SQLite 回放与旧版 CSV 导出：损坏 JSON 行会跳过，单帧使用 `12 Hz` 默认频率，Windows 非法文件名字符会替换；历史 WebSocket 帧带 `carAdaptiveHistoryFrame` 标识，并用 `carAdaptiveHistoryState` 阻止双传感器实时流覆盖回放。
 - `netsdk/build-customer-sdk.ps1` 重建客户包时原地保留 `real-backend/db/carAir.db`、`real-backend/data/` 和客户替换的 `frontend-build/model/FAST27-前排座椅.glb`，避免更新程序时覆盖现场数据或座椅模型。
+- 客户包构建和验收明确排除 `app/JqTools.CarAdaptive.ClientWpf.exe.WebView2/` 与 `real-backend/node_modules/sqlite3/build-tmp-napi-v6/`；前者是运行 WPF 后产生的浏览器缓存，后者是 npm 安装产生的原生模块编译临时文件，均不属于运行时业务资源。
 - 新增局域网模块控制协议和独立 `#/remote-control` 调试页；iPad 使用 `/app?remoteControl=1&showTitle=1` 时加载同一业务前端，已有主副驾控件会广播切换，点击品牌标识会广播返回主页，页面不增加可见控件。
 - WPF 控件新增 `HomeUrl` 配置并通过隐藏 WebView2 消息桥把 `return-home` 转换为包含主页地址的 `HomeRequested` .NET 事件；网页端可直接跳转，原生宿主仍可自行导航。
 - SDK 页面执行 `open-module` 或 `open-raw-serial` 时发送 `jqtools.carAdaptive.viewRequested` 宿主消息，使已返回主页的 WPF 宿主重新显示 SDK 模块，再完成内部路由切换。
@@ -87,6 +93,8 @@ D:\jqtoolsWin1
 ├── data/                    # CSV 数据输出
 ├── client/src/page/rawSerial/ # 原始串口帧页面、点图布局和映射测试
 ├── client/src/page/remoteControl/ # 无现有页面入口的独立局域网控制调试页
+├── client/src/page/apiDebug/      # QUICKSTART 对应的真实接口调试工作台
+├── client/src/util/carAdaptiveApiDebug.js # 3-6 号气囊限制、HTTP 调用和 WS 地址工具
 ├── client/src/util/carAdaptiveCollection.js # 主界面与原始数据页共享的采集 API 客户端
 ├── client/src/util/carAdaptiveCommandHistory.js # 原始数据页气囊历史 REST 客户端与类型文案
 ├── client/src/airComponents/airbagAdjust/ # 对称气囊布局、调节面板、复制格式与测试
@@ -125,6 +133,7 @@ D:\jqtoolsWin1
    - WebSocket：端口 `19999`
    - 串口采集（serialport），解析传感器帧
    - 汽车帧按标识符分流：`1` 为主传感器，`2` 为副传感器；两路始终处理，UI 选择只影响展示
+   - `/connPort` 使用服务级共享 Promise 合并并发请求；串口处于 `opening` 或 `isOpen` 时不重建端口和分帧解析器，外部连接与页面自动连接可以安全同时触发
    - SQLite 存储在 `db/`（打包后 `resources/db`）
    - CSV 导出到 `data/`（打包后 `resources/data`）
    - 通过 `callPy()` 调用 Python 算法（`pyWorker.js`）
@@ -168,6 +177,7 @@ D:\jqtoolsWin1
    - WPF、Native DLL 和独立脚本共享同一份后端、算法与 `frontend-build/`。
    - WPF 使用 `Process.Kill(entireProcessTree: true)`，Native DLL 使用 Job Object，脚本使用 `taskkill /T`，退出时统一关闭 Node、后端和 Python 子进程。
    - `/app` 页面挂载后通过 `client/src/util/carAdaptiveStartup.js` 依次调用 `/connPort`、`/sendMac`，自动完成串口连接和设备初始化。
+   - 客户手动写串口接口仅接受协议完整的 55 字节下行帧，并只允许 3、4、5、6 号气囊非零；算法写串口由 `processFrame` 和内部队列完成，不调用该手动接口。
    - 汽车自适应完整标题栏默认不渲染；右上角 `48 x 48` 透明热区可切换标题栏，`/app?showTitle=1` 可让调试页面初始显示标题、主副驾切换和工具入口。
    - “气囊位置”工具按 13 个逻辑组管理 24 项 `airArr`；左右组同步纵向位置和尺寸并自动镜像，修改保存到 `localStorage`，可复制完整代码配置。
 
@@ -220,6 +230,7 @@ REST API（`server/serialServer.js`）：
 - `POST /carAdaptive/ui/command`
 - `POST /carAdaptive/processFrame`
 - `POST /carAdaptive/writeCommand`
+- 前端接口工作台：`/app#/api-debug` 调用上述真实接口，手动写串口命令只允许 3、4、5、6 号气囊为非零档位；后端对直接 HTTP/curl 调用执行相同限制，`/app#/remote-control` 不能成为唯一安全边界。
 - SDK 注释：`sdk/index.js` 和 `sdk/index.d.ts` 的客户侧 API 说明已改为中文注释。
 - SDK 注释：`PythonAlgorithmWorker` 和 SDK 内部工具函数已补充中文说明，确保每个函数都有注释。
 - SDK 服务：新增 `sdk/service.js`，SDK 可直接启动 HTTP 服务和 WebSocket 服务，客户通过接口调用汽车自适应算法、Python 参数和串口代理操作。
@@ -294,11 +305,20 @@ flowchart LR
 - `showTitle=1`：汽车自适应页面调试查询参数；未提供时隐藏完整标题栏。
 - `remoteControl=1`：将当前同款业务页面作为 iPad 控制端，已有主副驾选择和品牌标识操作会通过后端广播。
 - `homeUrl=<URL>`：当前显示端的主页地址覆盖项，优先于后端广播配置。
+- `apiBase=<URL>`：`#/api-debug` 调试页的可选 HTTP 服务根地址；未提供时使用当前页面来源。
 
 ## 更新日志
 
 | 日期 | 类型 | 说明 |
 | --- | --- | --- |
+| 2026-08-19 | 交付优化 | 客户 SDK 改为仅输出 `API.md` 与 `QUICKSTART.md`；保护清单增加宿主哈希，启动器和验收脚本在解密前校验宿主/业务包配对，并补充新电脑依赖、整目录复制和无硬件/WPF 验证步骤 |
+| 2026-08-18 | 协议变更 | 将气囊展示归属固定为 API 独占 3/4/5/6、ECU 仅控制其余 20 路；后端始终屏蔽 ECU/命令回落中的四路值，清除 API 状态后四路熄灭，并同步客户文档与交付包；构建同时清理 sqlite3 原生编译临时目录 |
+| 2026-08-18 | 配置变更 | 重新构建前端和加密客户 SDK，成品验收覆盖展示/串口双白名单、双 Python 算法、WebSocket、命令历史、源码移除与运行缓存排除 |
+| 2026-08-18 | 修复缺陷 | 将气囊展示改为逐通道合并：API 只覆盖 3/4/5/6 号，1/2/7–24 号持续采用 ECU 回传，避免四路接口覆盖把其余 20 路状态清零 |
+| 2026-08-18 | 修复缺陷 | 将客户手动气囊 3/4/5/6 白名单从前端约定提升为后端强制校验，拒绝 7 号及 `source=algorithm` 伪造；客户构建排除 59 MB WebView2 运行缓存并重新生成加密交付包 |
+| 2026-08-18 | 修复缺陷 | 修复外部一键连接后主界面连接按钮和在线状态闪烁：前端过滤旧单路汽车状态与无类型 `undefined` 状态，后端合并并发 `/connPort` 并避免重复创建串口解析器 |
+| 2026-08-18 | 修复缺陷 | 修复算法尚未产出时接口气囊展示覆盖有效但区域调节 UI 不点亮的问题，并重新输出、验收客户 SDK |
+| 2026-08-18 | 新增功能 | 新增 `#/api-debug` 真实接口调试工作台，覆盖服务/串口、双通道自适应、气囊展示、页面命令、自定义请求及响应历史；手动气囊控制统一限制为 3、4、5、6 号，并重新输出客户 SDK |
 | 2026-08-17 | 新增功能 | 原始数据页新增气囊指令历史弹窗，后端按主副驾和五类来源维护限量内存记录，并提供查询、按类型清空和 Node SDK 方法；客户验收覆盖完整历史接口链路 |
 | 2026-08-17 | 修复缺陷 | 修复 Windows PowerShell 读取中文模型名时的编码问题，确保客户替换的座椅模型在 SDK 重建时原样保留；验收脚本新增主副独立模式、接口展示覆盖和 WebSocket 指令诊断检查 |
 | 2026-08-17 | 新增功能 | 新增 `/carAdaptive/display` 气囊展示覆盖接口，在保留真实 `feedbackOnline` 的前提下支持无 ECU 回传设备由接口控制界面 |
@@ -375,6 +395,14 @@ flowchart LR
 
 | 日期 | 工作 | 说明 |
 | --- | --- | --- |
+| 2026-08-19 | 新电脑客户包验收 | `-SkipBuild` 完整输出成功，交付固定为两份业务文档；加密宿主、业务包和保护清单形成可校验的一组文件，无硬件全链路与 WPF 冒烟测试均返回 `CUSTOMER_SDK_REAL_VERIFY_OK`，现场模型、数据库和采集文件保持不变 |
+| 2026-08-18 | 气囊展示固定归属 | 3/4/5/6 号只接受 API 展示状态，ECU 与命令回落无法点亮；清除或服务重启后四路归零，其余 20 路继续使用 ECU，专项测试与客户包验收覆盖该规则；交付目录同步移除 sqlite3 安装临时文件 |
+| 2026-08-18 | 四路 API 与二十路 ECU 客户交付 | 48 个 Node 测试、9 个前端专项测试和客户成品验收通过；加密包拒绝 API 展示/串口控制 7 号并接受 3 号，模型、数据库和采集数据在重建中保留 |
+| 2026-08-18 | API/ECU 气囊状态合并 | 展示接口与调试页只允许 3/4/5/6 号，后端按通道叠加到 ECU 基础状态；单元测试确认其余 20 路不被 API 覆盖清零 |
+| 2026-08-18 | 后端手动气囊白名单与洁净交付 | `/carAdaptive/writeCommand` 强制校验完整协议和 3/4/5/6 白名单，真实验收确认 7 号与来源伪造均被拒绝、3 号被接受；客户包不含 WebView2 缓存并通过 `CUSTOMER_SDK_REAL_VERIFY_OK` |
+| 2026-08-18 | 外部连接状态稳定化 | 双通道快照成为汽车状态唯一来源，旧 WebSocket 单路状态不再反复覆盖；串口连接流程支持并发幂等调用并已重新输出客户 SDK |
+| 2026-08-18 | 接口气囊展示独立渲染 | 区域调节 UI 不再要求算法结果存在；实测 `algorithmReady=false`、ECU 无回传时，接口控制的 3、4、5、6 号仍可同步点亮，客户包通过 `CUSTOMER_SDK_REAL_VERIFY_OK` |
+| 2026-08-18 | 客户接口调试工作台 | 新增 `/app#/api-debug`，真实服务下完成桌面与 430px 窄屏无溢出验证、自定义接口调用验证和 3-6 号受限命令测试；客户包重建后通过 `CUSTOMER_SDK_REAL_VERIFY_OK`，现场模型/数据库/采集数据保持不变 |
 | 2026-08-17 | 气囊指令历史诊断 | 主副驾独立记录算法生成、实际下发、ECU 回传、接口串口和接口展示；原始数据页支持弹窗筛选、字节/档位明细、自动刷新和安全清空，客户 SDK 已重建并通过验收 |
 | 2026-08-17 | 客户 SDK 成品专项验收 | 一键验收覆盖加密 Node 后端、内置 Python 双算法、主副驾独立模式、气囊展示覆盖、API 串口命令与 WebSocket 原始指令诊断，并校验客户座椅模型哈希保持不变 |
 | 2026-08-17 | 气囊接口展示与完整命令诊断 | 主副驾可独立控制算法；接口可覆盖并清除 24 路展示；WebSocket 与原始数据页同时呈现算法、ECU、接口三条命令链路 |

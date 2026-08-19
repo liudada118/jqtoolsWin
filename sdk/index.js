@@ -259,10 +259,17 @@ class JqToolsCarClient {
       const payload = await parseResponse(response);
 
       if (!response.ok) {
-        throw new JqToolsError(`JQTools backend returned HTTP ${response.status}`, {
-          status: response.status,
-          payload
-        });
+        // 参数校验失败会同时带 HTTP 400 和 HttpResult，优先抛出后端写明的原因。
+        throw new JqToolsError(
+          isHttpResult(payload) && payload.message
+            ? payload.message
+            : `JQTools backend returned HTTP ${response.status}`,
+          {
+            status: response.status,
+            code: isHttpResult(payload) ? payload.code : undefined,
+            payload
+          }
+        );
       }
 
       return this.unwrapResult(payload, options);
@@ -468,16 +475,19 @@ class JqToolsCarClient {
       throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
     }
 
-    const result = await this.pythonWorker.call('server', {
-      sensor_data: sensorData,
-      sensor_id: sensorId
-    }, {
-      timeout: options.timeout
-    });
-
-    if (options.writeSerial && result?.control_command) {
-      await this.writeCarAdaptiveCommand(result.control_command, sensorId, { source: 'algorithm' });
-    }
+    // 需要写串口时交给真实后端完成“算法 + 写入”，避免算法命令误走客户手动白名单接口。
+    const result = options.writeSerial
+      ? await this.request('POST', '/carAdaptive/processFrame', {
+        body: { sensorData, sensorId, writeSerial: true },
+        timeout: options.timeout,
+        unwrap: true
+      })
+      : await this.pythonWorker.call('server', {
+        sensor_data: sensorData,
+        sensor_id: sensorId
+      }, {
+        timeout: options.timeout
+      });
 
     return {
       ...result,
@@ -527,7 +537,7 @@ class JqToolsCarClient {
     });
   }
 
-  /** 查询接口覆盖、ECU 回传或命令回落后的气囊界面展示状态。 */
+  /** 查询 API 专属 3–6 号与 ECU 其余 20 路按固定归属合并后的气囊展示状态。 */
   getAirbagDisplay(sensorId) {
     if (sensorId !== undefined && ![1, 2].includes(Number(sensorId))) {
       throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
@@ -537,8 +547,8 @@ class JqToolsCarClient {
   }
 
   /**
-   * 用 24 路档位覆盖目标通道的前端气囊展示，不写串口、不伪造 ECU 回传。
-   * 调用 clearAirbagDisplay 后，界面重新跟随 ECU 回传。
+   * 用 24 项数组提交 3、4、5、6 号的界面档位，不写串口、不伪造 ECU 回传。
+   * 其余 20 项必须为 0，界面继续使用 ECU 回传；调用 clearAirbagDisplay 后 3–6 号熄灭。
    */
   setAirbagDisplay(gears, sensorId = 1) {
     if (![1, 2].includes(Number(sensorId))) {
@@ -547,12 +557,16 @@ class JqToolsCarClient {
     if (!Array.isArray(gears) || gears.length !== 24 || gears.some((gear) => !Number.isInteger(gear) || gear < 0 || gear > 4)) {
       throw new JqToolsError('gears must be an array with 24 integers between 0 and 4.');
     }
+    const unsupportedIndex = gears.findIndex((gear, index) => gear !== 0 && ![2, 3, 4, 5].includes(index));
+    if (unsupportedIndex >= 0) {
+      throw new JqToolsError(`airbag display API only allows airbags 3, 4, 5 and 6; airbag ${unsupportedIndex + 1} must be 0.`);
+    }
     return this.request('POST', '/carAdaptive/display', {
       body: { sensorId: Number(sensorId), gears }
     });
   }
 
-  /** 清除目标通道的接口展示覆盖，恢复 ECU 回传或兼容命令回落。 */
+  /** 清除目标通道 3–6 号的 API 展示状态并熄灭；其余 20 路继续使用 ECU 或兼容命令回落。 */
   clearAirbagDisplay(sensorId = 1) {
     if (![1, 2].includes(Number(sensorId))) {
       throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
@@ -618,19 +632,15 @@ class JqToolsCarClient {
     return this.request('DELETE', `/carAdaptive/commands/history/${sensorId}${query}`);
   }
 
-  /**
-   * 通过后端把 Python 算法返回的 control_command 写入汽车自适应串口。
-   * SDK 在本地计算算法结果；硬件串口访问仍由后端负责。
-   */
-  writeCarAdaptiveCommand(controlCommand, sensorId = 1, options = {}) {
+  /** 通过客户手动接口写入只允许 3、4、5、6 号动作的完整 55 字节命令。 */
+  writeCarAdaptiveCommand(controlCommand, sensorId = 1) {
     if (![1, 2].includes(Number(sensorId))) {
       throw new JqToolsError('sensorId must be 1 (main) or 2 (secondary).');
     }
     return this.request('POST', '/carAdaptive/writeCommand', {
       body: {
         controlCommand,
-        sensorId: Number(sensorId),
-        source: options.source === 'algorithm' ? 'algorithm' : 'api'
+        sensorId: Number(sensorId)
       }
     });
   }

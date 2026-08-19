@@ -54,7 +54,7 @@ http://192.168.1.20:19245/app#/remote-control
 独立选择气囊目标通道，切换该通道的 `auto/manual/paused` 模式，并下发 24 路区域命令。
 显示通道和控制目标通道彼此独立。
 
-ECU 无回传但需要接口直接控制界面时，使用 `POST /carAdaptive/display`；该接口只覆盖
+3–6 号界面固定由 `POST /carAdaptive/display` 控制，ECU 回传中的这四路会被忽略；该接口只修改
 展示。需要同时控制硬件时，再调用 `POST /carAdaptive/writeCommand`。完整参数见
 `docs/API.md`。
 

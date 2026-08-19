@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { fork, spawn } = require('child_process');
 
 const host = process.env.JQTOOLS_MOCK_HOST || '127.0.0.1';
@@ -13,12 +14,22 @@ const frontendDir = process.env.JQTOOLS_MOCK_FRONTEND_DIR || '';
 const backendRoot = resolveBackendRoot();
 const protectedHostFile = path.join(backendRoot, 'backend-host.exe');
 const encryptedPackageFile = path.join(backendRoot, 'backend.jqpack');
+const protectionManifestFile = path.join(backendRoot, 'protection-manifest.json');
 const sourceServiceFile = path.join(backendRoot, 'server', 'serialServer.js');
 const useProtectedHost = fs.existsSync(protectedHostFile) && fs.existsSync(encryptedPackageFile);
 
 if (!useProtectedHost && !fs.existsSync(sourceServiceFile)) {
   console.error(`[real-service] backend entry not found: ${backendRoot}`);
   process.exit(2);
+}
+
+if (useProtectedHost) {
+  try {
+    verifyProtectedBackendFiles();
+  } catch (error) {
+    console.error(`[real-service] ${error.message}`);
+    process.exit(3);
+  }
 }
 
 console.log(`[real-service] backend root: ${backendRoot}`);
@@ -129,4 +140,44 @@ function hasRealBackend(candidate) {
 
   return fs.existsSync(path.join(candidate, 'config.txt')) &&
     (hasProtectedBackend || hasSourceBackend);
+}
+
+/**
+ * 校验加密宿主与业务包是否来自同一次构建，提前拦截增量复制造成的密钥不匹配。
+ * @returns {void}
+ */
+function verifyProtectedBackendFiles() {
+  if (!fs.existsSync(protectionManifestFile)) {
+    throw new Error(`缺少保护清单，必须完整复制 customer-sdk：${protectionManifestFile}`);
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(protectionManifestFile, 'utf8'));
+  } catch (error) {
+    throw new Error(`保护清单无法读取：${error.message}`);
+  }
+
+  const expectedPackageHash = String(manifest.packageSha256 || '').toLowerCase();
+  const expectedHostHash = String(manifest.hostSha256 || '').toLowerCase();
+  if (!expectedPackageHash || !expectedHostHash) {
+    throw new Error('保护清单缺少宿主或加密包哈希，请使用最新完整 customer-sdk');
+  }
+
+  const packageHash = calculateFileSha256(encryptedPackageFile);
+  const hostHash = calculateFileSha256(protectedHostFile);
+  if (packageHash !== expectedPackageHash || hostHash !== expectedHostHash) {
+    throw new Error(
+      '加密后端文件不是同一次构建产物或复制时已损坏，请删除目标 customer-sdk 后完整重新复制'
+    );
+  }
+}
+
+/**
+ * 计算文件 SHA-256，用于验证客户交付文件完整性。
+ * @param {string} filePath 文件绝对路径。
+ * @returns {string} 小写十六进制哈希。
+ */
+function calculateFileSha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }

@@ -32,5 +32,6 @@
     "control.pyc",
     "tap_massage.pyc"
   ],
-  "packageSha256": "136dd3c76ee9015974a503159467f3465f665ac3aef7329e400d6b1ef3321f84"
+  "packageSha256": "69e50df61df5280f332b1d8f7a9ef25bf44312716ceb66244123d4b9b80a16a0",
+  "hostSha256": "aca278e6c725f49bfae071af3813e2b5aef8aadd88183b3d995f5cdcb41bd165"
 }

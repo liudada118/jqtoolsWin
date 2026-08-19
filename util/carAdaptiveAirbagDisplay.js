@@ -18,6 +18,10 @@ const CAR_ADAPTIVE_COMMAND_TAIL = Object.freeze([170, 85, 3, 153])
 /** 接口可设置的合法气囊档位。 */
 const CAR_ADAPTIVE_AIRBAG_GEARS = Object.freeze([0, 1, 2, 3, 4])
 
+/** 客户手动写串口接口允许出现非零档位的气囊编号。 */
+const CAR_ADAPTIVE_MANUAL_AIRBAG_IDS = Object.freeze([3, 4, 5, 6])
+const CAR_ADAPTIVE_MANUAL_AIRBAG_ID_SET = new Set(CAR_ADAPTIVE_MANUAL_AIRBAG_IDS)
+
 /**
  * 校验并复制一组 24 路气囊档位。
  *
@@ -69,6 +73,60 @@ function buildCarAdaptiveAirbagCommand(gears, options = {}) {
 }
 
 /**
+ * 校验客户手动写串口接口提交的完整控制命令。
+ * 算法内部命令不调用此函数，因此仍可使用全部 24 路气囊。
+ *
+ * @param {unknown} command 客户提交的 55 字节控制命令。
+ * @returns {{ok: boolean, command?: number[], gears?: number[], message?: string}} 校验结果。
+ */
+function validateCarAdaptiveManualWriteCommand(command) {
+  if (!Array.isArray(command) || command.length !== CAR_ADAPTIVE_COMMAND_LENGTH) {
+    return { ok: false, message: 'controlCommand 必须是完整的 55 字节数组' }
+  }
+
+  if (!command.every((value) => Number.isInteger(value) && value >= 0 && value <= 255)) {
+    return { ok: false, message: 'controlCommand 每个字节必须是 0-255 的整数' }
+  }
+
+  if (command[0] !== CAR_ADAPTIVE_COMMAND_HEADER) {
+    return { ok: false, message: `controlCommand 帧头必须为 ${CAR_ADAPTIVE_COMMAND_HEADER}` }
+  }
+
+  const gears = []
+  for (let index = 0; index < CAR_ADAPTIVE_AIRBAG_COUNT; index++) {
+    const airbagId = index + 1
+    const commandAirbagId = command[2 * index + 1]
+    const gear = command[2 * index + 2]
+
+    if (commandAirbagId !== airbagId) {
+      return { ok: false, message: `controlCommand 第 ${airbagId} 组气囊编号必须为 ${airbagId}` }
+    }
+    if (!CAR_ADAPTIVE_AIRBAG_GEARS.includes(gear)) {
+      return { ok: false, message: `${airbagId} 号气囊档位只允许为 0、1、2、3、4` }
+    }
+    if (!CAR_ADAPTIVE_MANUAL_AIRBAG_ID_SET.has(airbagId) && gear !== 0) {
+      return {
+        ok: false,
+        message: `客户手动接口只允许控制 3、4、5、6 号气囊，${airbagId} 号档位必须为 0`
+      }
+    }
+    gears.push(gear)
+  }
+
+  if (![0, 1].includes(command[49])) {
+    return { ok: false, message: 'controlCommand 工作模式只允许为 0 或 1' }
+  }
+  if (command[50] !== 0) {
+    return { ok: false, message: 'controlCommand 下行方向必须为 0' }
+  }
+  if (!CAR_ADAPTIVE_COMMAND_TAIL.every((value, index) => command[51 + index] === value)) {
+    return { ok: false, message: 'controlCommand 帧尾必须为 170、85、3、153' }
+  }
+
+  return { ok: true, command: [...command], gears }
+}
+
+/**
  * 将 51 字节 ECU 业务帧还原为便于诊断的 55 字节完整帧。
  *
  * @param {unknown} frame 51 字节业务帧。
@@ -89,6 +147,15 @@ function restoreCarAdaptiveFeedbackCommand(frame) {
 function parseCarAdaptiveAirbagDisplayInput(input) {
   const directGears = normalizeCarAdaptiveAirbagGears(input?.gears)
   if (directGears) {
+    const unsupportedId = directGears.findIndex(
+      (gear, index) => gear !== 0 && !CAR_ADAPTIVE_MANUAL_AIRBAG_ID_SET.has(index + 1)
+    ) + 1
+    if (unsupportedId > 0) {
+      return {
+        ok: false,
+        message: `气囊展示接口只允许控制 3、4、5、6 号气囊，${unsupportedId} 号档位必须为 0`
+      }
+    }
     return {
       ok: true,
       gears: directGears,
@@ -99,6 +166,15 @@ function parseCarAdaptiveAirbagDisplayInput(input) {
   const sourceCommand = input?.controlCommand ?? input?.command
   const gears = extractCarAdaptiveAirbagGears(sourceCommand)
   if (gears.length === CAR_ADAPTIVE_AIRBAG_COUNT) {
+    const unsupportedId = gears.findIndex(
+      (gear, index) => gear !== 0 && !CAR_ADAPTIVE_MANUAL_AIRBAG_ID_SET.has(index + 1)
+    ) + 1
+    if (unsupportedId > 0) {
+      return {
+        ok: false,
+        message: `气囊展示接口只允许控制 3、4、5、6 号气囊，${unsupportedId} 号档位必须为 0`
+      }
+    }
     return {
       ok: true,
       gears,
@@ -115,51 +191,83 @@ function parseCarAdaptiveAirbagDisplayInput(input) {
 }
 
 /**
- * 按“接口覆盖、ECU 回传、命令回落”的优先级解析界面展示状态。
+ * 按固定归属合并界面展示状态：3、4、5、6 号只接受接口状态，其余 20 路来自 ECU。
+ * ECU 或命令回落中的 3、4、5、6 号始终被清零；接口未设置或清除后，这四路保持熄灭。
+ * 没有 ECU 回传时，其余 20 路保持为 0；可选命令回落可作为 ECU 基础状态的替代。
  *
  * @param {object} options 状态来源。
- * @returns {{gears: number[], available: boolean, source: string, override: boolean, stamp: number}} 展示状态。
+ * @returns {{gears: number[], available: boolean, source: string, baseSource: string, override: boolean, overrideAirbagIds: number[], stamp: number}} 展示状态。
  */
 function resolveCarAdaptiveAirbagDisplayState(options = {}) {
-  const overrideGears = normalizeCarAdaptiveAirbagGears(options.overrideGears)
-  if (overrideGears) {
-    return {
-      gears: overrideGears,
-      available: true,
-      source: 'api',
-      override: true,
-      stamp: Number(options.overrideStamp) || 0
-    }
-  }
-
   const feedbackGears = normalizeCarAdaptiveAirbagGears(options.feedbackGears)
+  let baseGears
+  let baseSource = 'none'
+  let baseStamp = 0
+
   if (options.feedbackOnline && feedbackGears) {
-    return {
-      gears: feedbackGears,
-      available: true,
-      source: 'ecu',
-      override: false,
-      stamp: Number(options.feedbackStamp) || 0
-    }
+    baseGears = [...feedbackGears]
+    baseSource = 'ecu'
+    baseStamp = Number(options.feedbackStamp) || 0
   }
 
   const commandGears = extractCarAdaptiveAirbagGears(options.fallbackCommand)
-  if (options.allowCommandFallback && commandGears.length === CAR_ADAPTIVE_AIRBAG_COUNT) {
+  if (!baseGears && options.allowCommandFallback && commandGears.length === CAR_ADAPTIVE_AIRBAG_COUNT) {
+    baseGears = [...commandGears]
+    baseSource = 'command'
+    baseStamp = Number(options.fallbackStamp) || 0
+  }
+
+  // 3–6 号固定归 API 所有，任何 ECU 回传或命令回落都不能改变这四路界面状态。
+  if (baseGears) {
+    CAR_ADAPTIVE_MANUAL_AIRBAG_IDS.forEach((airbagId) => {
+      baseGears[airbagId - 1] = 0
+    })
+  }
+
+  const overrideGears = normalizeCarAdaptiveAirbagGears(options.overrideGears)
+  if (overrideGears) {
+    const mergedGears = baseGears ? [...baseGears] : new Array(CAR_ADAPTIVE_AIRBAG_COUNT).fill(0)
+    CAR_ADAPTIVE_MANUAL_AIRBAG_IDS.forEach((airbagId) => {
+      mergedGears[airbagId - 1] = overrideGears[airbagId - 1]
+    })
     return {
-      gears: commandGears,
+      gears: mergedGears,
       available: true,
-      source: 'command',
-      override: false,
-      stamp: Number(options.fallbackStamp) || 0
+      source: 'api',
+      baseSource,
+      override: true,
+      overrideAirbagIds: [...CAR_ADAPTIVE_MANUAL_AIRBAG_IDS],
+      stamp: Math.max(Number(options.overrideStamp) || 0, baseStamp)
     }
   }
 
-  return { gears: [], available: false, source: 'none', override: false, stamp: 0 }
+  if (baseGears) {
+    return {
+      gears: baseGears,
+      available: true,
+      source: baseSource,
+      baseSource,
+      override: false,
+      overrideAirbagIds: [],
+      stamp: baseStamp
+    }
+  }
+
+  return {
+    gears: [],
+    available: false,
+    source: 'none',
+    baseSource: 'none',
+    override: false,
+    overrideAirbagIds: [],
+    stamp: 0
+  }
 }
 
 module.exports = {
   CAR_ADAPTIVE_AIRBAG_COUNT,
   CAR_ADAPTIVE_AIRBAG_GEARS,
+  CAR_ADAPTIVE_MANUAL_AIRBAG_IDS,
   CAR_ADAPTIVE_COMMAND_HEADER,
   CAR_ADAPTIVE_COMMAND_LENGTH,
   CAR_ADAPTIVE_COMMAND_TAIL,
@@ -169,5 +277,6 @@ module.exports = {
   normalizeCarAdaptiveAirbagGears,
   parseCarAdaptiveAirbagDisplayInput,
   resolveCarAdaptiveAirbagDisplayState,
-  restoreCarAdaptiveFeedbackCommand
+  restoreCarAdaptiveFeedbackCommand,
+  validateCarAdaptiveManualWriteCommand
 }

@@ -9,13 +9,14 @@ It only exposes car adaptive capabilities:
 - Subscribe to car adaptive algorithm data
 - Submit a 144-point sensor frame to the Python algorithm included in this SDK
 - Optionally write the returned `control_command` to the car adaptive serial port
-- Switch the airbag control mode between `auto` and `manual`
+- Turn adaptive adjustment on and off **independently per seat** (`sensorId` 1 = driver, 2 = passenger), with three modes: `auto`, `manual`, `paused`
+- Override the on-screen airbag display state through the API, for ECUs that only echo some commands
 - Read and update Python algorithm parameters
 
-Docs:
+Docs (interface-only; both are call references, not integration tutorials):
 
-- `QUICKSTART.md` — short customer-facing guide: read data, control airbags, remote-control the page.
-- `API.md` — full usage guide and HTTP / WebSocket reference.
+- `QUICKSTART.md` — the shortest path: one curl per operation.
+- `API.md` — every endpoint with full request / response field tables and the WebSocket message reference.
 
 Default backend addresses:
 
@@ -286,7 +287,8 @@ jqtools.stopPythonAlgorithm();
 - `getCarAdaptiveSensors()`
 - `processCarAdaptiveFrame(sensorData, { sensorId, writeSerial })`
 - `writeCarAdaptiveCommand(controlCommand, sensorId)`
-- `getAirbagDisplay(sensorId)` / `setAirbagDisplay(gears, sensorId)` / `clearAirbagDisplay(sensorId)`
+- `getControlMode(sensorId)` / `setControlMode(mode, { sensorId, reason })` — `mode` is `auto` | `manual` | `paused`, applied per seat
+- `getAirbagDisplay(sensorId)` / `setAirbagDisplay(gears, sensorId)` / `clearAirbagDisplay(sensorId)`：API 独占 3–6 号，清除后四路熄灭；其他 20 路保留 ECU 状态
 - `getAirbagCommandHistory({ sensorId, type, limit })`
 - `clearAirbagCommandHistory({ sensorId, type })`
 - `connectStream(handlers)`
@@ -313,4 +315,18 @@ By default, methods return the backend `HttpResult` envelope:
 
 With `unwrap: true`, backend HTTP methods return `data` directly and throw `JqToolsError` when `code !== 0`.
 
-`processCarAdaptiveFrame()`, `getPythonConfig()`, `setPythonParam()`, and `callPythonFunction()` call the SDK-local Python worker directly, so they return Python results directly rather than an HTTP envelope.
+参数校验失败的接口同时返回 HTTP `400` 和 `code: 1`。这种响应无论是否 `unwrap` 都抛 `JqToolsError`，
+`error.message` 就是后端写明的原因，`error.status` 为 `400`、`error.code` 为 `1`，
+原始响应体在 `error.payload`：
+
+```javascript
+try {
+  await client.writeCarAdaptiveCommand(command, 1);
+} catch (error) {
+  console.log(error.message); // 客户手动接口只允许控制 3、4、5、6 号气囊，7 号档位必须为 0
+  console.log(error.status);  // 400
+  console.log(error.code);    // 1
+}
+```
+
+`processCarAdaptiveFrame()` 在 `writeSerial: false` 时调用 SDK 本地 Python worker；设置 `writeSerial: true` 时改由真实后端完成算法和内部串口写入，避免 24 路算法命令进入只允许 3/4/5/6 号的客户手动接口。两种情况都直接返回算法结果，而不是 HTTP envelope。

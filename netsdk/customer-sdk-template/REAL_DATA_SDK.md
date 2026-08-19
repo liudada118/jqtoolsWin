@@ -47,20 +47,27 @@ WebSocket: ws://127.0.0.1:19999
 GET /carAdaptive/sensors
 ```
 
-控制自动/手动写入：
+主副驾自适应独立开关：
 
 ```text
 GET  /carAdaptive/mode
 POST /carAdaptive/mode
 ```
 
-例如只关闭主驾自动写入：
+| `mode` | 对外含义 | 算法 | 自动写气囊串口 |
+| --- | --- | --- | --- |
+| `auto` | 自适应开启 | 运行 | 每 500 ms 写一次 |
+| `manual` | 自适应关闭 | 运行并继续返回算法数据 | 不写 |
+| `paused` | 自适应完全暂停 | 暂停 | 不写 |
+
+例如只关闭主驾自适应，副驾保持不变：
 
 ```json
 { "sensorId": 1, "mode": "manual" }
 ```
 
-不传 `sensorId` 时，为兼容旧客户端会同时切换主、副两路。
+不传 `sensorId` 时，为兼容旧客户端会同时切换主、副两路，因此独立控制时不要省略。
+响应中的 `sensors` 数组给出主副两路各自的 `mode`、`autoWrite` 和 `algorithmRunning`。
 
 手动验证算法但不写串口：
 
@@ -93,10 +100,11 @@ Content-Type: application/json
 }
 ```
 
-该接口成功只表示参数通过校验并进入写入流程，不代表硬件已经执行或返回 ACK。当前
-后端没有强制校验命令长度，客户必须传入 Python 算法规定的完整 55 字节协议帧。
+该接口成功只表示参数通过校验并进入写入流程，不代表硬件已经执行或返回 ACK。
+后端强制校验完整 55 字节协议和 3、4、5、6 号手动白名单；其余 20 路必须保持为 `0`。
+Python 算法内部写串口不经过该客户手动接口，仍可使用完整 24 路控制。
 
-ECU 不稳定回传时，可独立覆盖界面显示，不写串口也不伪造 ACK：
+3、4、5、6 号由 API 独占控制界面显示，不写串口也不伪造 ACK：
 
 ```http
 GET    /carAdaptive/display?sensorId=1
@@ -107,9 +115,24 @@ DELETE /carAdaptive/display/1
 ```json
 {
   "sensorId": 1,
-  "gears": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  "gears": [0, 0, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 }
 ```
+
+也可以用 `controlCommand` 传一条 51 或 55 字节命令帧，由后端提取 24 路档位。
+接口只设置 3、4、5、6 号，其余 20 路持续使用 ECU 回传（无回传时可选命令回落）。
+ECU 和命令回落中的 3–6 号始终被忽略。API 状态生效期间 `airbagDisplaySource` 为 `api`、
+`airbagDisplayBaseSource` 表示其余 20 路来源、`airbagDisplayOverride` 为 `true`；
+`DELETE` 后 3–6 号固定熄灭，其余 20 路继续跟随 ECU。
+
+先确认 ECU 到底有没有回传：
+
+```text
+GET /carAdaptive/feedbackDiagnostics
+```
+
+只读接口。`data.observedFeedback` 表示是否收到过合法回传帧；回传帧长度不是 51 时，
+从 `data.ports.<串口>.lengthCounts` 能看出实际长度。
 
 原始数据页 `#/raw-serial` 的“气囊指令”视图会同时展示算法生成/下发、ECU 回传、
 接口写串口和接口展示覆盖。点击“历史记录”可按主副驾和来源查看服务生命周期内的完整记录。

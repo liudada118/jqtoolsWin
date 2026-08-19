@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $outRoot = Join-Path $PSScriptRoot "customer-sdk"
+$webViewRuntimeDirName = "JqTools.CarAdaptive.ClientWpf.exe.WebView2"
 $customerSeatModelFileName = 'FAST27-' +
     [char]0x524D +
     [char]0x6392 +
@@ -174,6 +175,7 @@ try {
     $realBackendOut = Join-Path $outRoot "real-backend"
     $backendServerOut = Join-Path $realBackendOut "server"
     $runtimeNodeOut = Join-Path $outRoot "runtime\node"
+    $sqliteBuildTemp = Join-Path $realBackendOut "node_modules\sqlite3\build-tmp-napi-v6"
 
     New-Item -ItemType Directory -Force -Path $appOut, $serviceOut, $wpfControlOut, $nativeOut, $docsOut, $scriptsOut, $frontendOut, $realBackendOut, $backendServerOut, $runtimeNodeOut | Out-Null
 
@@ -181,7 +183,13 @@ try {
 
     Invoke-Robocopy `
         -Source (Join-Path $repoRoot "dotnet-wrapper\JqTools.CarAdaptive.ClientWpf\bin\Release\net8.0-windows") `
-        -Destination $appOut
+        -Destination $appOut `
+        -ExtraArgs @("/XD", $webViewRuntimeDirName)
+
+    $appWebViewRuntimePath = Join-Path $appOut $webViewRuntimeDirName
+    if (Test-Path -LiteralPath $appWebViewRuntimePath) {
+        throw "WebView2 runtime cache must not be included in customer SDK: $appWebViewRuntimePath"
+    }
 
     $appServiceOut = Join-Path $appOut "mock-sdk"
     Reset-OutputDirectory $appServiceOut
@@ -266,17 +274,26 @@ try {
         throw "npm ci for standalone real-backend failed with exit code $LASTEXITCODE"
     }
 
+    # sqlite3 安装器可能留下约 60 MB 的原生模块编译临时目录，运行时只需要 lib/binding 下的 DLL。
+    $resolvedBackendRoot = [System.IO.Path]::GetFullPath($realBackendOut).TrimEnd('\')
+    if ([string]::IsNullOrWhiteSpace($sqliteBuildTemp)) {
+        throw "sqlite3 build cache path was not initialized"
+    }
+    if ([System.IO.Directory]::Exists($sqliteBuildTemp)) {
+        $resolvedSqliteBuildTemp = (Resolve-Path -LiteralPath $sqliteBuildTemp).Path
+        if (-not $resolvedSqliteBuildTemp.StartsWith(
+            "$resolvedBackendRoot\node_modules\sqlite3\",
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw "Refusing to delete unexpected sqlite3 build directory: $resolvedSqliteBuildTemp"
+        }
+        Remove-Item -LiteralPath $resolvedSqliteBuildTemp -Recurse -Force
+        Write-Host "Removed sqlite3 native build cache: $resolvedSqliteBuildTemp"
+    }
+
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\README.md") -Destination (Join-Path $outRoot "README.md") -Force
-    Copy-Item -LiteralPath (Join-Path $repoRoot "sdk\API.md") -Destination (Join-Path $docsOut "API.md") -Force
-    Copy-Item -LiteralPath (Join-Path $repoRoot "sdk\QUICKSTART.md") -Destination (Join-Path $docsOut "QUICKSTART.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\QUICKSTART.md") -Destination (Join-Path $docsOut "QUICKSTART.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\API.md") -Destination (Join-Path $docsOut "API.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\FAKE_API.md") -Destination (Join-Path $docsOut "FAKE_API.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_API.md") -Destination (Join-Path $docsOut "REAL_API.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_ARCHITECTURE.md") -Destination (Join-Path $docsOut "REAL_ARCHITECTURE.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REAL_DATA_SDK.md") -Destination (Join-Path $docsOut "REAL_DATA_SDK.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\PROTECTION.md") -Destination (Join-Path $docsOut "PROTECTION.md") -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\REMOTE_CONTROL.md") -Destination (Join-Path $docsOut "REMOTE_CONTROL.md") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-wpf.ps1") -Destination (Join-Path $scriptsOut "start-wpf.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\start-mock-service.ps1") -Destination (Join-Path $scriptsOut "start-mock-service.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "customer-sdk-template\scripts\stop-mock-service.ps1") -Destination (Join-Path $scriptsOut "stop-mock-service.ps1") -Force

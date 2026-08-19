@@ -54,7 +54,8 @@ import {
 import {
     getCarAdaptiveHistoryPlaybackActive,
     shouldFilterCarAdaptiveSingleStream,
-    shouldUseCarAdaptiveLiveSnapshot
+    shouldUseCarAdaptiveLiveSnapshot,
+    stripCarAdaptiveSingleStreamFields
 } from '../../util/carAdaptiveHistoryPlayback'
 import {
     connectCarAdaptiveDevice,
@@ -275,15 +276,7 @@ function Test() {
                 incomingMessage,
                 carAdaptiveDualStreamRef.current
             )) {
-                jsonObj = { ...incomingMessage }
-                if (jsonObj.sitData?.carAir) {
-                    const nextSitData = { ...jsonObj.sitData }
-                    delete nextSitData.carAir
-                    if (Object.keys(nextSitData).length) jsonObj.sitData = nextSitData
-                    else delete jsonObj.sitData
-                }
-                if (jsonObj.algorData?.sensor_id) delete jsonObj.algorData
-                if (jsonObj.algorFeed) delete jsonObj.algorFeed
+                jsonObj = stripCarAdaptiveSingleStreamFields(incomingMessage)
             }
 
             if (jsonObj.sitData) {

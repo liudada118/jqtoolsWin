@@ -6,8 +6,9 @@
 
 - WPF 启动、健康检查和真实串口连接。
 - 当前 React/Three.js 汽车自适应页面。
-- 主驾、副驾两套独立 Python 算法。
+- 主驾、副驾两套独立 Python 算法，以及两路自适应的独立开启和关闭。
 - 55 字节气囊控制命令串口写入。
+- ECU 回传不完整时，用接口直接控制气囊界面展示状态。
 - 算法参数调节。
 - 工具栏中的采集、历史和回放。
 - iPad/WPF 局域网主副驾切换和返回主页。
@@ -76,10 +77,11 @@ WebSocket: ws://127.0.0.1:19999
 | `GET` | `/algorithm/config` | 读取算法参数和中文注释 |
 | `POST` | `/algorithm/config` | 批量保存算法参数 |
 | `GET` | `/carAdaptive/sensors` | 查询主副两路状态 |
-| `GET` | `/carAdaptive/mode` | 查询算法自动/业务手动控制模式 |
-| `POST` | `/carAdaptive/mode` | 切换算法自动/业务手动控制模式 |
+| `GET` | `/carAdaptive/mode` | 查询主驾或副驾自适应开关状态 |
+| `POST` | `/carAdaptive/mode` | 按 `sensorId` 独立开启或关闭一路自适应 |
 | `GET` `POST` | `/carAdaptive/display` | 查询或覆盖气囊界面展示状态 |
 | `DELETE` | `/carAdaptive/display/:sensorId` | 清除一路界面展示覆盖 |
+| `GET` | `/carAdaptive/feedbackDiagnostics` | 只读诊断 ECU 是否回传及回传帧长度 |
 | `GET` | `/carAdaptive/commands/history` | 查询一路气囊指令历史 |
 | `DELETE` | `/carAdaptive/commands/history/:sensorId` | 清空一路全部或指定类型历史 |
 | `POST` | `/carAdaptive/processFrame` | 手动提交 144 点算法帧 |
@@ -281,7 +283,13 @@ WebSocket: ws://127.0.0.1:19999
       "stamp": 1785292800000,
       "HZ": 12,
       "algorithmReady": true,
-      "frameCount": 235
+      "frameCount": 235,
+      "feedbackOnline": false,
+      "feedbackStamp": 0,
+      "controlMode": "auto",
+      "airbagDisplayAvailable": true,
+      "airbagDisplaySource": "api",
+      "airbagDisplayOverride": true
     },
     {
       "sensorId": 2,
@@ -290,7 +298,13 @@ WebSocket: ws://127.0.0.1:19999
       "stamp": 1785292800010,
       "HZ": 12,
       "algorithmReady": true,
-      "frameCount": 232
+      "frameCount": 232,
+      "feedbackOnline": true,
+      "feedbackStamp": 1785292799880,
+      "controlMode": "manual",
+      "airbagDisplayAvailable": true,
+      "airbagDisplaySource": "ecu",
+      "airbagDisplayOverride": false
     }
   ]
 }
@@ -303,6 +317,15 @@ WebSocket: ws://127.0.0.1:19999
 | `HZ` | 根据相邻帧间隔计算的整数频率 |
 | `algorithmReady` | 该路是否已得到过算法结果 |
 | `frameCount` | 该路独立算法实例累计帧数 |
+| `feedbackOnline` | 该路 ECU 最近 2000 ms 内是否真实回传气囊状态 |
+| `feedbackStamp` | 最近一条 ECU 回传的时间戳，从未回传为 `0` |
+| `controlMode` | 该路独立的 `auto`、`manual` 或 `paused` |
+| `airbagDisplayAvailable` | 当前是否有可供界面点亮的气囊档位 |
+| `airbagDisplaySource` | 展示来源 `api`、`ecu`、`command` 或 `none` |
+| `airbagDisplayOverride` | 是否正被 `/carAdaptive/display` 接口覆盖 |
+
+`feedbackOnline` 只表示真实硬件回传，不受接口展示覆盖影响；界面点亮与否看
+`airbagDisplayAvailable` 和 `airbagDisplaySource`。
 
 ### 5.3 `POST /carAdaptive/processFrame`
 
@@ -393,6 +416,10 @@ Python 算法当前生成：
 
 手动把已有命令排队写到指定传感器最近产生数据的串口。
 
+该接口由后端强制校验完整 55 字节协议，并且只允许 3、4、5、6 号气囊为非零档位。
+1、2、7..24 号必须为 `0`；请求体中的 `source` 不会绕过白名单。Python 算法内部的
+24 路控制走独立内部链路，不受此限制。
+
 JavaScript 示例：
 
 ```javascript
@@ -424,6 +451,7 @@ const response = await fetch(
   "data": {
     "length": 55,
     "sensorId": 1,
+    "allowedAirbagIds": [3, 4, 5, 6],
     "controlMode": "manual",
     "queued": true,
     "portPaths": ["COM3"]
@@ -433,8 +461,9 @@ const response = await fetch(
 
 必须注意：
 
-- 当前接口只校验数组非空以及每项是 `0..255` 整数。
-- 当前后端**没有强制校验长度为 55**，客户必须传完整正确协议。
+- 后端校验 55 字节长度、帧头、气囊编号顺序、档位、方向和帧尾。
+- 只有 3、4、5、6 号允许非零档位，其他气囊会返回 HTTP `400` 和 `code: 1`，且不会进入串口队列。
+  `message` 写明是哪一号气囊，例如 `客户手动接口只允许控制 3、4、5、6 号气囊，7 号档位必须为 0`。
 - `queued: true` 只表示命令进入串口队列，不表示硬件已执行；`queued: false` 表示没有目标串口。
 - 如果目标通道尚未记录来源串口，会尝试写到所有已打开的 `carAir` 串口。
 - 没有可用串口时，当前接口仍可能返回成功，但不会产生物理写入。
@@ -443,9 +472,20 @@ const response = await fetch(
 
 生产调用前应确认 `/carAdaptive/sensors` 中目标通道为 `online: true`。
 
-### 5.6 `GET` / `POST /carAdaptive/mode`
+### 5.6 `GET` / `POST /carAdaptive/mode` 主副驾自适应独立开关
 
-查询主驾控制模式；响应中的 `sensors` 同时给出主副两路独立状态：
+主驾和副驾各自维护一份控制模式，互不影响。请求带 `sensorId` 即只作用于该一路。
+
+| `mode` | 对外含义 | 算法 | 自动写气囊串口 | 手动 `writeCommand` |
+| --- | --- | --- | --- | --- |
+| `auto` | 自适应开启 | 运行 | 每 500 ms 写一次 | 允许，但会被下一周期覆盖 |
+| `manual` | 自适应关闭 | 运行并继续返回算法数据 | 不写 | 允许，稳定生效 |
+| `paused` | 自适应完全暂停 | 暂停 | 不写 | 允许 |
+
+三种模式都不影响串口压力采集和 `carAdaptiveSensorsData` 推送。日常“开启 / 关闭自适应”
+用 `auto` 和 `manual`；只有需要连算法一起停时才用 `paused`。
+
+查询一路状态；响应顶层为目标通道，`sensors` 同时给出主副两路：
 
 ```http
 GET /carAdaptive/mode?sensorId=1
@@ -456,6 +496,8 @@ GET /carAdaptive/mode?sensorId=1
   "code": 0,
   "message": "success",
   "data": {
+    "sensorId": 1,
+    "role": "主",
     "mode": "auto",
     "previousMode": null,
     "source": "default",
@@ -463,17 +505,33 @@ GET /carAdaptive/mode?sensorId=1
     "sequence": 0,
     "changedAt": 1785292800000,
     "autoWrite": true,
+    "algorithmRunning": true,
     "commandIntervalMs": 500,
+    "view": "module",
     "independent": true,
     "sensors": [
-      { "sensorId": 1, "role": "主", "mode": "auto", "autoWrite": true },
-      { "sensorId": 2, "role": "副", "mode": "manual", "autoWrite": false }
+      {
+        "sensorId": 1,
+        "role": "主",
+        "mode": "auto",
+        "autoWrite": true,
+        "algorithmRunning": true
+      },
+      {
+        "sensorId": 2,
+        "role": "副",
+        "mode": "manual",
+        "autoWrite": false,
+        "algorithmRunning": true
+      }
     ]
   }
 }
 ```
 
-切换到手动模式：
+`sensors` 中每一项与顶层结构相同，示例做了截断。
+
+关闭主驾自适应，副驾保持不变：
 
 ```http
 POST /carAdaptive/mode
@@ -484,41 +542,188 @@ Content-Type: application/json
 {
   "sensorId": 1,
   "mode": "manual",
-  "reason": "主驾产线标定"
+  "reason": "主驾自适应关闭"
 }
 ```
 
-`mode` 支持 `auto`、`manual`、`paused`，并兼容历史值 `algor`、`handle` 和协议值 `0`、`1`。
-重复设置同一模式是幂等操作，返回 `changed: false`。非法值返回 HTTP `400`。
+POST 响应在上面的查询结构之上附加本次切换结果：
 
-- 带 `sensorId` 时只修改目标一路；不传时为兼容旧客户端，同时修改主副两路。
-- `auto`：目标算法运行，并每 500 ms 自动写回最近命令。
-- `manual`：目标算法继续运行和推送，但不再自动写串口。
-- `paused`：目标算法暂停，串口压力采集和推送不受影响。
-- 从 `manual` 切回 `auto` 时，只清空目标算法的按摩触发状态。
+```json
+{
+  "code": 0,
+  "message": "控制模式已切换",
+  "data": {
+    "sensorId": 1,
+    "role": "主",
+    "mode": "manual",
+    "previousMode": "auto",
+    "source": "api",
+    "reason": "主驾自适应关闭",
+    "autoWrite": false,
+    "algorithmRunning": true,
+    "independent": true,
+    "changed": true,
+    "massageReset": false,
+    "algorithmReset": false,
+    "changes": [
+      { "sensorId": 1, "changed": true, "previousMode": "auto" }
+    ],
+    "sensors": []
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `changed` | 本次调用是否真的改变了模式；重复设置同一模式为 `false` |
+| `massageReset` | 是否因 `manual` → `auto` 清空了按摩触发状态 |
+| `algorithmReset` | 是否因 `paused` → 非 `paused` 重建了算法实例 |
+| `changes` | 本次实际修改的通道列表；不传 `sensorId` 时有两项 |
+| `autoWrite` | 等价于 `mode === "auto"` |
+| `algorithmRunning` | 等价于 `mode !== "paused"` |
+| `view` | 当前 SDK 页面视图，控制模式会跟随它自动切换 |
+
+请求规则：
+
+- `mode` 支持 `auto`、`manual`、`paused`，并兼容历史值 `algor`、`handle` 和协议值 `0`、`1`。
+  非法值返回 HTTP `400`，`message` 为 `mode 只允许为 auto、manual、paused`。
+- `sensorId` 只允许 `1`（主驾）或 `2`（副驾）。非法值返回 HTTP `400`，`message` 为
+  `sensorId 只允许为 1（主驾）或 2（副驾）`。
+- **不传 `sensorId` 时为兼容旧客户端，会同时修改主副两路。**需要独立控制时不要省略。
+- 重复设置同一模式是幂等操作，返回 `changed: false`，且不会广播。
+- 从 `manual` 切回 `auto` 时，只清空目标通道的按摩触发状态（`resetMessage`），
+  避免手动期间的拍打被算法当成触发信号。
+- 从 `paused` 切到 `auto` 或 `manual` 时，只重建目标通道的算法实例（`resetSystem`），
+  并清空该路的 `algorData` 和上一条 `control_command`；另一路完全不受影响。
 - 模式切换通过 WebSocket 顶层字段 `carAdaptiveControlMode` 广播。
 - 模式默认不持久化，后端重启回到 `auto`；可用环境变量
   `JQTOOLS_CONTROL_MODE=manual` 修改启动默认值。
 
-### 5.7 `GET` / `POST` / `DELETE /carAdaptive/display`
+### 5.7 `GET` / `POST` / `DELETE /carAdaptive/display` 气囊展示状态控制
 
-ECU 不回传但业务仍需控制界面时，可直接覆盖一路 24 路展示档位。该接口**不写串口，也不会把 `feedbackOnline` 伪造成 `true`**。
+气囊展示采用固定归属：API 独占 3、4、5、6 号，ECU 只控制其余 20 路；
+ECU 回传中的 3–6 号会被后端忽略。该接口**只改界面：不写串口、不控制真实气囊，
+也不会把 `feedbackOnline` 伪造成 `true`**。
+
+#### 逐通道合并
+
+后端按通道合并当前展示档位：
+
+| 气囊编号 | 展示来源 |
+| --- | --- |
+| `3、4、5、6` | 只取 API；未设置或清除后固定为 `0`，不读取 ECU |
+| `1、2、7–24` | 始终取 ECU；无回传时取可选命令回落或熄灭 |
+
+界面当前只把档位 `3` 显示为点亮，`0` 显示为熄灭。设置覆盖后，界面上的
+「未收到气囊状态回传」提示也会消失。
+
+#### 设置覆盖
 
 ```http
 POST /carAdaptive/display
 Content-Type: application/json
 ```
 
+用 24 路档位。只有第 3–6 项允许非零，其余 20 项必须为 `0`：
+
 ```json
 {
   "sensorId": 1,
-  "gears": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  "gears": [0, 0, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 }
 ```
 
-查询用 `GET /carAdaptive/display?sensorId=1`；清除用 `DELETE /carAdaptive/display/1`。界面当前只把档位 `3` 显示为点亮。WebSocket 快照中的 `airbagDisplaySource=api`、`airbagDisplayOverride=true` 表示正在覆盖。
+或直接给一条 51 / 55 字节命令帧，由后端提取 24 路档位（字段名 `controlCommand`
+或 `command` 均可）：
 
-### 5.7.1 气囊指令历史
+```json
+{
+  "sensorId": 1,
+  "controlCommand": [31,
+    1, 0, 2, 0, 3, 0, 4, 0, 5, 3, 6, 3, 7, 0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0,
+    13, 0, 14, 0, 15, 0, 16, 0, 17, 0, 18, 0, 19, 0, 20, 0, 21, 0, 22, 0, 23, 0, 24, 0,
+    0, 0, 170, 85, 3, 153]
+}
+```
+
+`sensorId` 必填，只允许 `1` 或 `2`。两种入参都不合法时返回 HTTP `400`；如果其他 20 路
+存在非零值，`message` 会说明展示接口只允许控制 3、4、5、6 号。
+
+#### 查询与清除
+
+```http
+GET    /carAdaptive/display?sensorId=1
+DELETE /carAdaptive/display/1
+```
+
+三个方法都返回同一结构：顶层为目标通道，`sensors` 附带主副两路。
+
+```json
+{
+  "code": 0,
+  "message": "3、4、5、6 号气囊展示状态已覆盖",
+  "data": {
+    "sensorId": 1,
+    "role": "主",
+    "gears": [0, 0, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "available": true,
+    "source": "api",
+    "baseSource": "ecu",
+    "override": true,
+    "overrideAirbagIds": [3, 4, 5, 6],
+    "stamp": 1785292800000,
+    "feedbackOnline": false,
+    "feedbackStamp": 0,
+    "independent": true,
+    "sensors": []
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `gears` | 当前生效的 24 路档位；`source` 为 `none` 时为空数组 |
+| `available` | 是否有可展示档位 |
+| `source` | `api` 表示 3–6 号存在显式 API 状态，否则表示其余 20 路的基础来源 |
+| `baseSource` | 其余 20 路来源：`ecu`、`command` 或 `none` |
+| `override` | 3–6 号是否存在显式 API 状态 |
+| `overrideAirbagIds` | 显式 API 状态存在时固定为 `[3,4,5,6]` |
+| `stamp` | 当前展示状态的时间戳 |
+| `feedbackOnline` | 始终只表示真实 ECU 回传，不因覆盖变为 `true` |
+
+`DELETE` 清除后 3–6 号固定为 `0`，不会恢复读取 ECU；其余 20 路继续跟随 ECU（或配置的命令回落）。API 状态的设置和清除都会记入
+`apiDisplay` 类型的气囊指令历史，并立即通过 WebSocket 广播新的快照。
+
+#### 与整机回落开关的区别
+
+`JQTOOLS_AIRBAG_FEEDBACK_SOURCE=command` 是全局回落策略，对两路 ECU 所属的 20 路同时生效，且只在没有
+ECU 回传时用“已下发命令”充当基础展示；命令中的 3–6 号同样被忽略。`/carAdaptive/display`
+按 `sensorId` 设置 API 独占四路，并保持到调用 `DELETE` 为止。
+
+### 5.7.1 `GET /carAdaptive/feedbackDiagnostics`
+
+只读接口，用于确认 ECU 到底有没有回传，以及回传帧的实际长度。
+
+```http
+GET /carAdaptive/feedbackDiagnostics
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `observedFeedback` | 任一串口是否收到过合法回传帧 |
+| `feedbackFrameLength` | 业务层预期的回传帧长度，当前为 `51` |
+| `delimiter` | 串口分隔符，即命令帧尾 `[170, 85, 3, 153]` |
+| `feedbackSource` | 当前回落策略：`ecu` 或 `command` |
+| `feedbackTimeoutMs` | 判定回传离线的超时，当前为 `2000` |
+| `sensors[]` | 每路的 `feedbackOnline`、`gears`、`display` 和最近各来源命令 |
+| `ports.<串口>.lengthCounts` | 该串口收到的各种帧长计数 |
+| `ports.<串口>.feedbackFrames` | 该串口累计合法回传帧数 |
+
+ECU 回传的是 55 字节命令帧，4 字节帧尾被串口分隔符消费，业务层收到 51 字节。
+若 `observedFeedback` 为 `false`，或 `lengthCounts` 里出现的不是 `51`，说明回传缺失或
+协议长度不符，此时应使用 `/carAdaptive/display` 直接控制界面展示。
+
+### 5.7.2 气囊指令历史
 
 原始数据页右侧切到“气囊指令”后，点击“历史记录”打开弹窗。记录按主驾和副驾完全隔离，弹窗随页面当前通道切换；支持五类来源筛选、每秒自动刷新、完整字节和 24 路档位查看以及清空。
 
@@ -1022,7 +1227,22 @@ ws://127.0.0.1:19999/?role=ui-display&clientId=<唯一客户端ID>
         "sensor_id": 1,
         "sensor_role": "主"
       },
-      "algorFeed": [0, 0, 0, 0]
+      "algorFeed": [0, 0, 0, 0],
+      "feedbackOnline": false,
+      "feedbackStamp": 0,
+      "feedbackSource": "ecu",
+      "airbagDisplayAvailable": true,
+      "airbagDisplaySource": "api",
+      "airbagDisplayOverride": true,
+      "airbagDisplayStamp": 1785292800000,
+      "airbagCommands": {
+        "algorithmGenerated": null,
+        "algorithmSent": null,
+        "ecuFeedback": null,
+        "apiSerial": null,
+        "apiDisplay": null
+      },
+      "controlMode": "auto"
     },
     {
       "sensorId": 2,
@@ -1035,7 +1255,15 @@ ws://127.0.0.1:19999/?role=ui-display&clientId=<唯一客户端ID>
           "stamp": 0
         }
       },
-      "algorFeed": []
+      "algorFeed": [],
+      "feedbackOnline": false,
+      "feedbackStamp": 0,
+      "feedbackSource": "ecu",
+      "airbagDisplayAvailable": false,
+      "airbagDisplaySource": "none",
+      "airbagDisplayOverride": false,
+      "airbagDisplayStamp": 0,
+      "controlMode": "manual"
     }
   ]
 }
@@ -1045,9 +1273,38 @@ ws://127.0.0.1:19999/?role=ui-display&clientId=<唯一客户端ID>
 
 - 在线压力 `sitData.carAir.arr` 为 144 项。
 - 非空 `algorData.control_command` 为 55 项。
-- `algorFeed` 为 24 项气囊档位。
+- `algorFeed` 为 24 项当前有效展示档位，来源必须结合 `airbagDisplaySource` 判断。
 - 算法尚未返回时，`algorData` 可能不出现在 JSON 中。
 - 压力尚未到达时，`arr` 可能不出现在 JSON 中。
+
+气囊展示与模式相关字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `feedbackOnline` | 该路 ECU 是否真实回传，不受接口展示覆盖影响 |
+| `feedbackStamp` | 最近一条 ECU 回传的时间戳 |
+| `feedbackSource` | 全局回落策略：`ecu` 或 `command` |
+| `airbagDisplayAvailable` | 当前是否有可点亮的档位 |
+| `airbagDisplaySource` | `api`、`ecu`、`command` 或 `none` |
+| `airbagDisplayOverride` | 是否正被 `/carAdaptive/display` 覆盖 |
+| `airbagDisplayStamp` | 当前展示状态的时间戳 |
+| `airbagCommands` | 该路最近的算法生成/下发、ECU 回传、接口写串口和接口展示命令 |
+| `controlMode` | 生成该快照时该路的 `auto`、`manual` 或 `paused` |
+
+`airbagCommands` 的五个成员结构相同，无记录时为 `null`：
+
+```json
+{
+  "command": [31, 1, 0],
+  "length": 55,
+  "gears": [0, 0, 0],
+  "stamp": 1785292800000,
+  "source": "api",
+  "target": "display",
+  "active": true,
+  "clearedAt": 0
+}
+```
 
 ### 9.3 `carAdaptiveSensors`
 
@@ -1064,30 +1321,60 @@ ws://127.0.0.1:19999/?role=ui-display&clientId=<唯一客户端ID>
       "stamp": 1785292800000,
       "HZ": 12,
       "algorithmReady": true,
-      "frameCount": 235
+      "frameCount": 235,
+      "feedbackOnline": false,
+      "controlMode": "auto",
+      "airbagDisplaySource": "api"
     }
   ]
 }
 ```
 
+示例做了截断，字段与 5.2 的表格一致。
+
 ### 9.4 `carAdaptiveControlMode`
 
-新建 WebSocket 连接时会立即收到当前控制模式；每次真实切换后也会广播：
+新建 WebSocket 连接时会立即收到当前控制模式；每次真实切换后也会广播。结构与
+`GET /carAdaptive/mode` 的 `data` 相同：顶层是当前展示通道，`sensors` 才是主副两路
+各自的开关状态。判断某一路是否开启自适应，必须读 `sensors` 中对应 `sensorId` 的项。
 
 ```json
 {
   "carAdaptiveControlMode": {
+    "sensorId": 1,
+    "role": "主",
     "mode": "manual",
     "previousMode": "auto",
     "source": "api",
-    "reason": "产线标定",
+    "reason": "主驾自适应关闭",
     "sequence": 1,
     "changedAt": 1785292800000,
     "autoWrite": false,
-    "commandIntervalMs": 500
+    "algorithmRunning": true,
+    "commandIntervalMs": 500,
+    "view": "module",
+    "independent": true,
+    "sensors": [
+      {
+        "sensorId": 1,
+        "role": "主",
+        "mode": "manual",
+        "autoWrite": false,
+        "algorithmRunning": true
+      },
+      {
+        "sensorId": 2,
+        "role": "副",
+        "mode": "auto",
+        "autoWrite": true,
+        "algorithmRunning": true
+      }
+    ]
   }
 }
 ```
+
+重复设置同一模式不会触发广播。
 
 ### 9.5 UI 控制广播
 
@@ -1205,9 +1492,13 @@ ws.addEventListener('message', (event) => {
 - HTTP 和 WebSocket 默认可被局域网访问。
 - CORS 当前允许任意来源。
 - 只有 `/carAdaptive/ui/command` 支持可选控制口令。
-- `/carAdaptive/mode`、`/carAdaptive/writeCommand`、算法参数、串口连接和采集接口当前没有鉴权。
+- `/carAdaptive/mode`、`/carAdaptive/display`、`/carAdaptive/writeCommand`、算法参数、
+  串口连接和采集接口当前没有鉴权。
 - 建议通过 Windows 防火墙限制来源 IP，不要把端口暴露到互联网。
 - `/carAdaptive/writeCommand` 成功不是硬件 ACK。
+- `/carAdaptive/display` 只改界面，成功不代表真实气囊改变；它也不会把
+  `feedbackOnline` 变为 `true`。判断硬件是否真的回传，用 `feedbackOnline` 或
+  `/carAdaptive/feedbackDiagnostics`。
 - `/connPort` 成功不是传感器在线证明。
 - 实时状态以 `/carAdaptive/sensors` 和 `carAdaptiveSensorsData` 为准。
 - 采集接口保留部分旧错误语义，客户调用应设置超时并检查 `code` 与 `message`。
@@ -1220,7 +1511,12 @@ ws.addEventListener('message', (event) => {
 4. `GET /connPort`。
 5. 等待目标通道变为 `online: true`。
 6. 使用 WebSocket 展示两路压力和算法结果。
-7. `GET /carAdaptive/mode` 确认控制模式；正常运行保持 `auto`。
-8. 手动调试先切 `manual`，再调用 `/carAdaptive/writeCommand`，完成后切回 `auto`。
-9. 参数修改使用 `/algorithm/config`。
-10. 局域网控制使用 `/carAdaptive/ui/command`。
+7. `GET /carAdaptive/mode?sensorId=1` 和 `?sensorId=2` 分别确认两路自适应开关；
+   正常运行保持 `auto`。
+8. 单独关闭一路时，`POST /carAdaptive/mode` 必须带 `sensorId`，否则会同时改两路。
+9. 手动调试先把目标通道切 `manual`，再调用 `/carAdaptive/writeCommand`，完成后切回 `auto`。
+10. ECU 回传不稳定时，先用 `/carAdaptive/feedbackDiagnostics` 确认，再用
+    `POST /carAdaptive/display` 按 `sensorId` 控制界面展示，恢复跟随硬件用
+    `DELETE /carAdaptive/display/:sensorId`。
+11. 参数修改使用 `/algorithm/config`。
+12. 局域网控制使用 `/carAdaptive/ui/command`。

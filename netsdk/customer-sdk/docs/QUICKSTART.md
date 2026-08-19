@@ -1,8 +1,8 @@
 # JQTools 汽车自适应 SDK 快速使用说明
 
-三件事：[取数据](#一取数据)、[控制气囊](#二控制气囊)、[远程操控页面](#三远程操控页面)。
+五件事：[取数据](#一取数据)、[控制气囊](#二控制气囊)、[主副驾自适应单独开关](#三主副驾自适应单独开启和关闭)、[控制气囊展示状态](#四接口控制气囊展示状态)、[远程操控页面](#五远程操控页面)。
 
-完整接口见 `API.md`。
+本文只写接口怎么调。完整字段见 `API.md`。
 
 ## 0. 启动
 
@@ -19,34 +19,44 @@ app\JqTools.CarAdaptive.ClientWpf.exe
 | 接口 | `http://127.0.0.1:19245` |
 | 实时数据 | `ws://127.0.0.1:19999` |
 | 页面 | `http://127.0.0.1:19245/app` |
+| 接口调试页 | `http://127.0.0.1:19245/app#/api-debug` |
 
 局域网设备访问时把 `127.0.0.1` 换成这台电脑的 IP。
 
+本文所有接口都能在**接口调试页**上点着调，不用写代码：页面会显示每次调用的完整请求地址、请求体和原始响应，照抄即可。
+用另一台设备调这台电脑时，在页面顶部把服务地址改成这台电脑的地址，或者直接打开：
+
+```text
+http://这台电脑的IP:19245/app?apiBase=http://这台电脑的IP:19245#/api-debug
+```
+
+`apiBase` 要写在 `#` **前面**。
+
 主驾是 `sensorId = 1`，副驾是 `sensorId = 2`，两路数据和算法各自独立运行。
+
+接口统一返回 `{"code":0,"message":"success","data":{}}`，`code = 0` 为成功。
+配置了远程控制口令时，请求头加 `X-JQTools-Control-Token: 你的口令`。
 
 ---
 
 ## 一、取数据
 
-连上 WebSocket 即可，主副驾数据一起实时推送。
+连上 WebSocket 即可，主副驾数据一起实时推送。取 JSON 里的 `carAdaptiveSensorsData`：
 
 ```javascript
-const { createClient } = require('@jqtools/client-sdk');
-const jqtools = createClient({ unwrap: true });
+const socket = new WebSocket('ws://127.0.0.1:19999');
 
-jqtools.connectCarAdaptiveStream({
-  onSensorData: (list) => {
-    const main = list.find((item) => item.sensorId === 1);   // 主驾
-    console.log('压力数据 144 点:', main.sitData.carAir.arr);
-    console.log('气囊当前档位 24 路:', main.algorFeed);   // 来自 ECU 回传，无回传时为空
-    console.log('是否有回传:', main.feedbackOnline);
-    console.log('在座状态:', main.algorData?.living_status);   // 活体 / 静物 / 离座
-    console.log('体型:', main.algorData?.body_type);           // 大人 / 小孩
-  }
-});
+socket.onmessage = ({ data }) => {
+  const message = JSON.parse(data);
+  if (!Array.isArray(message.carAdaptiveSensorsData)) return;
+
+  const main = message.carAdaptiveSensorsData.find((item) => item.sensorId === 1); // 主驾
+  console.log('压力数据 144 点:', main.sitData.carAir.arr);
+  console.log('气囊当前档位 24 路:', main.algorFeed);
+  console.log('在座状态:', main.algorData?.living_status);   // 活体 / 静物 / 离座
+  console.log('体型:', main.algorData?.body_type);           // 大人 / 小孩
+};
 ```
-
-不用 Node 的话直接连 `ws://127.0.0.1:19999`，收到的 JSON 里取 `carAdaptiveSensorsData` 字段，结构相同。
 
 查通道是否在线：
 
@@ -54,36 +64,52 @@ jqtools.connectCarAdaptiveStream({
 curl http://127.0.0.1:19245/carAdaptive/sensors
 ```
 
+| 字段 | 说明 |
+| --- | --- |
+| `online` | 该路是否收到压力数据 |
+| `controlMode` | 该路当前 `auto` / `manual` / `paused` |
+| `feedbackOnline` | ECU 最近是否真的回传气囊状态 |
+| `airbagDisplaySource` | 界面气囊档位来自 `api` / `ecu` / `command` / `none` |
+
 ---
 
 ## 二、控制气囊
 
 **默认是全自动的**，算法每 500 ms 自动调节气囊，你不需要做任何事。
 
-气囊有三种模式，**在自适应模块页面时自动就是算法控制**，离开页面自动暂停：
+只有需要手动控制时（标定、测试、单气囊验证）才按下面几步走。
 
-| 模式 | 算法 | 气囊 | 什么时候 |
-| --- | --- | --- | --- |
-| `auto` 自动 | 运行 | 算法自动调节 | 打开自适应模块页面时自动进入 |
-| `manual` 手动 | 运行 | 只听你的命令 | 你主动切，用于标定测试 |
-| `paused` 暂停 | 暂停 | 冻结在当前充气量 | 返回宿主页或打开原始数据页时自动进入 |
+### 前提：串口已连接
 
-页面切换是自动的，不用你调接口。回到自适应模块页面时算法会重新初始化，帧计数从零开始。
-在模块页内切换主副驾不会打断手动模式，只有真正离开页面再回来才会。
+气囊命令是直接写串口的，**串口没连就发不出去**。双击 EXE 启动时会自动连，串口是后插的或者连接掉了就手动连一次：
 
-只有需要手动控制时（标定、测试、单气囊验证）才按下面三步走。
+```bash
+# 看有哪些串口
+curl http://127.0.0.1:19245/getPort
 
-> 不想写代码的话，直接用[远程调试页](#方式二独立远程调试页面)，下面这三步在页面上都是点按钮完成的。
+# 一键连接
+curl http://127.0.0.1:19245/connPort
+```
 
-### 第 1 步：切到手动模式
+`connPort` 可以重复调，也可以和界面上的一键连接同时调，已连上的串口会直接复用，不会被打断。
+
+再确认目标通道有数据进来：
+
+```bash
+curl http://127.0.0.1:19245/carAdaptive/sensors
+```
+
+对应 `sensorId` 那一项的 `online` 为 `true` 才说明这一路真的在收数据。
+
+### 第 1 步：把目标通道切到手动
 
 ```bash
 curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"manual"}'
+  -d '{"sensorId":1,"mode":"manual"}'
 ```
 
-不切的话，你下发的命令会在下一个 500 ms 被算法命令覆盖。
+不切的话，你下发的命令会在下一个 500 ms 被算法命令覆盖。详见[第三节](#三主副驾自适应单独开启和关闭)。
 
 ### 第 2 步：下发命令
 
@@ -96,17 +122,20 @@ curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
 
 档位：`0` 保持、`1` 慢速、`2` 中速、`3` 快速充气、`4` 快速放气。
 
-气囊编号：
+客户手动接口只允许控制 `3`、`4`、`5`、`6` 号气囊。55 字节协议仍保留 24 组编号和档位，
+但调用 `writeCommand` 时其余气囊必须填 `0`。后端会强制拒绝其他气囊的非零档位，
+算法内部的 24 路控制不受此限制。
 
-| 编号 | 部位 | 编号 | 部位 |
-| --- | --- | --- | --- |
-| `1` | 右侧翼上 | `2` | 左侧翼上 |
-| `3` | 右侧翼下 | `4` | 左侧翼下 |
-| `5` `6` | 腰托 | `7` `8` | 臀托 |
-| `9` `10` | 腿托 | `11`–`18` | 靠背按摩 |
-| `19`–`24` | 坐垫按摩 | | |
+被拒绝时返回 HTTP `400`、`code` 为 `1`，`message` 写明是哪一号气囊，串口不会被写入。
 
-下发接口是 `POST /carAdaptive/writeCommand`，任何语言都能调：
+手动 API 可控编号：
+
+| 编号 | 部位 |
+| --- | --- |
+| `3` | 右侧翼下 |
+| `4` | 左侧翼下 |
+| `5` | 腰托 1 |
+| `6` | 腰托 2 |
 
 ```bash
 # 给主驾腰托（5、6 号气囊）快速充气，其余保持不动
@@ -126,184 +155,201 @@ curl -X POST http://127.0.0.1:19245/carAdaptive/writeCommand \
 | `sensorId` | `1` 主驾，`2` 副驾 |
 | `controlCommand` | 上面那 55 个字节，每项 `0`–`255` |
 
-返回 `{"code":0,"message":"success","data":{"length":55,"sensorId":1,"controlMode":"manual"}}`，其中 `controlMode` 可以确认你是不是已经在手动模式。
+返回：
 
-用 Node SDK 的话有现成封装，不用自己拼数组：
-
-```javascript
-/** gears 传 {气囊编号: 档位}，没写的气囊保持不动 */
-function buildCommand(gears = {}) {
-  const command = [31];
-  for (let id = 1; id <= 24; id += 1) command.push(id, gears[id] || 0);
-  command.push(0, 0, 170, 85, 3, 153);
-  return command;
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": { "length": 55, "sensorId": 1, "controlMode": "manual", "queued": true, "portPaths": ["COM3"] }
 }
-
-// 腰托快速充气，最后一个参数 1 主驾 / 2 副驾
-await jqtools.writeCarAdaptiveCommand(buildCommand({ 5: 3, 6: 3 }), 1);
-
-// 全部快速放气
-await jqtools.writeCarAdaptiveCommand(buildCommand(
-  Object.fromEntries(Array.from({ length: 24 }, (_, i) => [i + 1, 4]))
-), 1);
 ```
 
-C# 示例：
+| 字段 | 说明 |
+| --- | --- |
+| `queued` | **命令是否真的进了串口队列。串口没连时这里是 `false`，但 `code` 仍然是 `0`** |
+| `portPaths` | 实际写入的串口；`queued` 为 `false` 时是空数组 |
+| `controlMode` | 确认这一路是不是已经在手动模式 |
 
-```csharp
-var command = new List<int> { 31 };
-for (int id = 1; id <= 24; id++) { command.Add(id); command.Add(id == 5 || id == 6 ? 3 : 0); }
-command.AddRange(new[] { 0, 0, 170, 85, 3, 153 });
-
-var body = JsonSerializer.Serialize(new { sensorId = 1, controlCommand = command });
-await http.PostAsync("http://127.0.0.1:19245/carAdaptive/writeCommand",
-    new StringContent(body, Encoding.UTF8, "application/json"));
-```
+`queued: true` 也只代表命令进了写入队列，不代表硬件已执行。
 
 ### 第 3 步：切回自动
 
 ```bash
 curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"auto"}'
+  -d '{"sensorId":1,"mode":"auto"}'
 ```
 
-**必须切回**，否则算法一直不会自动调节气囊。离开页面再回到自适应模块页面也会自动切回。
+**必须切回**，否则这一路的算法一直不会自动调节气囊。
 
-需要暂停算法（比如临时停止座椅自适应）：
+---
+
+## 三、主副驾自适应单独开启和关闭
+
+主驾和副驾各自独立，请求带上 `sensorId` 就只改那一路。
+
+| `mode` | 对外含义 | 算法 | 自动调节气囊 |
+| --- | --- | --- | --- |
+| `auto` | 自适应开启 | 运行 | 开启 |
+| `manual` | 自适应关闭 | 运行，压力和算法数据照常推送 | 关闭 |
+| `paused` | 自适应完全暂停 | 暂停 | 关闭 |
+
+日常开关用 `auto` 和 `manual`。三种模式都不影响串口压力采集。
+
+### 开启
+
+```bash
+# 主驾自适应开启
+curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":1,"mode":"auto","reason":"主驾自适应开启"}'
+
+# 副驾自适应开启
+curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":2,"mode":"auto","reason":"副驾自适应开启"}'
+```
+
+### 关闭
+
+```bash
+# 主驾自适应关闭
+curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":1,"mode":"manual","reason":"主驾自适应关闭"}'
+
+# 副驾自适应关闭
+curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":2,"mode":"manual","reason":"副驾自适应关闭"}'
+```
+
+### 完全暂停一路算法
 
 ```bash
 curl -X POST http://127.0.0.1:19245/carAdaptive/mode \
   -H 'Content-Type: application/json' \
-  -d '{"mode":"paused"}'
+  -d '{"sensorId":1,"mode":"paused","reason":"主驾算法暂停"}'
 ```
 
-暂停时气囊冻结在当前充气量，不会自动放气；压力数据照常推送。
+### 查询
 
-### 气囊没反应？
-
-1. `curl http://127.0.0.1:19245/carAdaptive/sensors` 看目标通道 `online` 是不是 `true`
-2. `curl http://127.0.0.1:19245/carAdaptive/mode` 看是不是还在 `auto`
-3. 检查命令是不是 55 个字节，帧头 `31`、帧尾 `170, 85, 3, 153`
-4. 看 `curl http://127.0.0.1:19245/carAdaptive/feedbackDiagnostics` 的 `observedFeedback`，确认 ECU 是否回传了状态
-
-接口返回成功只代表命令已进入写入队列，不代表硬件已执行。
-
-### 界面上的气囊不亮？
-
-**界面气囊的亮暗由 ECU 回传的真实状态决定，不是由你下发的命令决定。**
-
-```text
-你的命令 --写串口--> ECU --回传状态--> 界面亮暗
+```bash
+curl "http://127.0.0.1:19245/carAdaptive/mode?sensorId=1"
+curl "http://127.0.0.1:19245/carAdaptive/mode?sensorId=2"
 ```
 
-所以命令发成功了界面也不一定亮，要 ECU 报回来才亮。这是刻意设计的：界面亮
-就代表硬件确实在充气，不会因为气泵故障、硬件未上电而误报。
+查询和切换返回同一结构，顶层是本次目标通道，**`sensors` 数组才是主副两路各自的状态**：
 
-**收不到回传时界面会明确告诉你**，不会只是静悄悄全灭：「区域调节」标题下方出现黄色
-提示「未收到气囊状态回传」，整块气囊图同时变暗表示状态未知。
-
-不亮的几种原因，按可能性排序：
-
-| 原因 | 怎么确认 |
+| 字段 | 说明 |
 | --- | --- |
-| 档位不是 `3` | 界面**只有档位 `3`（快速充气）才点亮**，`1`、`2`、放气档硬件在动但界面无变化 |
-| ECU 没有回传 | 页面「区域调节」会显示黄色提示「未收到气囊状态回传」，气囊图整体变暗；也可查 `curl http://127.0.0.1:19245/carAdaptive/sensors` 的 `feedbackOnline` |
-| 目标通道不是当前显示的那一路 | 给副驾下发、页面停在主驾，界面不会变 |
-| 串口未连接 | `curl http://127.0.0.1:19245/connPort` 重连 |
+| `mode` | 该路当前模式 |
+| `autoWrite` | 是否在自动调节气囊，等价于 `mode === "auto"` |
+| `algorithmRunning` | 算法是否在跑，等价于 `mode !== "paused"` |
+| `changed` | 本次是否真的改变了模式，重复设置同一模式为 `false` |
+| `sensors` | 主副两路各自的状态，判断某一路开关看这里 |
 
-回传中断超过 2 秒，界面气囊会全部熄灭。完整诊断：
+**不要省略 `sensorId`**，不传时为兼容旧客户端会同时改主副两路。
+
+---
+
+## 四、接口控制气囊展示状态
+
+气囊展示按固定归属控制：API 独占 3、4、5、6 号，ECU 只负责 1、2、7–24 号。ECU 回传中的 3–6 号会被后端忽略。
+
+该接口**只改界面**：不写串口、不控制真实气囊，也不会把 `feedbackOnline` 伪造成 `true`。
+设置后界面上的「未收到气囊状态回传」提示会消失。主副驾各自独立。
+
+四路 API 状态不依赖算法：算法还没出结果、座位上没人、这一路没有压力数据时，调完也会立即点亮 3–6 号中的目标气囊。
+
+界面按通道合并：
+
+| 气囊编号 | 展示来源 |
+| --- | --- |
+| `3、4、5、6` | 只取 API；未设置或清除后固定为 `0`，不读取 ECU |
+| `1、2、7–24` | 始终取 ECU；ECU 无回传时熄灭 |
+
+### 设置展示
+
+`gears` 必须传 24 个 `0`–`4` 档位，下标 `0`–`23` 对应气囊 `1`–`24`。只有第 3–6 项允许非零，其余 20 项必须为 `0`；这些零值表示“该通道归 ECU 控制”，不会清掉 ECU 状态。界面**只有档位 `3` 才点亮**。
+
+```bash
+# 主驾；副驾把 sensorId 改成 2
+curl -X POST http://127.0.0.1:19245/carAdaptive/display \
+  -H 'Content-Type: application/json' \
+  -d '{"sensorId":1,"gears":[0,0,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}'
+```
+
+也可以直接传一条 51 或 55 字节命令帧，由后端提取 24 路档位：
+
+```bash
+curl -X POST http://127.0.0.1:19245/carAdaptive/display \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "sensorId": 1,
+    "controlCommand": [31,
+      1,0, 2,0, 3,0, 4,0, 5,3, 6,3, 7,0, 8,0, 9,0, 10,0, 11,0, 12,0,
+      13,0, 14,0, 15,0, 16,0, 17,0, 18,0, 19,0, 20,0, 21,0, 22,0, 23,0, 24,0,
+      0, 0, 170, 85, 3, 153]
+  }'
+```
+
+### 查询展示
+
+```bash
+curl "http://127.0.0.1:19245/carAdaptive/display?sensorId=1"
+curl "http://127.0.0.1:19245/carAdaptive/display?sensorId=2"
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `gears` | 当前生效的 24 路档位，`source` 为 `none` 时是空数组 |
+| `source` | `api` 表示 3–6 号已显式设置；否则表示其余 20 路的基础来源，3–6 号仍固定为 `0` |
+| `baseSource` | 其余 20 路的来源：`ecu`、`command` 或 `none` |
+| `override` | 3–6 号是否存在显式 API 展示状态 |
+| `overrideAirbagIds` | 显式 API 状态存在时固定为 `[3,4,5,6]` |
+| `feedbackOnline` | 始终只表示 ECU 是否真的回传，不因覆盖变成 `true` |
+| `sensors` | 主副两路各自的展示状态 |
+
+### 清除四路 API 状态并熄灭
+
+```bash
+curl -X DELETE http://127.0.0.1:19245/carAdaptive/display/1
+curl -X DELETE http://127.0.0.1:19245/carAdaptive/display/2
+```
+
+清除后 3–6 号固定为 `0`，不会恢复读取 ECU；其余 20 路继续跟随 ECU。
+
+### 先确认 ECU 到底回不回传
 
 ```bash
 curl http://127.0.0.1:19245/carAdaptive/feedbackDiagnostics
 ```
 
-看 `observedFeedback` 是否为 `true`，就知道 ECU 到底有没有回传。
-
-如果确认这批硬件不回传状态，启动时设 `JQTOOLS_AIRBAG_FEEDBACK_SOURCE=command`，
-界面会回落成显示"已下发的命令"，不会全灭 —— 但此时亮不代表硬件真的在动。
+只读接口。`data.observedFeedback` 为 `false` 就是没收到过回传；回传帧长度不是 51 时，
+从 `data.ports.<串口>.lengthCounts` 能看出实际长度。
 
 ---
 
-## 三、远程操控页面
+## 五、远程操控页面
 
-用另一台设备（iPad、手机、电脑）控制这台电脑上显示的页面。
+用另一台设备控制这台电脑上显示的页面。
 
-### 方式一：iPad 上用同一个界面操作
-
-iPad 浏览器打开：
-
-```text
-http://<这台电脑的IP>:19245/app?remoteControl=1&showTitle=1
-```
-
-打开后就是和电脑上一样的界面，直接点就行：
-
-| 操作 | 效果 |
-| --- | --- |
-| 点"主驾 / 副驾"按钮 | 电脑上的页面同步切换主副驾 |
-| 点左上角品牌标识 | 电脑上的页面返回首页 |
-
-不需要装任何 App，也不需要额外配置。
-
-### 方式二：独立远程调试页面
-
-不需要编写代码，直接在 iPad、手机或另一台电脑的浏览器打开：
-
-```text
-http://<这台电脑的IP>:19245/app#/remote-control
-```
-
-例如 SDK 电脑地址为 `192.168.1.20`：
-
-```text
-http://192.168.1.20:19245/app#/remote-control
-```
-
-该页面是专用的局域网控制台，**不用写任何代码就能完成本文档里的全部操作**：
-
-| 功能 | 说明 |
-| --- | --- |
-| 查看服务状态 | SDK 服务是否在线、显示端数量、WebSocket 客户端数量 |
-| 查看当前页面 | WPF 当前位于宿主页、自适应模块还是原始数据页 |
-| 查看通道状态 | 主驾、副驾各自的在线状态、采集频率和算法帧数 |
-| 切换主副驾 | 向所有已连接的 SDK 显示端广播主驾或副驾 |
-| 页面跳转 | 返回宿主页、打开自适应模块、打开原始数据 |
-| **切换气囊模式** | 自动 / 手动 / 暂停三态一键切换，等价于调 `/carAdaptive/mode` |
-| **手动控制气囊** | 点选气囊后选档位下发，等价于调 `/carAdaptive/writeCommand` |
-| **一键全部放气** | 急停用，把 24 项气囊全设为放气档 |
-| 查看执行回执 | 最近命令、命令编号、执行客户端和回执时间 |
-| 输入控制令牌 | 启用了 `RemoteControlToken` 时，在页面内填写令牌后再操作 |
-
-气囊控制区的用法：
-
-1. 选「目标通道」主驾或副驾 —— 这是**命令发给谁**，和上面的「显示通道」是两件事，可以显示主驾、控制副驾。
-2. 「控制模式」点手动（三个按钮：自动 / 手动 / 暂停）。还在自动模式时页面会给黄色提示，因为命令会被算法覆盖。
-3. 点要控制的气囊（可多选），按分组排列，每个格子显示编号、部位和当前档位。
-4. 点档位按钮下发。未选中的气囊自动填保持档，不会被动到。
-5. 测完点「控制模式 → 自动」交回算法。
-
-页面每秒自动刷新状态，气囊当前档位通过 WebSocket 实时更新。`SDK 显示端` 为 `0` 时
-仍可下发命令，但当前没有 WPF 页面接收和执行；先确认客户程序已经启动并加载了汽车
-自适应控件。注意气囊命令是直接写串口的，**不需要**显示端在线，只需要目标通道在线。
-
-**主副驾切换只影响显示**，两路始终同时采集、同时执行算法，不会因为切换展示通道而中断。
-
-**页面跳转会影响算法**：点「返回宿主页」或「原始数据」会让算法暂停、气囊冻结；点
-「自适应模块」会恢复自动并重新初始化算法。这和上面「二、控制气囊」里的三种模式是
-同一套机制，页面上的「气囊模式」会同步显示当前状态。串口采集始终不受影响。
-
-### 方式三：用接口控制
-
-切换到副驾：
+查看当前页面状态（在哪个页面、当前主副驾、连接了几个显示端）：
 
 ```bash
-curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"select-sensor","sensorId":2}'
+curl http://127.0.0.1:19245/carAdaptive/ui/state
 ```
 
-`sensorId` 填 `1` 是主驾，`2` 是副驾。
+切换主副驾显示：
+
+```bash
+# 切到主驾；副驾填 2
+curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"select-sensor","sensorId":1}'
+```
 
 返回首页：
 
@@ -313,7 +359,7 @@ curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
   -d '{"action":"return-home"}'
 ```
 
-重新打开自适应模块：
+打开自适应模块：
 
 ```bash
 curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
@@ -321,49 +367,13 @@ curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
   -d '{"action":"open-module"}'
 ```
 
-查看当前页面状态（在哪个页面、当前主副驾、连接了几个显示端）：
+打开原始数据页：
 
 ```bash
-curl http://127.0.0.1:19245/carAdaptive/ui/state
+curl -X POST http://127.0.0.1:19245/carAdaptive/ui/command \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"open-raw-serial"}'
 ```
 
-切换主副驾**只改变页面显示**，主驾和副驾的数据采集、算法、气囊控制始终都在运行，不会因为切换而中断。
-
-### 配置首页地址
-
-"返回首页"要回到哪里，启动时指定：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-wpf.ps1 `
-    -HomeUrl "https://你的主页地址"
-```
-
-如果是自己的 WPF 程序，用 `HomeRequested` 事件自己跳转：
-
-```csharp
-private void HandleCarAdaptiveHomeRequested(object? sender, CarAdaptiveHomeRequestedEventArgs e)
-{
-    MainFrame.Navigate(new HomePage());
-}
-```
-
-### 加个口令（建议）
-
-不设口令时，同一局域网内任何设备都能控制页面。设置方法：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-wpf.ps1 `
-    -RemoteControlToken "你的口令"
-```
-
-之后调接口要带上：
-
-```http
-X-JQTools-Control-Token: 你的口令
-```
-
-### 连不上？
-
-1. 两台设备在同一个局域网
-2. 这台电脑的防火墙放行 TCP `19245` 和 `19999`
-3. 程序正在运行
+切换主副驾**只改变页面显示**，两路的数据采集和算法始终都在运行。
+返回首页和打开模块会按页面策略改变模式；要强制指定最终状态，再调[第三节](#三主副驾自适应单独开启和关闭)的接口。

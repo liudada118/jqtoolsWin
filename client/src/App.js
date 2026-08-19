@@ -8,6 +8,7 @@ import Equip from './page/equip/Equip';
 import Data from './page/data/Data';
 import RawSerialPage from './page/rawSerial/RawSerialPage';
 import RemoteControlPage from './page/remoteControl/RemoteControlPage';
+import ApiDebugPage from './page/apiDebug/ApiDebugPage';
 // import Addequip from './page/addEquip/Addequip';
 
 i18next.init({
@@ -178,6 +179,10 @@ function App() {
         <Route
           path="/remote-control"
           element={<RemoteControlPage />}
+        />
+        <Route
+          path="/api-debug"
+          element={<ApiDebugPage />}
         />
 
         <Route

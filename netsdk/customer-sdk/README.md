@@ -15,15 +15,31 @@ customer-sdk/
   frontend-build/            # 当前前端和 Three.js 模型资源
   docs/QUICKSTART.md         # 客户快速接入、取数、控气囊和远程控制
   docs/API.md                # 客户 SDK 完整业务接口
-  docs/REAL_API.md           # 真实后端协议和调用边界补充
-  docs/FAKE_API.md           # 早期假数据调试协议，仅供兼容参考
-  docs/PROTECTION.md         # 第一方源码保护范围和安全边界
-  docs/REMOTE_CONTROL.md     # 局域网控制、返回主页和 WPF 事件说明
   scripts/start-wpf.ps1      # 启动 WPF
   scripts/start-mock-service.ps1
   scripts/stop-mock-service.ps1
   scripts/verify-sdk.ps1     # 本地验收脚本
 ```
+
+## 新电脑运行要求
+
+客户电脑需满足：
+
+- Windows 10/11 x64
+- 安装 .NET 8 Desktop Runtime x64（WPF 程序使用框架依赖方式发布）
+- 安装 Microsoft Edge WebView2 Runtime x64（用于加载内置前端）
+
+官方下载：
+
+```text
+.NET 8: https://dotnet.microsoft.com/en-us/download/dotnet/8.0
+WebView2: https://developer.microsoft.com/en-us/microsoft-edge/webview2?form=MT00D7
+```
+
+Node.js 与 Python 已放在 SDK 内，客户不需要另外安装。复制到新电脑时必须把整个
+`customer-sdk` 文件夹作为一个整体复制。请先删除目标电脑上的旧目录，再复制新目录，
+不要只覆盖 `backend-host.exe` 或 `backend.jqpack`，否则加密宿主和业务包可能不配套。
+建议使用不含特殊字符的短路径，例如 `D:\CarAdaptiveSDK\customer-sdk`。
 
 ## 客户怎么启动
 
@@ -51,6 +67,7 @@ HTTP: http://127.0.0.1:19245
 WebSocket: ws://127.0.0.1:19999
 真实前端: http://127.0.0.1:19245/app
 原始数据: http://127.0.0.1:19245/app#/raw-serial
+接口调试: http://127.0.0.1:19245/app#/api-debug
 ```
 
 原始数据页可开始或停止真实采集，并把当前采集段直接导出为 CSV。导出文件保留每帧的
@@ -67,35 +84,48 @@ http://127.0.0.1:19245/app?showTitle=1
 
 `19245` 或 `19999` 被其他程序占用时，WPF 程序会保留窗口并显示端口冲突。关闭占用程序后点击“重试”即可，不需要重启 WPF。
 
-## 本地怎么验证
+## 新电脑怎么验证
 
-执行：
+先在新电脑的 PowerShell 中执行无硬件验收：
 
 ```powershell
-cd customer-sdk
+Set-Location D:\CarAdaptiveSDK\customer-sdk
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1
+```
+
+看到下面一行表示 SDK 文件、加密后端、双路 Python 算法、HTTP 和 WebSocket 链路通过：
+
+```text
+CUSTOMER_SDK_REAL_VERIFY_OK
+```
+
+再验证 WPF 窗口能否启动并自动关闭：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1 -IncludeWpfSmokeTest
+```
+
+以上两步不需要连接传感器。需要连真实串口做现场验收时执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1 -ConnectSerial
 ```
 
 验收脚本会用备用端口启动 `mock-service`，验证：
 
 - 必要文件是否存在
+- `backend-host.exe` 与 `backend.jqpack` 是否来自同一次构建且文件未损坏
 - HTTP `/health`
 - HTTP `/getPort` 真实串口后端
 - HTTP `/algorithm/config` 内置 Python 算法与参数
 - HTTP `/carAdaptive/collection/export` 原始 CSV 下载路由
 - 主、副两套 `.pyc` 算法各处理一帧 144 点数据
 - 主驾和副驾的 `auto/manual/paused` 模式可以独立切换，互不影响
-- 接口可以覆盖并清除一路气囊展示状态，不伪造 ECU 回传在线状态
+- API 独占每路 3–6 号展示，清除后四路熄灭；ECU 只控制其余 20 路
 - WebSocket 同时记录算法命令、ECU 回传、接口串口命令和接口展示命令
 - 局域网 UI 命令广播、主副驾切换和 SDK 页面执行回执
 - 第一方 Node/Python 明文源码已从交付目录删除
 - 当前前端和 Three.js 座椅模型资源
-
-需要顺便验证 WPF 能否启动时：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\verify-sdk.ps1 -IncludeWpfSmokeTest
-```
 
 ## WPF 控件 DLL 引用
 
@@ -169,7 +199,6 @@ docs\QUICKSTART.md
 
 ```text
 docs\API.md
-docs\REAL_API.md
 ```
 
 其中新版页面使用 `carAdaptiveSensorsData` 同时接收主、副两套完整状态。顶层
@@ -244,6 +273,15 @@ GET  /carAdaptive/sensors  # 查询两路在线状态、频率和算法帧计数
 
 ## 局域网远程控制
 
+客户联调接口时直接打开：
+
+```text
+http://<SDK电脑IP>:19245/app#/api-debug
+```
+
+该页面可以检查 HTTP/WebSocket/串口状态，独立开启或关闭主副驾自适应，控制客户 API 开放的
+`3`、`4`、`5`、`6` 号气囊，设置这四路 API 独占的界面状态（其余 20 路继续跟随 ECU），发送页面命令，并保留每次 HTTP 请求和响应。
+
 现有汽车自适应页面没有新增按钮或修改布局。iPad 可直接打开同一套业务界面，并让已有的“主驾 / 副驾”切换广播到 WPF 和其他显示端：
 
 ```text
@@ -267,12 +305,6 @@ POST /carAdaptive/ui/command
 
 支持 `return-home`、`open-module`、`open-raw-serial` 和 `select-sensor`。返回网页主页可通过 WPF `HomeUrl`、启动脚本 `-HomeUrl` 或环境变量 `JQTOOLS_HOME_URL` 配置；原生 WPF 主页继续由 `HomeRequested` 处理。生产环境可通过 `RemoteControlToken` 或启动脚本的 `-RemoteControlToken` 启用控制口令。
 
-完整说明见：
-
-```text
-docs\REMOTE_CONTROL.md
-```
-
 # 当前默认：真实数据模式
 
 当前 `customer-sdk` 默认启动真实后端链路：WPF 会启动 `real-backend/backend-host.exe`，在内存加载 `backend.jqpack`，读取真实串口，调用 `python/app/server.pyc` 算法，并把算法返回的 `control_command` 写回区域控制串口。
@@ -280,12 +312,6 @@ docs\REMOTE_CONTROL.md
 详细说明见：
 
 ```text
-docs\REAL_DATA_SDK.md
 docs\QUICKSTART.md
 docs\API.md
-docs\REAL_API.md
-docs\PROTECTION.md
 ```
-
-`docs\FAKE_API.md` 只保留为早期假数据调试协议参考，不代表当前默认启动模式，也不能
-用于真实串口写入。

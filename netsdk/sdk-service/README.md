@@ -304,4 +304,18 @@ By default, methods return the backend `HttpResult` envelope:
 
 With `unwrap: true`, backend HTTP methods return `data` directly and throw `JqToolsError` when `code !== 0`.
 
+参数校验失败的接口同时返回 HTTP `400` 和 `code: 1`。这种响应无论是否 `unwrap` 都抛 `JqToolsError`，
+`error.message` 就是后端写明的原因，`error.status` 为 `400`、`error.code` 为 `1`，
+原始响应体在 `error.payload`：
+
+```javascript
+try {
+  await client.writeCarAdaptiveCommand(command, 1);
+} catch (error) {
+  console.log(error.message); // 客户手动接口只允许控制 3、4、5、6 号气囊，7 号档位必须为 0
+  console.log(error.status);  // 400
+  console.log(error.code);    // 1
+}
+```
+
 `processCarAdaptiveFrame()`, `getPythonConfig()`, `setPythonParam()`, and `callPythonFunction()` call the SDK-local Python worker directly, so they return Python results directly rather than an HTTP envelope.

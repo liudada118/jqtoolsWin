@@ -3,7 +3,6 @@ import {
     CAR_ADAPTIVE_COMMAND_LENGTH,
     CAR_ADAPTIVE_COMMAND_TAIL,
     buildCarAdaptiveControlCommand,
-    buildUniformControlCommand,
     extractGearsFromCommand,
     getAirbagName,
     getGearLabel,
@@ -47,10 +46,14 @@ test('非法档位回落到保持档', () => {
     expect(command[8]).toBe(0);
 });
 
-test('全部放气命令把 24 路都设为 4 档', () => {
-    const command = buildUniformControlCommand(4);
+test('3-6 号放气命令只把白名单气囊设为 4 档', () => {
+    const command = buildCarAdaptiveControlCommand({ 3: 4, 4: 4, 5: 4, 6: 4 });
 
-    expect(extractGearsFromCommand(command)).toEqual(new Array(24).fill(4));
+    const expected = new Array(24).fill(0);
+    [3, 4, 5, 6].forEach((id) => {
+        expected[id - 1] = 4;
+    });
+    expect(extractGearsFromCommand(command)).toEqual(expected);
 });
 
 test('从 55 字节命令和 51 字节回传帧都能提取档位', () => {

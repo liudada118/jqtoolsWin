@@ -37,6 +37,7 @@ import ononseatText from '../../assets/image/ononseatText.png'
 
 import { Scheduler } from '../../scheduler/scheduler'
 import { createDefaultAirbagLayout } from '../airbagAdjust/airbagLayout'
+import { createAirAsideDisplayData } from './airAsideDisplayData'
 
 const FALLBACK_AIRBAG_LAYOUT = createDefaultAirbagLayout()
 
@@ -94,46 +95,20 @@ export default function AirAside(props) {
 
     const [data, setData] = useState({})
     useEffect(() => {
-
-        Scheduler.onUI(() => setData(() => {
-
+        return Scheduler.onUI(() => setData(() => {
             const chartData = props.algorDataRef.current
             const algorFeed = props.algorFeed.current
             const handle = props.handle.current
             const controlsMode = props.controlsMode.current
-            const keyArr = Object.keys(chartData)
-            let dataObj = {}
-            let allArr = []
-            if (keyArr.length) {
-                dataObj.body_type = chartData.body_type
 
-                chartData.control_command = chartData.control_command || []
-                let max = 24, controlArr = [], controlFeed = []
-
-                if (controlsMode == 'algor') {
-                    for (let i = 0; i < max; i++) {
-                        controlArr.push(chartData.control_command[2 * i + 2])
-                        controlFeed.push(algorFeed[i])
-                    }
-                } else {
-                    for (let i = 0; i < max; i++) {
-                        controlArr.push(handle[2 * i + 2])
-                        controlFeed.push(handle[i])
-                    }
-                }
-
-
-
-                dataObj.control_command = controlArr
-                dataObj.controlFeed = controlFeed
-                dataObj.seat_state = chartData.seat_state
-                dataObj.controlsMode = controlsMode
-            }
-            // 气囊亮暗依赖 ECU 回传；收不到回传时全部熄灭，需要在界面上说明原因
-            dataObj.feedbackOnline = Boolean(props.airbagFeedbackOnline?.current)
-            return { ...dataObj, t: Date.now() }
-        })
-        )
+            return createAirAsideDisplayData({
+                chartData,
+                algorFeed,
+                handle,
+                controlsMode,
+                feedbackOnline: props.airbagFeedbackOnline?.current,
+            })
+        }))
     }, [])
 
     const pyObj = {

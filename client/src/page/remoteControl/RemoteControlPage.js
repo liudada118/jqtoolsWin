@@ -20,14 +20,33 @@ import { CAR_ADAPTIVE_UI_ACTIONS } from '../../util/carAdaptiveUiControl';
 import {
     CAR_ADAPTIVE_AIRBAG_GROUPS,
     CAR_ADAPTIVE_GEARS,
-    buildCarAdaptiveControlCommand,
-    buildUniformControlCommand,
     getGearLabel,
 } from '../../util/carAdaptiveAirbagControl';
+import {
+    CAR_ADAPTIVE_API_AIRBAG_IDS,
+    buildApiAirbagControlCommand,
+} from '../../util/carAdaptiveApiDebug';
 import './index.scss';
 
 const API_ROOT = window.location.origin;
 const SENSOR_IDS = [1, 2];
+const API_AIRBAG_GROUPS = CAR_ADAPTIVE_AIRBAG_GROUPS
+    .map((group) => ({
+        ...group,
+        airbags: group.airbags.filter((airbag) => CAR_ADAPTIVE_API_AIRBAG_IDS.includes(airbag.id)),
+    }))
+    .filter((group) => group.airbags.length > 0);
+
+/**
+ * 构造把 3、4、5、6 号气囊统一设为指定档位的接口命令。
+ * @param {number} gear 目标档位。
+ * @returns {number[]} 完整 55 字节命令，其他气囊保持为 0。
+ */
+function buildApiUniformControlCommand(gear) {
+    return buildApiAirbagControlCommand(Object.fromEntries(
+        CAR_ADAPTIVE_API_AIRBAG_IDS.map((id) => [id, gear]),
+    ));
+}
 
 /**
  * 将毫秒时间戳格式化为调试页时间。
@@ -306,7 +325,7 @@ function RemoteControlPage() {
         const gears = {};
         selectedAirbags.forEach((id) => { gears[id] = gear; });
         sendAirbagCommand(
-            buildCarAdaptiveControlCommand(gears),
+            buildApiAirbagControlCommand(gears),
             `${selectedAirbags.length} 项气囊 ${getGearLabel(gear)}`,
             `gear-${gear}`,
         );
@@ -548,7 +567,7 @@ function RemoteControlPage() {
                     )}
 
                     <div className="remote-airbag-groups">
-                        {CAR_ADAPTIVE_AIRBAG_GROUPS.map((group) => (
+                        {API_AIRBAG_GROUPS.map((group) => (
                             <div className="remote-airbag-group" key={group.key}>
                                 <span className="remote-airbag-group-label">{group.label}</span>
                                 <div className="remote-airbag-items">
@@ -599,18 +618,18 @@ function RemoteControlPage() {
                                 size="small"
                                 icon={<ThunderboltOutlined />}
                                 loading={busyAction === 'preset-hold'}
-                                onClick={() => sendAirbagCommand(buildUniformControlCommand(0), '全部保持', 'preset-hold')}
+                                onClick={() => sendAirbagCommand(buildApiUniformControlCommand(0), '3-6 号保持', 'preset-hold')}
                             >
-                                全部保持
+                                3-6 号保持
                             </Button>
                             <Button
                                 size="small"
                                 danger
                                 icon={<PoweroffOutlined />}
                                 loading={busyAction === 'preset-deflate'}
-                                onClick={() => sendAirbagCommand(buildUniformControlCommand(4), '全部放气', 'preset-deflate')}
+                                onClick={() => sendAirbagCommand(buildApiUniformControlCommand(4), '3-6 号放气', 'preset-deflate')}
                             >
-                                全部放气
+                                3-6 号放气
                             </Button>
                         </div>
                     </div>

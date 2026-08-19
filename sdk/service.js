@@ -174,7 +174,11 @@ async function processFrame(body) {
 
   validateSensorData(sensorData);
 
-  const result = await client.callPythonFunction('server', {
+  // 写串口时由真实后端执行算法并内部写入，不能把 24 路算法命令转发到客户手动接口。
+  const backendResult = writeSerial && serialBackendUrl
+    ? await processFrameWithSerialBackend(sensorData, sensorId)
+    : null;
+  const result = backendResult?.data || await client.callPythonFunction('server', {
     sensor_data: sensorData,
     sensor_id: sensorId
   }, {
@@ -195,7 +199,13 @@ async function processFrame(body) {
   sensorState.algorData = responseData;
   sensorState.controlCommand = result?.control_command;
 
-  if (writeSerial && result?.control_command) {
+  if (backendResult) {
+    responseData.serialWrite = {
+      code: 0,
+      data: { sensorId },
+      message: '算法命令已由真实后端处理'
+    };
+  } else if (writeSerial && result?.control_command) {
     responseData.serialWrite = await writeCommand(result.control_command, sensorId);
   }
 
@@ -211,7 +221,26 @@ async function processFrame(body) {
   return ok(responseData);
 }
 
-/** 将已有 control_command 写入串口；实际串口写入由原后端代理完成。 */
+/**
+ * 把传感器帧交给真实后端算法处理并由其内部写入串口。
+ * @param {number[]} sensorData 144 点原始压力数据。
+ * @param {1|2} sensorId 主副传感器标识。
+ * @returns {Promise<object>} 真实后端算法响应。
+ */
+async function processFrameWithSerialBackend(sensorData, sensorId) {
+  const response = await fetch(`${serialBackendUrl}/carAdaptive/processFrame`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sensorData, sensorId, writeSerial: true })
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(payload.message || '真实后端算法写串口失败');
+  }
+  return payload;
+}
+
+/** 将客户手动 55 字节命令转发到真实后端，后端会强制执行 3/4/5/6 白名单。 */
 async function writeCommand(controlCommand, sensorId) {
   if (!serialBackendUrl) {
     return {
