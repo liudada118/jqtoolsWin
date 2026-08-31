@@ -14,8 +14,9 @@ const constantObj = require('../util/config');
 const { bytes4ToInt10 } = require('../util/parseData');
 const { initDb, dbLoadCsv, deleteDbData, dbGetData, getCsvData, changeDbName, changeDbDataName } = require('../util/db');
 const { hand, jqbed, endiSit, endiBack } = require('../util/line');
-const { callPy } = require('../pyWorker');
+const { startWorker, callPy } = require('../pyWorker');
 const { decryptStr } = require('../util/aes_ecb');
+const { createRateLimitedBroadcaster } = require('../util/carAdaptiveSnapshotBroadcast');
 const { default: axios } = require('axios');
 const module2 = require('../util/aes_ecb')
 const {
@@ -255,6 +256,10 @@ console.log(__dirname, dbPath, '__dirname')
 
 const CAR_ADAPTIVE_TYPE = 'carAir'
 const CAR_ADAPTIVE_COMMAND_INTERVAL = 500
+// 双路完整快照最多推送 12 次/秒，高频状态变化在同一窗口内合并为最新一条。
+// 完整快照与单路传感器约 12 Hz 的实际更新频率对齐；Three.js 由前端独立以 15 Hz 渲染。
+const CAR_ADAPTIVE_SNAPSHOT_MAX_HZ = 12
+const CAR_ADAPTIVE_SNAPSHOT_INTERVAL = Math.ceil(1000 / CAR_ADAPTIVE_SNAPSHOT_MAX_HZ)
 const CAR_ADAPTIVE_REMOTE_CONTROL_TOKEN = String(
   process.env.JQTOOLS_REMOTE_CONTROL_TOKEN || ''
 ).trim()
@@ -276,6 +281,7 @@ const adaptiveWriteQueues = {}
 let selectedCarAdaptiveSensorId = CAR_ADAPTIVE_MAIN_SENSOR_ID
 let carAdaptiveCommandHistorySequence = 0
 let carAdaptiveUiState = createCarAdaptiveUiState(CAR_ADAPTIVE_MAIN_SENSOR_ID)
+let carAdaptiveSnapshotBroadcaster = null
 const carAdaptiveControlModeStates = Object.fromEntries(
   CAR_ADAPTIVE_SENSOR_IDS.map((sensorId) => [
     sensorId,
@@ -431,11 +437,27 @@ function getCarAdaptiveSensorSnapshots() {
   return CAR_ADAPTIVE_SENSOR_IDS.map(createCarAdaptiveSensorSnapshot)
 }
 
-/** 同时广播主、副两路数据；每个前端客户端可独立选择显示通道。 */
-function broadcastCarAdaptiveSensorSnapshots() {
-  socketSendData(server, JSON.stringify({
+/** 创建主、副两路完整快照的 WebSocket 消息。 */
+function createCarAdaptiveSensorSnapshotMessage() {
+  return JSON.stringify({
     carAdaptiveSensorsData: getCarAdaptiveSensorSnapshots()
-  }))
+  })
+}
+
+/**
+ * 只向新连接的客户端发送一次当前快照，避免一个客户端重连时让其他客户端重复收包。
+ * @param {WebSocket} client 目标 WebSocket 客户端。
+ */
+function sendCarAdaptiveSensorSnapshots(client) {
+  socketSendClientData(client, createCarAdaptiveSensorSnapshotMessage())
+}
+
+/**
+ * 请求广播主、副两路最新快照；12 Hz 窗口内的重复请求会自动合并。
+ * @returns {boolean} 本次请求是否立即完成发送。
+ */
+function broadcastCarAdaptiveSensorSnapshots() {
+  return carAdaptiveSnapshotBroadcaster?.request() || false
 }
 
 /** 判断网卡名称是否通常属于虚拟机、容器或隧道设备。 */
@@ -664,6 +686,10 @@ function applyCarAdaptiveFeedbackFrame(path, decoded, frame) {
       trusted: true
     })
   })
+
+  if (sensorIds.length) {
+    broadcastCarAdaptiveSensorSnapshots()
+  }
 
   return { sensorIds, sharedPort: sensorIds.length > 1 }
 }
@@ -1250,6 +1276,7 @@ app.get('/health', (req, res) => {
     mode: 'real',
     httpPort: port,
     webSocketPort: wsPort,
+    webSocketSnapshotMaxHz: CAR_ADAPTIVE_SNAPSHOT_MAX_HZ,
     frontendBuildDir: FRONTEND_BUILD_DIR,
     controlMode: getCarAdaptiveControlModeState(selectedCarAdaptiveSensorId).mode,
     controlModes: CAR_ADAPTIVE_SENSOR_IDS.map(createCarAdaptiveControlModePublicState)
@@ -2244,6 +2271,9 @@ app.post('/changePy', async (req, res) => {
 
 
 
+// HTTP 服务和 Python 算法并行启动，避免页面首次读取配置时才阻塞初始化。
+startWorker();
+
 app.listen(port, () => {
   process.send?.({ type: 'ready', port });
   console.log(`Example app listening on port ${port}`)
@@ -2257,6 +2287,7 @@ server.on("open", function open() {
 });
 
 server.on("close", function close() {
+  carAdaptiveSnapshotBroadcaster?.dispose()
   console.log("disconnected");
 });
 
@@ -2269,11 +2300,14 @@ server.on("connection", function connection(ws, req) {
   ws.jqtoolsClientId = requestUrl.searchParams.get('clientId') || clientName
   console.log("%s is connected", clientName);
 
-  socketSendData(server, JSON.stringify({}))
-  socketSendData(server, JSON.stringify({ carAdaptiveSensor: getCarAdaptiveSensorSelection() }))
-  socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
-  broadcastCarAdaptiveControlMode()
-  broadcastCarAdaptiveSensorSnapshots()
+  // 初始化状态只发给当前新连接，不能因调试页或局域网客户端重连而打扰已有显示端。
+  socketSendClientData(ws, JSON.stringify({}))
+  socketSendClientData(ws, JSON.stringify({ carAdaptiveSensor: getCarAdaptiveSensorSelection() }))
+  socketSendClientData(ws, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
+  socketSendClientData(ws, JSON.stringify({
+    carAdaptiveControlMode: getCarAdaptiveControlModePublicState()
+  }))
+  sendCarAdaptiveSensorSnapshots(ws)
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
       carAdaptiveHistoryState: {
@@ -2311,17 +2345,32 @@ server.on("connection", function connection(ws, req) {
 });
 
 /**
- * 
- * @param {obj} server websocket服务器
- * @param {JSON} data 发送的数据
+ * 向一个 WebSocket 客户端发送数据，连接未打开时忽略。
+ * @param {WebSocket} client 目标客户端。
+ * @param {string|Buffer} data 待发送数据。
  */
-const socketSendData = (server, data) => {
+function socketSendClientData(client, data) {
+  if (client.readyState === WebSocket.OPEN) {
+    client.send(data)
+  }
+}
+
+/**
+ * 向当前全部 WebSocket 客户端广播一条消息。
+ * @param {WebSocket.Server} server WebSocket 服务器。
+ * @param {string|Buffer} data 待发送数据。
+ */
+function socketSendData(server, data) {
   server.clients.forEach(function each(client) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data);
-    }
+    socketSendClientData(client, data)
   });
 }
+
+carAdaptiveSnapshotBroadcaster = createRateLimitedBroadcaster({
+  intervalMs: CAR_ADAPTIVE_SNAPSHOT_INTERVAL,
+  createPayload: createCarAdaptiveSensorSnapshotMessage,
+  send: (payload) => socketSendData(server, payload)
+})
 
 /**
  * 将串口跟 parser连接起来
@@ -3152,7 +3201,6 @@ setInterval(async () => {
   writeAllCarAdaptiveCommands()
 
   socketSendData(server, JSON.stringify({ carAdaptiveSensors: getCarAdaptiveSensorsStatus() }))
-  broadcastCarAdaptiveSensorSnapshots()
   const displayState = getCarAdaptiveSensorState(selectedCarAdaptiveSensorId)
   const displayAlgorithmData = displayState.algorData
   const displayAirbagFeedback = getCarAdaptiveAirbagFeedback(selectedCarAdaptiveSensorId)

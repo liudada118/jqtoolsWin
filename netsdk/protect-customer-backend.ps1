@@ -117,7 +117,8 @@ try {
     $previousDontWriteBytecode = $env:PYTHONDONTWRITEBYTECODE
     try {
         $env:PYTHONDONTWRITEBYTECODE = "1"
-        & $pythonExe $pythonCompiler (Join-Path $repoRoot "python\app") $pythonAppRoot @pythonSources
+        # Compile the exact sources copied into the customer package.
+        & $pythonExe $pythonCompiler $pythonAppRoot $pythonAppRoot @pythonSources
     }
     finally {
         if ($null -eq $previousDontWriteBytecode) {

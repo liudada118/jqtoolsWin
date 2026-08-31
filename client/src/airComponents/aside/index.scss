@@ -66,12 +66,18 @@
         flex-direction: column;
     }
 
+    .airbagAsideHeader {
+        flex: none;
+        display: flex;
+        align-items: center;
+    }
+
     // 气囊状态回传中断提示，位于“区域调节”标题下方，不占据座椅图空间
     .airbagFeedbackNotice {
         flex: none;
         align-self: center;
         max-width: 100%;
-        margin-top: 2.1rem;
+        margin-top: 0.55rem;
         padding: 0.24rem 0.55rem;
         border: 1px solid rgba(228, 183, 86, 0.45);
         border-radius: 4px;
@@ -213,6 +219,22 @@
 .selectName{
     img {
         height: 1.75rem;
+    }
+}
+
+// 两套状态图同时预解码并占用同一网格，切换时只改变透明度。
+.statusAsset {
+    display: grid;
+    place-items: center;
+
+    > img {
+        grid-area: 1 / 1;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    > img.isVisible {
+        opacity: 1;
     }
 }
 

@@ -7,8 +7,9 @@
         Height="860"
         MinWidth="1080"
         MinHeight="720"
+        Background="#141319"
         WindowStartupLocation="CenterScreen">
-    <Grid>
+    <Grid Background="#141319">
         <jq:CarAdaptiveDebugControl
             x:Name="DebugControl"
             AutoStartService="True"

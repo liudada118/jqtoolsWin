@@ -1,12 +1,14 @@
 # 项目架构
 
-最后更新于：2026-08-19
+最后更新于：2026-08-24
 
 ## 概览
 
 - Electron 桌面应用（入口：`index.js`）启动本地 UI、Node.js 串口/HTTP/WS 服务和 Python 算法进程。
 - Node.js 服务负责串口采集、SQLite 存储与回放，并桥接 Python 算法。
 - Python 层通过 stdin/stdout 的 JSON 行协议提供算法能力。
+- Python RPC 输出边界会递归将 `numpy.bool_`、NumPy 数值和数组转换为标准 JSON 类型，避免新算法进入特定状态后因序列化失败而中断该帧的 HTTP 响应和 WebSocket 快照。
+- 客户 SDK 构建默认优先采用 `python/app/appV2_optimized_final/appV2/` 的 V2 算法实现，并兼容旧的双层 `appV2_optimized_final/appV2_optimized_final/appV2/` 目录；如果必需算法文件不完整则构建直接失败，不会静默回落到旧算法。项目维护的双传感器 `server.py` RPC 入口保持不变，加密阶段直接编译已复制到交付目录的源码，确保选中的算法与最终 `.pyc` 一致。
 - 前端资源由 Electron 内置的本地 HTTP 服务提供（`build/`）。
 - 新增 `sdk/` 客户端 SDK，封装本地后端 REST API 和 WebSocket 实时数据流，供客户应用调用。
 - 汽车自适应串口帧为 145 字节：首字节是主副传感器标识，后 144 字节分别进入两套独立 Python 算法，并将两路 `control_command` 排队写回对应的 `carAir` 串口。
@@ -23,14 +25,19 @@
 - 客户 SDK 仅交付 `docs/API.md` 和 `docs/QUICKSTART.md`，只记录当前汽车 SDK 业务实际使用的启动、串口、算法、55 字节控制命令、采集、远程控制和 WebSocket 接口。
 - 保护清单同时记录 `backend-host.exe` 和 `backend.jqpack` 的 SHA-256；真实服务及验收脚本均在启动前校验这对文件，阻止增量覆盖导致的 AES 密钥不匹配。
 - 新电脑运行 WPF 需要 .NET 8 Desktop Runtime 和 WebView2 Runtime；Node.js 与 Python 随客户 SDK 交付，无硬件验收和 WPF 冒烟测试由 `scripts/verify-sdk.ps1` 统一执行。
+- WPF 冷启动时并行创建 WebView2 和真实数据服务，窗口、WebView2 与 HTML 启动层统一使用 `#141319` 背景和轻量进度条；Node HTTP 服务启动时主动预热 Python 双算法，避免首次接口调用才阻塞页面。
+- 客户前端图标字体完全本地化，不再在首屏同步请求公网 CSS；WPF WebView2 固定使用 `DPR=1`、关闭抗锯齿和实时阴影，普通浏览器像素比上限为 `1.25`，高像素缓冲或弱机型自动进入同一低负载档位；汽车座椅场景固定以 `15 Hz` 更新 Three.js 渲染，与浏览器 `requestAnimationFrame` 的高刷新频率解耦。
+- 当前汽车座椅 GLB 使用保形减面和属性量化，客户模型由约 `25.2 MB` 降至 `9.3 MB`；交付前端仅保留该业务模型，内置 Python 仅保留 NumPy 与 ruamel.yaml，客户 SDK 成品约 `317.2 MB`。
 - 汽车前端新增算法参数抽屉，通过 HTTP 批量修改 YAML 参数并重建常驻 Python 算法实例。
 - 气囊控制模式为主、副驾独立三态：`GET`/`POST /carAdaptive/mode` 带 `sensorId` 时只修改目标通道，不传时兼容旧客户端并同时修改两路。`manual` 只停该路自动写串口，`paused` 只停该路算法；恢复时 Python `resetMessage/resetSystem` 都带目标 `sensor_id`。状态通过 `carAdaptiveControlMode.sensors` 和每路快照广播。
 - 控制模式跟随 SDK 页面视图自动切换：`host-home` 和其他宿主视图暂停两路，`module` 分别恢复每路暂停前的 `auto/manual`；`raw-serial` 是只读观察页，不改变算法模式。触发点为 `POST /carAdaptive/ui/command` 和 WebSocket `carAdaptiveUiReport`。
 - 气囊展示状态按固定归属合并：`POST /carAdaptive/display` 独占 3、4、5、6 号，未设置或 `DELETE /carAdaptive/display/:sensorId` 清除后四路固定为 `0`；ECU 和可选命令回落中的 3–6 号始终被忽略，1、2、7–24 号持续采用 ECU 回传或回落状态。`feedbackOnline` 始终只表示真实 ECU 回传，API 展示状态不会伪造 ACK。串口回传的 51 字节业务帧同时保留还原后的 55 字节诊断帧。
-- 区域调节面板通过 `client/src/airComponents/aside/airAsideDisplayData.js` 独立组装合并后的 24 路展示档位；气囊点亮不再依赖 `algorData` 是否已经产出，因此算法未就绪或传感器离线时，`POST /carAdaptive/display` 的 3–6 号接口覆盖仍会立即显示。
+- 汽车 title 栏提供“当前状态/算法指令”气囊展示切换，页面层保存选择并驱动右侧区域调节：默认“当前状态”读取 ECU 回传与 API 覆盖合并后的 `algorFeed`，“算法指令”直接从 Python `algorData.control_command` 的偶数字节提取，不经过 ECU/API 合并、控制模式或接口白名单。算法帧尚未产出时显示等待提示；页面重新挂载时恢复默认当前状态。
 - 局域网 `#/remote-control` 调试页提供主副驾与页面跳转、气囊三态模式、3/4/5/6 号手动档位、保持/放气预设、通道在线与回传状态；气囊目标通道独立于显示通道。
 - 新增 `#/api-debug` 真实接口工作台，集中调试 HTTP/WS、串口、主副驾独立模式、展示覆盖和远程页面命令，并保留请求/响应记录；真实串口控制面和 UI 展示控制面都只开放 3、4、5、6 号。`POST /carAdaptive/writeCommand` 后端强制校验完整 55 字节协议和非零档位白名单，`POST /carAdaptive/display` 只替换四路界面状态；算法内部完整 24 路通过独立调用链写入，不受手动接口限制。
-- 主驾、副驾完整快照通过 `carAdaptiveSensorsData` 同时推送，前端各自缓存并在本地切换展示。
+- 主驾、副驾完整快照通过 `carAdaptiveSensorsData` 同时推送，前端各自缓存并在本地切换展示。该消息同时包含两路 144 点、两路算法结果、24 路气囊状态和诊断字段，因此单条约数 KB，不是单个 145 字节串口帧的原样转发。后端将高频更新合并为最新快照并限制在最高 `12 Hz`，与传感器物理频率对齐；500 ms 状态定时器不再重复附带完整快照，新 WebSocket 客户端的初始快照仅发给当前连接。
+- 汽车页面的全局 Scheduler 为幂等单例，同一应用生命周期只保留一条 `requestAnimationFrame` 链；状态卡仅在可见业务字段变化时更新，算法重置、瞬时缺字段或在座期间活体队列返回“未判断”时会保留最近一次有效分类，收到明确离座状态才允许清除。选中与未选中图片同时常驻 DOM，只切换透明度，避免 WebView2 负载较高时动态图片短暂空白。
+- Three.js 压力点在初始化时创建固定 `Float32Array` 和 GPU `BufferAttribute`，后续帧原地改写并标记更新；路由退出会停止动画、释放控制器、模型、材质、纹理、几何体和 WebGL 上下文，防止多次进入模块累积 CPU、内存和显存占用。
 - 双通道页面只使用 `carAdaptiveSensorsData` 更新汽车连接状态；兼容旧协议时会从单路 `sitData` 中移除 `carAir` 和串口尚未识别类型时产生的 `undefined` 状态，避免旧消息覆盖当前主副驾快照并导致“一键连接”和在线状态闪烁。
 - 主副驾共用完全相同的 Three.js 内容；外层 `mirrorGroup` 包含保存整体位置的 `sceneRoot` 和以座椅包围盒中心旋转、缩放的 `overallPivot`，并以场景 `X=0` 对应的画布中央纵线为固定镜像轴。切换副驾时仅设置 `mirrorGroup.scale.x = -1`，座椅、整体视图变换和全部压力点同步翻转，外部业务 UI 和 WebGL 画布保持原方向。
 - 前端 `#/raw-serial` 串口原始数据页同时提供“压力帧”和“气囊指令”视图：前者显示 145 字节完整帧和 144 点座椅形状，后者分别显示算法生成/下发、ECU 回传、接口写串口和接口展示覆盖；“历史记录”弹窗按主副驾和五类来源筛选服务内存记录，支持完整字节、24 路档位、自动刷新和清空；页面工具栏可直接开始、停止和导出真实数据采集。
@@ -38,6 +45,7 @@
 - 原始数据页可通过 `GET /carAdaptive/collection/export` 直接导出 SQLite 采集段；CSV 每帧保留 `sensorId` 和 `p0...p143` 原始字节，不经过 Python 算法、滤波或 Three.js 插值，浏览器和 Node SDK 共用同一下载接口。
 - 历史采集兼容层统一处理 SQLite 回放与旧版 CSV 导出：损坏 JSON 行会跳过，单帧使用 `12 Hz` 默认频率，Windows 非法文件名字符会替换；历史 WebSocket 帧带 `carAdaptiveHistoryFrame` 标识，并用 `carAdaptiveHistoryState` 阻止双传感器实时流覆盖回放。
 - `netsdk/build-customer-sdk.ps1` 重建客户包时原地保留 `real-backend/db/carAir.db`、`real-backend/data/` 和客户替换的 `frontend-build/model/FAST27-前排座椅.glb`，避免更新程序时覆盖现场数据或座椅模型。
+- 客户前端模型清理仅保留 `FAST27-前排座椅.glb`；大文件被杀毒或索引进程短暂占用时，构建会有限重试清理，而不是随机中断打包。
 - 客户包构建和验收明确排除 `app/JqTools.CarAdaptive.ClientWpf.exe.WebView2/` 与 `real-backend/node_modules/sqlite3/build-tmp-napi-v6/`；前者是运行 WPF 后产生的浏览器缓存，后者是 npm 安装产生的原生模块编译临时文件，均不属于运行时业务资源。
 - 新增局域网模块控制协议和独立 `#/remote-control` 调试页；iPad 使用 `/app?remoteControl=1&showTitle=1` 时加载同一业务前端，已有主副驾控件会广播切换，点击品牌标识会广播返回主页，页面不增加可见控件。
 - WPF 控件新增 `HomeUrl` 配置并通过隐藏 WebView2 消息桥把 `return-home` 转换为包含主页地址的 `HomeRequested` .NET 事件；网页端可直接跳转，原生宿主仍可自行导航。
@@ -80,11 +88,14 @@ D:\jqtoolsWin1
 │   └── carAdaptiveControlMode.js # 气囊自动/手动控制模式校验与状态流转
 │   └── carAdaptiveAirbagDisplay.js # 24 路档位、51/55 字节命令与展示来源解析
 │   └── carAdaptiveCommandHistory.js # 气囊指令历史分类、限量、查询、统计与清空
+│   └── carAdaptiveSnapshotBroadcast.js # 双路完整快照合并、限频与销毁
 │   └── clientDevServer.js     # Electron 开发前端端口探测、地址生成与项目身份校验
 ├── test/clientDevServer.test.js # 开发前端端口回退与身份校验测试
 ├── test/carAdaptiveControlMode.test.js # 控制模式三态切换、视图映射、幂等和非法输入测试
 ├── test/carAdaptiveAirbagDisplay.test.js # 气囊命令构造、回传还原和展示来源优先级测试
 ├── test/carAdaptiveCommandHistory.test.js # 后端气囊历史分类、裁剪、倒序查询与清空测试
+├── test/carAdaptiveSnapshotBroadcast.test.js # 完整快照即时发送、合并、12 Hz 间隔和销毁测试
+├── test/python_server_json_test.py # Python RPC 嵌套 NumPy 类型 JSON 转换测试
 ├── test/sdkCarAdaptiveCommandHistory.test.js # Node SDK 历史查询和清空地址及参数测试
 ├── client/public/jqtools-client-dev.json # React 开发服务项目标识
 ├── pyWorker.js              # Python worker 调用桥接
@@ -97,7 +108,10 @@ D:\jqtoolsWin1
 ├── client/src/util/carAdaptiveApiDebug.js # 3-6 号气囊限制、HTTP 调用和 WS 地址工具
 ├── client/src/util/carAdaptiveCollection.js # 主界面与原始数据页共享的采集 API 客户端
 ├── client/src/util/carAdaptiveCommandHistory.js # 原始数据页气囊历史 REST 客户端与类型文案
+├── client/src/airComponents/aside/ # 状态卡、当前状态/算法指令气囊切换及数据组装测试
 ├── client/src/airComponents/airbagAdjust/ # 对称气囊布局、调节面板、复制格式与测试
+├── client/src/airComponents/three/renderPerformanceProfile.js # WebView2、弱机和普通浏览器渲染档位
+├── client/src/scheduler/scheduler.js # 幂等动画/UI 调度器
 ├── build/                   # 前端构建产物
 └── sdk/                     # 客户端 SDK 包
     ├── package.json
@@ -146,6 +160,8 @@ D:\jqtoolsWin1
    - 汽车自适应链路调用 `callPy('server', { sensor_id, sensor_data })`。
    - Python 内部为 `sensor_id=1/2` 分别保留一套 `IntegratedSeatSystem`，帧计数、在离座历史、自适应状态和控制命令互不共享。
    - 两路算法返回的 `control_command` 由 Node 按来源串口排队写入，避免并发写串口丢失命令。
+   - Node HTTP 服务监听前即调用 `startWorker()`，两套 `IntegratedSeatSystem` 与页面、WebView2 并行初始化；算法诊断输出重定向到 stderr，stdout 只承载 JSON-RPC。
+   - 当环境已安装 SciPy 时，拍打检测使用 `scipy.signal.find_peaks`；精简的客户 Python 运行时不交付 SciPy，算法会自动使用内置轻量峰值检测回落实现。
 
 4. 客户端 SDK
    - 目录：`sdk/`
@@ -172,14 +188,15 @@ D:\jqtoolsWin1
 7. 独立客户 SDK
    - `runtime/node/node.exe` 提供 Node.js 运行时。
    - `real-backend/backend-host.exe` 是 Node.js SEA 宿主，在内存校验、解密并加载 `backend.jqpack` 中的真实串口、REST、WebSocket 和 Python 桥接逻辑。
-   - `real-backend/python/` 包含 Python 3.11、五个第一方算法 `.pyc` 和可现场调节的 `sensor_config.yaml`。
-   - 客户包删除第一方 `server/*.js`、`util/*.js`、`pyWorker.js` 和算法 `.py`；第三方 Node/Python 运行依赖保持原格式。
+   - `real-backend/python/` 包含精简的 Python 3.11、NumPy、ruamel.yaml、五个第一方算法 `.pyc` 和可现场调节的 `sensor_config.yaml`。
+   - 客户包删除第一方 `server/*.js`、`util/*.js`、`pyWorker.js` 和算法 `.py`；第三方 Node 依赖保持原格式，Python 只交付生产算法实际导入的运行依赖。
    - WPF、Native DLL 和独立脚本共享同一份后端、算法与 `frontend-build/`。
    - WPF 使用 `Process.Kill(entireProcessTree: true)`，Native DLL 使用 Job Object，脚本使用 `taskkill /T`，退出时统一关闭 Node、后端和 Python 子进程。
    - `/app` 页面挂载后通过 `client/src/util/carAdaptiveStartup.js` 依次调用 `/connPort`、`/sendMac`，自动完成串口连接和设备初始化。
    - 客户手动写串口接口仅接受协议完整的 55 字节下行帧，并只允许 3、4、5、6 号气囊非零；算法写串口由 `processFrame` 和内部队列完成，不调用该手动接口。
    - 汽车自适应完整标题栏默认不渲染；右上角 `48 x 48` 透明热区可切换标题栏，`/app?showTitle=1` 可让调试页面初始显示标题、主副驾切换和工具入口。
    - “气囊位置”工具按 13 个逻辑组管理 24 项 `airArr`；左右组同步纵向位置和尺寸并自动镜像，修改保存到 `localStorage`，可复制完整代码配置。
+   - 完整 title 栏在主副驾选择之后提供“当前状态/算法指令”气囊切换；右侧区域调节不再重复显示控件。前者保持客户默认的 ECU/API 最终展示，后者用于现场核对 Python 算法实际生成的 24 路控制档位。
 
 ## API 端点
 
@@ -242,7 +259,7 @@ REST API（`server/serialServer.js`）：
 - WPF 调试控件库：新增 `dotnet-wrapper/JqTools.CarAdaptive.Wpf`，以 DLL 形式封装当前调试页面，支持 WPF 应用内嵌和自动启动假数据服务。
 - Native DLL 调试封装：新增 `native-dll/JqToolsCarAdaptiveNative`，以标准 C/C++ DLL 形式导出启动、停止、状态、URL 和打开页面函数，供 WPF P/Invoke 加载。
 
-WebSocket（端口 `19999`）推送实时消息，常见字段包括 `sitData`、`algorData`、`algorFeed`、`carAdaptiveSensors`、`carAdaptiveSensorsData` 和 `carAdaptiveControlMode`。每路快照附带 `airbagDisplaySource/Available/Override` 与 `airbagCommands`；后者包含 `algorithmGenerated`、`algorithmSent`、`ecuFeedback`、`apiSerial` 和 `apiDisplay`。`feedbackOnline` 与展示来源分离。`#/raw-serial` 的压力视图仍只使用 144 个原始压力字节，命令视图直接读取最近诊断记录；历史弹窗每秒轮询 `/carAdaptive/commands/history`，后端按通道和类型各保留最多 500 条，服务退出即清空。SDK 显示端使用 `?role=ui-display&clientId=...` 注册，并通过同一连接接收页面控制和返回回执。
+WebSocket（端口 `19999`）推送实时消息，常见字段包括 `sitData`、`algorData`、`algorFeed`、`carAdaptiveSensors`、`carAdaptiveSensorsData` 和 `carAdaptiveControlMode`。`carAdaptiveSensorsData` 是包含两路原始点、算法输出和气囊诊断的完整状态快照，最高推送 `12 Hz`；在一个 84 ms 窗口内多次请求只保留最新状态。每路快照附带 `airbagDisplaySource/Available/Override` 与 `airbagCommands`；后者包含 `algorithmGenerated`、`algorithmSent`、`ecuFeedback`、`apiSerial` 和 `apiDisplay`。区域调节的默认状态使用 `algorFeed`，算法核对模式直接读取该路 `algorData.control_command`，两者不会互相覆盖。`feedbackOnline` 与展示来源分离。`#/raw-serial` 的压力视图仍只使用 144 个原始压力字节，命令视图直接读取最近诊断记录；历史弹窗每秒轮询 `/carAdaptive/commands/history`，后端按通道和类型各保留最多 500 条，服务退出即清空。SDK 显示端使用 `?role=ui-display&clientId=...` 注册，并通过同一连接接收页面控制和返回回执。
 
 ## 数据流
 
@@ -273,6 +290,8 @@ flowchart LR
   ConfigApi --> PyConfig["sensor_config.yaml / 重建两套算法实例"]
   WS --> DualCache["前端主驾/副驾双缓存"]
   DualCache --> DisplaySelector["本地按钮选择展示缓存"]
+  DisplaySelector --> EffectiveAirbag["当前状态：algorFeed ECU/API 合并"]
+  DisplaySelector --> AlgorithmAirbag["算法指令：algorData.control_command"]
   DisplaySelector --> SensorView["外层 mirrorGroup：主驾 X=1 / 副驾 X=-1"]
   SensorView --> SceneRoot["sceneRoot：整体位置"]
   SceneRoot --> OverallPivot["overallPivot：以座椅中心旋转和缩放"]
@@ -311,6 +330,14 @@ flowchart LR
 
 | 日期 | 类型 | 说明 |
 | --- | --- | --- |
+| 2026-08-24 | 新增功能 | title 栏新增“当前状态/算法指令”气囊切换，右侧区域调节只保留展示；默认继续展示 ECU 与 API 合并状态，算法模式直接解析 Python 55 字节 `control_command` 的 24 路档位，并提供算法未就绪提示与组件回归测试 |
+| 2026-08-23 | 构建优化 | 客户前端旧模型清理增加临时文件锁重试，避免大文件刚复制后被系统扫描导致 SDK 打包随机失败；最终包仍只保留客户 FAST27 座椅模型 |
+| 2026-08-23 | 修复缺陷 | 修复新算法在特定状态返回 NumPy 布尔值时 JSON RPC 序列化失败的问题；统一在 Python 出口递归转换 NumPy 标量和数组，并增加嵌套类型回归测试 |
+| 2026-08-23 | 优化重构 | 修复状态卡偶发空白与页面重入后卡顿：在座期间保留瞬时缺失或“未判断”的已确认分类、双图片常驻、Scheduler 单例化、压力点 GPU 缓冲复用和完整 WebGL 资源销毁；WPF 使用低负载渲染档位，完整双路快照由 15 Hz 调整为与传感器一致的 12 Hz，Three.js 保持 15 Hz |
+| 2026-08-23 | 性能优化 | 将双通道 `carAdaptiveSensorsData` 完整快照合并并限制为最高 15 Hz，移除 500 ms 定时器中的重复大包，新连接初始状态改为单播；Three.js 座椅场景同步固定为 15 Hz 渲染 |
+| 2026-08-23 | 算法升级 | 构建脚本适配用户新替换的 `appV2_optimized_final/appV2` 目录，校验必需文件后编译为 sourceless `.pyc`；主副驾双实例和客户 WPF 整包验收通过 |
+| 2026-08-22 | 性能优化 | 修复客户 WPF 长时间白屏：WebView2 与真实服务并行启动并增加深色启动层，Python 双算法提前预热且拍打检测不再默认加载 SciPy，图标字体改为本地资源；Three.js 增加弱机渲染档位，座椅模型减面量化，客户包清理旧模型和未使用 Python 依赖，成品由约 925.8 MB 降至 317.2 MB |
+| 2026-08-22 | 算法升级 | 客户 SDK 接入 `appV2_optimized_final` 优化算法包，保留主副驾双实例 RPC 入口；构建脚本支持显式算法目录并默认优先选择 V2，保护流程改为编译交付目录中的实际算法文件，避免新旧版本错配；同步修复 Windows PowerShell 5.1 对 UTF-8 注释和 sqlite 临时目录校验的兼容问题 |
 | 2026-08-19 | 交付优化 | 客户 SDK 改为仅输出 `API.md` 与 `QUICKSTART.md`；保护清单增加宿主哈希，启动器和验收脚本在解密前校验宿主/业务包配对，并补充新电脑依赖、整目录复制和无硬件/WPF 验证步骤 |
 | 2026-08-18 | 协议变更 | 将气囊展示归属固定为 API 独占 3/4/5/6、ECU 仅控制其余 20 路；后端始终屏蔽 ECU/命令回落中的四路值，清除 API 状态后四路熄灭，并同步客户文档与交付包；构建同时清理 sqlite3 原生编译临时目录 |
 | 2026-08-18 | 配置变更 | 重新构建前端和加密客户 SDK，成品验收覆盖展示/串口双白名单、双 Python 算法、WebSocket、命令历史、源码移除与运行缓存排除 |
@@ -395,6 +422,13 @@ flowchart LR
 
 | 日期 | 工作 | 说明 |
 | --- | --- | --- |
+| 2026-08-24 | 算法气囊指令独立可视化 | title 栏可在最终 ECU/API 状态与 Python 原始控制指令间切换，右侧区域调节只负责展示；真实双算法帧验证前 8 路 3 档可直接点亮，桌面及 768/600 像素窄窗口无横向溢出 |
+| 2026-08-23 | 性能修复客户包验收 | 加密客户包保持 317.2 MB，只含 FAST27 模型和 sourceless Python 算法；160 帧双路连续调用零失败，完整快照上报 12 Hz、最小间隔 84 ms；三次页面往返后只有一个 WebGL 画布，算法重置后成人/在座状态仍保持，WPF 整包验收返回 `CUSTOMER_SDK_REAL_VERIFY_OK` |
+| 2026-08-23 | 新算法连续输出兼容 | Python 双实例 RPC 支持嵌套 NumPy 布尔、整数、浮点和数组结果，算法状态变化不再导致整帧 JSON 失败；专项单元测试覆盖类型转换 |
+| 2026-08-23 | 车载状态稳定与持续运行优化 | 状态图标在算法重置或在座检测中期间保持最近有效值，明确离座时正常清除，选中/未选中资源预加载常驻；重复进入模块不会叠加调度循环或 WebGL 资源。双路快照按 12 Hz 合并，3D 按 15 Hz 消费最新值，WPF 关闭高成本渲染项；前端 14 项和 Node 32 项专项测试通过 |
+| 2026-08-23 | 新算法与 15 Hz 实时链路交付 | 新 V2 算法已编译进加密客户包；完整 WebSocket 快照和 Three.js 渲染均限制为 15 Hz。限频压测实测最小间隔 66 ms，30 个新连接不会触发已连接页面的全局快照；32 项 Node 专项测试、双算法 144 点输入和客户 WPF 整包验收通过 |
+| 2026-08-22 | 客户 SDK 冷启动优化 | WPF 冷启动同周期实测窗口约 0.62 秒出现、业务页面约 8.17 秒可用，等待期间不再白屏；优化模型页面无控制台错误，轻量峰值检测与 SciPy 在 100 组信号上结果一致；裁剪后的加密成品为 317.2 MB，并通过双算法、HTTP/WS、串口协议、气囊控制和 WPF 启停完整验收 |
+| 2026-08-22 | V2 优化算法客户包 | 使用 SDK 内置 Python 3.11 验证新算法 144 点输入与既有返回结构兼容；客户构建固定保留双传感器状态隔离，只替换算法实现和 YAML 配置，并继续以 sourceless `.pyc` 交付；成品双算法、受保护后端、WebSocket、接口控制和 WPF 冒烟测试返回 `CUSTOMER_SDK_REAL_VERIFY_OK` |
 | 2026-08-19 | 新电脑客户包验收 | `-SkipBuild` 完整输出成功，交付固定为两份业务文档；加密宿主、业务包和保护清单形成可校验的一组文件，无硬件全链路与 WPF 冒烟测试均返回 `CUSTOMER_SDK_REAL_VERIFY_OK`，现场模型、数据库和采集文件保持不变 |
 | 2026-08-18 | 气囊展示固定归属 | 3/4/5/6 号只接受 API 展示状态，ECU 与命令回落无法点亮；清除或服务重启后四路归零，其余 20 路继续使用 ECU，专项测试与客户包验收覆盖该规则；交付目录同步移除 sqlite3 安装临时文件 |
 | 2026-08-18 | 四路 API 与二十路 ECU 客户交付 | 48 个 Node 测试、9 个前端专项测试和客户成品验收通过；加密包拒绝 API 展示/串口控制 7 号并接受 3 号，模型、数据库和采集数据在重建中保留 |

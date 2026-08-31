@@ -1,11 +1,9 @@
-import Stats from "three/examples/jsm/libs/stats.module.js";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { TrackballControls } from "three/examples/jsm/controls/TrackballControls";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import React, { memo, useContext, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
-import { TextureLoader } from "three";
 import * as TWEEN from '@tweenjs/tween.js'
 import {
     addSide,
@@ -24,7 +22,6 @@ import gsap from "gsap";
 import { pageContext } from "../../page/test/Test";
 import { jetWhite3, lineInterp } from "../../assets/util/line";
 import { getDisplayType, getSettingValue, getStatus } from "../../store/equipStore";
-import { useWhyReRender } from "../../hooks/useWindowsize";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import {
     DEFAULT_SCENE_TRANSFORM,
@@ -44,12 +41,45 @@ import {
     reverseSensorRows,
     splitCarAdaptiveSensorSection,
 } from "../../util/carAdaptiveSensorLayout";
+import { getRenderPerformanceProfile } from "./renderPerformanceProfile";
 import './index.scss';
 
 
-const fps = 15;                          // 想要的帧率
-const interval = 1000 / fps;             // 每帧间隔 ms
-let lastTime = performance.now();
+// 3D 场景固定以 15 Hz 消费最新压力快照，避免跟随显示器刷新率重复计算点云。
+const CAR_ADAPTIVE_RENDER_FPS = 15;
+const CAR_ADAPTIVE_RENDER_INTERVAL_MS = 1000 / CAR_ADAPTIVE_RENDER_FPS;
+
+/** 计算插值和补边后的固定点云尺寸。 */
+function getPointGridDimensions({ sitnum1, sitnum2, sitInterp, sitInterp1, sitOrder }) {
+    const amountX = 1 + (sitnum1 - 1) * sitInterp + sitOrder * 2;
+    const amountY = 1 + (sitnum2 - 1) * sitInterp1 + sitOrder * 2;
+    return { amountX, amountY, total: amountX * amountY };
+}
+
+/** 释放场景中的几何体、材质和纹理，避免返回首页后 GPU 资源累积。 */
+function disposeSceneResources(root) {
+    if (!root) return
+
+    const geometries = new Set()
+    const materials = new Set()
+    const textures = new Set()
+    root.traverse((object) => {
+        if (object.geometry) geometries.add(object.geometry)
+        const objectMaterials = Array.isArray(object.material)
+            ? object.material
+            : [object.material]
+        objectMaterials.filter(Boolean).forEach((material) => materials.add(material))
+    })
+
+    materials.forEach((material) => {
+        Object.values(material).forEach((value) => {
+            if (value?.isTexture) textures.add(value)
+        })
+    })
+    textures.forEach((texture) => texture.dispose())
+    materials.forEach((material) => material.dispose())
+    geometries.forEach((geometry) => geometry.dispose())
+}
 
 /**
  * 主驾保持根分组原方向，副驾镜像同时包含座椅和压力点的整体根分组。
@@ -131,9 +161,9 @@ function tuneMatteLeatherLike(model) {
 
 const CarAir =
     memo(React.forwardRef((props, refs) => {
-
-        useWhyReRender(props)
-
+        const renderProfile = getRenderPerformanceProfile();
+        let lastRenderTime = performance.now();
+        let componentDisposed = false;
         const transformTargetsRef = useRef({
             root: null,
             pivot: null,
@@ -149,7 +179,6 @@ const CarAir =
         const sceneTransformRef = useRef(DEFAULT_SCENE_TRANSFORM);
         const activeSensorIdRef = useRef(Number(props.sensorId) === 2 ? 2 : 1);
 
-        console.log('renderCanvas')
         const {
             // sitnum1 = 32, sitnum2 = 32, sitInterp = 4, sitInterp2 = 2, sitOrder = 4 , 
         } = props
@@ -171,9 +200,6 @@ const CarAir =
             }, time);
         }
 
-        var FPS = 10;
-        var timeS = 0;
-        var renderT = 1 / FPS;
         let totalArr = [],
             totalPointArr = [];
         let local
@@ -219,10 +245,6 @@ const CarAir =
         let positions;
         let colors, scales;
 
-        const stats = new Stats();
-        stats.showPanel(0); // 0: FPS, 1: ms, 2: memory
-        // document.body.appendChild(stats.dom);
-
         function initLight() {
             // new RGBELoader()
             //     .load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/equirectangular/royal_esplanade_1k.hdr', (texture) => {
@@ -242,30 +264,24 @@ const CarAir =
             // const sun = new THREE.DirectionalLight(0xffffff, 1);
             const sun = new THREE.DirectionalLight(0xffffff, 2.22);
             sun.position.set(5, 8, 2);
-            sun.castShadow = true;
-            sun.shadow.radius = 8;
-            sun.shadow.mapSize.set(2048, 2048);
-            sun.shadow.camera.near = 1;
-            sun.shadow.camera.far = 20;
-            sun.shadow.camera.left = -10;
-            sun.shadow.camera.right = 10;
-            sun.shadow.camera.top = 10;
-            sun.shadow.camera.bottom = -10;
+            sun.castShadow = renderProfile.shadows;
+            if (renderProfile.shadows) {
+                sun.shadow.radius = 4;
+                sun.shadow.mapSize.set(1024, 1024);
+                sun.shadow.camera.near = 1;
+                sun.shadow.camera.far = 20;
+                sun.shadow.camera.left = -10;
+                sun.shadow.camera.right = 10;
+                sun.shadow.camera.top = 10;
+                sun.shadow.camera.bottom = -10;
+            }
             fill = sun
             scene.add(fill);
 
              // 平行光（像 Blender Sun）
             const sun1 = new THREE.DirectionalLight(0xffffff, 1);
             sun1.position.set(-5, 8, 2);
-            sun1.castShadow = true;
-            sun1.shadow.radius = 8;
-            sun1.shadow.mapSize.set(2048, 2048);
-            sun1.shadow.camera.near = 1;
-            sun1.shadow.camera.far = 20;
-            sun1.shadow.camera.left = -10;
-            sun1.shadow.camera.right = 10;
-            sun1.shadow.camera.top = 10;
-            sun1.shadow.camera.bottom = -10;
+            sun1.castShadow = false;
             fill1 = sun1
             scene.add(fill1);
 
@@ -274,8 +290,7 @@ const CarAir =
             spot.position.set(-2, 6, 4);
             spot.angle = Math.PI / 6;
             spot.penumbra = 0.4;
-            spot.castShadow = true;
-            spot.shadow.mapSize.set(2048, 2048);
+            spot.castShadow = false;
             rim = spot
             scene.add(rim);
 
@@ -437,9 +452,13 @@ const CarAir =
 
             // renderer
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer = new THREE.WebGLRenderer({
+                antialias: renderProfile.antialias,
+                alpha: true,
+                powerPreference: 'high-performance',
+            });
             renderer.setAnimationLoop(animate);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(renderProfile.pixelRatio);
             // renderer.setSize(window.innerWidth, window.innerHeight);
 
             renderer.setSize(viewportWidth, viewportHeight, false);
@@ -454,7 +473,7 @@ const CarAir =
             renderer.toneMappingExposure = 0.8; // 太黑就 1.6；太亮就 1.2
             renderer.physicallyCorrectLights = true;
 
-            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.enabled = renderProfile.shadows;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
             //FlyControls
@@ -588,38 +607,38 @@ const CarAir =
             },
 
         }
+        const pointConfigs = Object.values(allConfig)
 
         function addTotal(objArr) {
             objArr.forEach((obj) => {
-                const { sitnum1, sitnum2, sitInterp, sitInterp1, sitOrder } = obj
-                const AMOUNTX = sitnum1 * sitInterp + sitOrder * 2;
-                const AMOUNTY = sitnum2 * sitInterp1 + sitOrder * 2;
-                const numParticles = AMOUNTX * AMOUNTY;
-                obj.total = numParticles
+                obj.total = getPointGridDimensions(obj).total
             })
         }
 
         addTotal([sitleftConfig, backConfig, sitConfig, sitConfigBack])
 
         const smoothBig = {
-            left: new Array(sitleftConfig.total).fill(1),
-            right: new Array(sitleftConfig.total).fill(1),
-            center: new Array(sitConfig.total).fill(1),
-            leftsit: new Array(backConfig.total).fill(1),
-            rightsit: new Array(backConfig.total).fill(1),
-            centersit: new Array(sitConfigBack.total).fill(1),
+            left: new Float32Array(sitleftConfig.total).fill(1),
+            right: new Float32Array(sitleftConfig.total).fill(1),
+            center: new Float32Array(sitConfig.total).fill(1),
+            leftsit: new Float32Array(backConfig.total).fill(1),
+            rightsit: new Float32Array(backConfig.total).fill(1),
+            centersit: new Float32Array(sitConfigBack.total).fill(1),
             // handLeft: new Array(handLeftConfig.total).fill(1),
             // handRight: new Array(handRightConfig.total).fill(1)
         }
 
 
 
+        const pointParticlesByName = new Map()
+        let pointTexture = null
+
         const initPoint = (config, pointConfig, name, group) => {
-            const { sitnum1, sitnum2, sitInterp, sitInterp1, sitOrder } = config
+            if (!pointTexture) {
+                pointTexture = new THREE.TextureLoader().load("./circle.png")
+            }
             const { position, rotation, scale } = pointConfig
-            const AMOUNTX = sitnum1 * sitInterp + sitOrder * 2;
-            const AMOUNTY = sitnum2 * sitInterp1 + sitOrder * 2;
-            const numParticles = AMOUNTX * AMOUNTY;
+            const { amountX: AMOUNTX, amountY: AMOUNTY, total: numParticles } = getPointGridDimensions(config)
             const positions = new Float32Array(numParticles * 3);
             const scales = new Float32Array(numParticles);
             const colors = new Float32Array(numParticles * 3);
@@ -645,14 +664,8 @@ const CarAir =
             const sitGeometry = new THREE.BufferGeometry();
             sitGeometry.setAttribute(
                 "position",
-                new THREE.BufferAttribute(positions, 3)
+                new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage)
             );
-            function getTexture() {
-                return new TextureLoader().load("");
-            }
-            // require("../../assets/images/circle.png")
-            const spite = new THREE.TextureLoader().load("./circle.png");
-            const hand = new THREE.TextureLoader().load("./hand.jpg");
             const material = new THREE.PointsMaterial({
                 vertexColors: true,
                 transparent: false,
@@ -661,12 +674,15 @@ const CarAir =
                 depthWrite: true,
                 depthTest: true,
                 blending: THREE.NormalBlending, // 🔴 关键3：正常混合，不要 Additive
-                map: spite,
+                map: pointTexture,
                 opacity: 0.4,
                 size: name == 'center' ? 1 : 1.2,
             });
             sitGeometry.setAttribute("scale", new THREE.BufferAttribute(scales, 1));
-            sitGeometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+            sitGeometry.setAttribute(
+                "color",
+                new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage)
+            );
             const particles = new THREE.Points(sitGeometry, material);
 
             particles.scale.x = 0.005;
@@ -680,12 +696,12 @@ const CarAir =
             if (rotation.length) particles.rotation.set(...rotation)
             // if (scale.length) particles.scale.set(...scale)
             particles.name = name
+            pointParticlesByName.set(name, particles)
             group.add(particles);
         }
 
         function initPoints() {
-            Object.keys(allConfig).forEach((key) => {
-                const obj = allConfig[key]
+            pointConfigs.forEach((obj) => {
                 initPoint(obj.dataConfig, obj.pointConfig, obj.name, pointGroup)
             })
         }
@@ -716,15 +732,17 @@ const CarAir =
             // //     model.add(fbx);
 
             loader.load("./model/FAST27-前排座椅.glb", function (gltf) {
+                if (componentDisposed) {
+                    disposeSceneResources(gltf.scene)
+                    return
+                }
                 fbx = gltf.scene;
-                console.log(fbx, 'fbx')
 
 
                 fbx.traverse(o => {
                     if (!o.isMesh || !o.material) return;
-                    const m = o.material;
-                    o.castShadow = true;
-                    o.receiveShadow = true;
+                    o.castShadow = renderProfile.shadows;
+                    o.receiveShadow = renderProfile.shadows;
 
 
                     // 只针对白色/浅色件
@@ -937,22 +955,6 @@ const CarAir =
             }
         }
 
-        let currentIndex = 0;
-        document.addEventListener('keydown', () => {
-            // currentIndex = (currentIndex + 1) % backGeometry.attributes.position.array.length;
-            // tweenToModel(currentIndex);
-            // tweenToModelRandomDelay(sitGeometry.attributes.position, backGeometry.attributes.position);
-            // morphSitToBack(sitGeometry.attributes.position, backGeometry.attributes.position.array);
-            // morp()
-
-            // morphGeometryWithChaosPath(sitGeometry.attributes.position, backGeometry.attributes.position.array)
-
-            // console.log('morphWithTWEEN')
-            // morphWithTWEEN(sitGeometry.attributes.position, backGeometry.attributes.position.array)
-        });
-
-
-
         function onWindowResize() {
             if (!container || !renderer || !camera) return;
 
@@ -969,34 +971,24 @@ const CarAir =
 
 
 
-        function sitRenew(config, name, ndata1, smoothBig) {
-            // console.log(ndata1)
+        function sitRenew(config, name, ndata1, smoothBig, settings) {
             const { sitnum1, sitnum2, sitInterp, sitInterp1, sitOrder } = config
-            const AMOUNTX = 1 + (sitnum1 - 1) * sitInterp + sitOrder * 2;
-            const AMOUNTY = 1 + (sitnum2 - 1) * sitInterp1 + sitOrder * 2;
-
-
-            // const AMOUNTX = sitnum1 * sitInterp   //height
-            // const AMOUNTY = sitnum2 * sitInterp1 //width
-
-            const numParticles = AMOUNTX * AMOUNTY;
-            const particles = pointGroup.children.find((a) => a.name == name)
+            const { amountX: AMOUNTX, amountY: AMOUNTY } = getPointGridDimensions(config)
+            const particles = pointParticlesByName.get(name)
+            if (!particles) return
 
             const { geometry } = particles
-            const position = new Float32Array(numParticles * 3);
-            const colors = new Float32Array(numParticles * 3);
-
-
-            // const gauss = 1, color  =1, filter=1, height = 1, coherent = 1
-            const {
-                gauss = 1, color, filter, height = 1, coherent = 1
-            } = getSettingValue() //pageRef.current.settingValue
+            const positionAttribute = geometry.getAttribute("position")
+            const colorAttribute = geometry.getAttribute("color")
+            const position = positionAttribute.array
+            const colors = colorAttribute.array
+            const { gauss = 1, color, height = 1, coherent = 1 } = settings
 
             // height , width , heightInterp , widthInterp
             // export function interpSmall(smallMat, width, height, interp1, interp2)
 
-            let bigArr = lineInterpnew(ndata1, sitnum2, sitnum1, sitInterp1, sitInterp)
-            let bigArrs = addSide(
+            const bigArr = lineInterpnew(ndata1, sitnum2, sitnum1, sitInterp1, sitInterp)
+            const bigArrs = addSide(
                 bigArr,
                 1 + (sitnum2 - 1) * sitInterp1,
                 1 + (sitnum1 - 1) * sitInterp,
@@ -1018,7 +1010,6 @@ const CarAir =
             }
 
             let k = 0, l = 0;
-            let dataArr = []
             for (let ix = 0; ix < AMOUNTX; ix++) {
                 for (let iy = 0; iy < AMOUNTY; iy++) {
                     const value = bigArrg[l] * 10;
@@ -1073,40 +1064,33 @@ const CarAir =
 
 
 
-            particles.geometry.attributes.position.needsUpdate = true;
-            particles.geometry.attributes.color.needsUpdate = true;
-            geometry.setAttribute(
-                "position",
-                new THREE.BufferAttribute(position, 3)
-            );
-            geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+            positionAttribute.needsUpdate = true;
+            colorAttribute.needsUpdate = true;
         }
 
         //模型动画
 
         function animate() {
-            let now = performance.now();
+            const now = performance.now();
 
-            const delta = now - lastTime;
-            // console.log(now , lastTime)
-            if (delta < interval) {
+            const delta = now - lastRenderTime;
+            // console.log(now , lastRenderTime)
+            if (delta < CAR_ADAPTIVE_RENDER_INTERVAL_MS) {
                 // 时间没到下一帧，直接跳过
 
                 return;
             }
          
-            lastTime = now - (delta % interval);
+            lastRenderTime = now - (delta % CAR_ADAPTIVE_RENDER_INTERVAL_MS);
 
-            const date = new Date().getTime();
+            const settings = getSettingValue()
             controls.update();  // 必须更新
             if (tween) tween.update(); // 👈 必须！
             if (tween1) tween1.update(); // 👈 必须！
-            render();
 
             const {
-                gauss = 1, color, filter, height = 1, coherent = 1, xx, yy, zz, rxx, ryy, rzz
-            } = getSettingValue()
-            const particles = pointGroup.children.find((a) => a.name == 'center')
+                xx, yy, zz, rxx, ryy, rzz
+            } = settings
             const group = fill1
             if (group) {
                 if (xx) {
@@ -1137,6 +1121,8 @@ const CarAir =
                 }
             }
 
+            render(settings);
+
             // console.log(first)
 
             // pointMove()
@@ -1152,39 +1138,29 @@ const CarAir =
         // const sitDataRef = useRef(props.sitData);
         // useEffect(() => { sitDataRef.current = props.sitData }, [props.sitData]);
         // return ref; // .current 永远是最新
-        function render() {
-            stats.begin();
-            // TWEEN.update();
-            const sitnum1 = 16;
-            const sitnum2 = 16;
-            const sitInterp = 2;
-            const sitOrder = 4;
-            const backnum1 = 16;
-            const backnum2 = 16;
-            const backInterp = 2;
-            const headnum1 = 10;
-            const headnum2 = 10;
-            var back = new Array(backnum1 * backnum2).fill(0), sit = new Array(sitnum1 * sitnum2).fill(0), neck = new Array(headnum1 * headnum2).fill(0);
+        const emptySensorData = new Array(144).fill(0)
+        let lastPressureData = null
+        let lastPointSettingsSignature = ''
+        let smoothingFramesRemaining = 0
 
+        /** 只在原始快照或点云参数改变时重新计算压力点。 */
+        function updatePressurePoints(ndata1, settings) {
+            const coherent = Math.max(1, Number(settings.coherent || 1))
+            const settingsSignature = [
+                Number(settings.gauss || 1),
+                Number(settings.color || 0),
+                Number(settings.height || 1),
+                coherent,
+            ].join('|')
+            if (ndata1 !== lastPressureData || settingsSignature !== lastPointSettingsSignature) {
+                lastPressureData = ndata1
+                lastPointSettingsSignature = settingsSignature
+                smoothingFramesRemaining = coherent <= 1
+                    ? 1
+                    : Math.min(30, Math.ceil(coherent * 3))
+            }
+            if (smoothingFramesRemaining <= 0) return
 
-            // let ndata1 = getStatus()
-            // console.log(ndata1)
-            // if (!Object.keys(ndata1).length) return
-
-
-            // const {back , sit} = props.sitData.current
-
-            // const data = {
-            //     back: props.sitData.current.back || new Array(4096).fill(0), sit: props.sitData.current.sit || new Array(4096).fill(0),
-            // }
-
-            
-
-            let ndata1 = props.sitData.current.carAir || new Array(144).fill(0)
-
-            
-
-            // let ndata1 = new Array(144).fill(0) 
             const backrestSensors = splitCarAdaptiveSensorSection(ndata1, 0)
             const cushionSensors = splitCarAdaptiveSensorSection(
                 ndata1,
@@ -1221,13 +1197,16 @@ const CarAir =
                 left: leftsit, right: rightsit, center: centersit, leftsit: right, rightsit: left, centersit: center
             }
 
-            Object.keys(allConfig).forEach((key) => {
-                const obj = allConfig[key]
-                sitRenew(obj.dataConfig, obj.name, data[obj.name], smoothBig[obj.name]);
+            pointConfigs.forEach((obj) => {
+                sitRenew(obj.dataConfig, obj.name, data[obj.name], smoothBig[obj.name], settings);
             })
-            // animationRequestId =requestAnimationFrame(animate);
+            smoothingFramesRemaining -= 1
+        }
+
+        function render(settings) {
+            const ndata1 = props.sitData.current.carAir || emptySensorData
+            updatePressurePoints(ndata1, settings)
             renderer.render(scene, camera);
-            stats.end();
         }
 
         function changePointRotation(value) {
@@ -1566,9 +1545,32 @@ const CarAir =
 
             document.addEventListener("wheel", wheel);
             return () => {
-                renderer.setAnimationLoop(null);
+                componentDisposed = true
+                if (timer) {
+                    clearTimeout(timer)
+                    timer = null
+                }
+                tween?.stop()
+                tween1?.stop()
+                renderer?.setAnimationLoop(null);
                 document.removeEventListener("wheel", wheel)
                 window.removeEventListener("resize", onWindowResize);
+                controls?.dispose()
+                disposeSceneResources(scene)
+                scene?.clear()
+                renderer?.renderLists?.dispose()
+                renderer?.dispose()
+                renderer?.forceContextLoss()
+                renderer?.domElement?.remove()
+                pointParticlesByName.clear()
+                transformTargetsRef.current = {
+                    root: null,
+                    pivot: null,
+                    mirror: null,
+                    content: null,
+                    model: null,
+                    pointGroup: null,
+                }
             };
         }, []);
 

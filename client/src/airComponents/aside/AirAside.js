@@ -37,77 +37,74 @@ import ononseatText from '../../assets/image/ononseatText.png'
 
 import { Scheduler } from '../../scheduler/scheduler'
 import { createDefaultAirbagLayout } from '../airbagAdjust/airbagLayout'
-import { createAirAsideDisplayData } from './airAsideDisplayData'
+import {
+    AIRBAG_DISPLAY_MODES,
+    DEFAULT_AIRBAG_DISPLAY_MODE,
+    areAirAsideDisplayDataEqual,
+    createAirAsideDisplayData,
+    retainAirAsideOccupantState,
+} from './airAsideDisplayData'
 
 const FALLBACK_AIRBAG_LAYOUT = createDefaultAirbagLayout()
+const SAFETY_ITEMS = [
+    { onIcon: onchild, unIcon: unchild, onText: onchildText, unText: unchildText, name: '儿童' },
+    { onIcon: onadmit, unIcon: unadmit, onText: onadmitText, unText: unadmitText, name: '成人' },
+    { onIcon: onthing, unIcon: unthing, onText: onthingText, unText: unthingText, name: '物品' },
+]
+const SEAT_STATUS_ITEMS = [
+    { onIcon: ononseat, unIcon: unonseat, onText: ononseatText, unText: unonseatText, name: '在座' },
+    { onIcon: onoutseat, unIcon: unoutseat, onText: onoutseatText, unText: unoutseatText, name: '离座' },
+]
+
+/**
+ * 同时保留选中和未选中图片，避免 WebView2 在高负载时切换 src 出现短暂空白。
+ */
+function StatusAsset({ active, activeSource, inactiveSource }) {
+    return (
+        <span className="statusAsset" aria-hidden="true">
+            <img
+                className={active ? '' : 'isVisible'}
+                src={inactiveSource}
+                alt=""
+                loading="eager"
+                decoding="sync"
+                draggable="false"
+            />
+            <img
+                className={active ? 'isVisible' : ''}
+                src={activeSource}
+                alt=""
+                loading="eager"
+                decoding="sync"
+                draggable="false"
+            />
+        </span>
+    )
+}
 
 export default function AirAside(props) {
-
-    const feedbackAirIndex = [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
-
     const airArr = props.airbagLayout || FALLBACK_AIRBAG_LAYOUT
 
-    const safetyArr = [
-        {
-            onIcon: onchild,
-            unIcon: unchild,
-            onText: onchildText,
-            unText: unchildText,
-            name: '儿童'
-        },
-
-        {
-            onIcon: onadmit,
-            unIcon: unadmit,
-            onText: onadmitText,
-            unText: unadmitText,
-            name: '成人'
-        },
-
-        {
-            onIcon: onthing,
-            unIcon: unthing,
-            onText: onthingText,
-            unText: unthingText,
-            name: '物品'
-        },
-
-    ]
-
-    const seatStatusArr = [
-        {
-            onIcon: ononseat,
-            unIcon: unonseat,
-            onText: ononseatText,
-            unText: unonseatText,
-            name: '在座'
-        },
-
-        {
-            onIcon: onoutseat,
-            unIcon: unoutseat,
-            onText: onoutseatText,
-            unText: unoutseatText,
-            name: '离座'
-        },
-
-    ]
-
     const [data, setData] = useState({})
+    const airbagDisplayMode = props.airbagDisplayMode || DEFAULT_AIRBAG_DISPLAY_MODE
     useEffect(() => {
-        return Scheduler.onUI(() => setData(() => {
+        return Scheduler.onUI(() => setData((currentData) => {
             const chartData = props.algorDataRef.current
             const algorFeed = props.algorFeed.current
             const handle = props.handle.current
             const controlsMode = props.controlsMode.current
 
-            return createAirAsideDisplayData({
+            const nextData = createAirAsideDisplayData({
                 chartData,
                 algorFeed,
                 handle,
                 controlsMode,
                 feedbackOnline: props.airbagFeedbackOnline?.current,
             })
+            const stableData = retainAirAsideOccupantState(currentData, nextData)
+            return areAirAsideDisplayDataEqual(currentData, stableData)
+                ? currentData
+                : stableData
         }))
     }, [])
 
@@ -131,6 +128,15 @@ export default function AirAside(props) {
         }
     }
 
+    const isAlgorithmDisplay = airbagDisplayMode === AIRBAG_DISPLAY_MODES.ALGORITHM
+    const displayedAirbagCommand = isAlgorithmDisplay ? data.control_command : data.controlFeed
+    const displayedAirbagDataAvailable = isAlgorithmDisplay
+        ? data.algorithmCommandAvailable
+        : data.feedbackOnline
+    const unavailableMessage = isAlgorithmDisplay
+        ? '等待算法控制指令'
+        : '未收到气囊状态回传'
+
     return (
         <div className='airAsideContent pf'>
 
@@ -144,18 +150,18 @@ export default function AirAside(props) {
                         <AsideTitle icon={<i className='iconfont'>&#xe671;</i>} title={'安全分级'} />
                         <div className='safetyItemsContent asideIconContent'>
                             {
-                                safetyArr.map((a, index) => {
+                                SAFETY_ITEMS.map((a) => {
+                                    const active = body_typeFn(data.body_type) === a.name
                                     return (
-                                        <div className='safetyItem' style={{ color: body_typeFn(data.body_type) == a.name ? '#B1B5ED' : '#484A5D' }}>
-                                            <div style={{ marginBottom: '0.75rem' }} className={`${body_typeFn(data.body_type) == a.name ? 'onSelectIcon' : 'unSelectIcon'} selectIcon`}>
-                                                <img src={body_typeFn(data.body_type) == a.name ? a.onIcon : a.unIcon} alt="" />
+                                        <div key={a.name} className='safetyItem' style={{ color: active ? '#B1B5ED' : '#484A5D' }}>
+                                            <div style={{ marginBottom: '0.75rem' }} className={`${active ? 'onSelectIcon' : 'unSelectIcon'} selectIcon`}>
+                                                <StatusAsset active={active} activeSource={a.onIcon} inactiveSource={a.unIcon} />
                                             </div>
                                             <div className='asideselectContent' >
-                                                <img style={{ width: '100%', opacity: body_typeFn(data.body_type) == a.name ? 1 : 0 }} src={onselect} alt="" />
+                                                <img style={{ width: '100%', opacity: active ? 1 : 0 }} src={onselect} alt="" />
                                             </div>
                                             <div className='selectName'>
-                                                {/* {a.name} */}
-                                                <img src={body_typeFn(data.body_type) == a.name ? a.onText : a.unText} alt="" />
+                                                <StatusAsset active={active} activeSource={a.onText} inactiveSource={a.unText} />
                                             </div>
 
                                         </div>
@@ -166,22 +172,21 @@ export default function AirAside(props) {
                     </div>
                     <div style={{ height: '20px' }}></div>
                     <div className="seatStatusContent asideItem">
-                        <AsideTitle icon={<img className='iconfont' src={seatSvg} st style={{ height: '1.25rem' }} />} title={'座椅状态'} />
+                        <AsideTitle icon={<img className='iconfont' src={seatSvg} style={{ height: '1.25rem' }} alt="" />} title={'座椅状态'} />
                         <div className='asideIconContent'>
                             {
-                                seatStatusArr.map((a, index) => {
+                                SEAT_STATUS_ITEMS.map((a) => {
+                                    const active = body_typeFn(data.seat_state) === a.name
                                     return (
-                                        <div className='safetyItem' style={{ color: body_typeFn(data.seat_state) == a.name ? '#B1B5ED' : '#484A5D' }}>
-                                            <div style={{ marginBottom: '0.75rem' }} className={`${body_typeFn(data.seat_state) == a.name ? 'onSelectIcon' : 'unSelectIcon'} selectIcon`}>
-                                                {/* {a.icon} */}
-                                                <img src={body_typeFn(data.seat_state) == a.name ? a.onIcon : a.unIcon} alt="" />
+                                        <div key={a.name} className='safetyItem' style={{ color: active ? '#B1B5ED' : '#484A5D' }}>
+                                            <div style={{ marginBottom: '0.75rem' }} className={`${active ? 'onSelectIcon' : 'unSelectIcon'} selectIcon`}>
+                                                <StatusAsset active={active} activeSource={a.onIcon} inactiveSource={a.unIcon} />
                                             </div>
                                             <div className='asideselectContent' >
-                                                <img style={{ width: '100%', opacity: body_typeFn(data.seat_state) == a.name ? 1 : 0 }} src={onselect} alt="" />
+                                                <img style={{ width: '100%', opacity: active ? 1 : 0 }} src={onselect} alt="" />
                                             </div>
                                             <div className='selectName'>
-                                                {/* {a.name} */}
-                                                <img src={body_typeFn(data.seat_state) == a.name ? a.onText : a.unText} alt="" />
+                                                <StatusAsset active={active} activeSource={a.onText} inactiveSource={a.unText} />
                                             </div>
                                         </div>
                                     )
@@ -198,42 +203,48 @@ export default function AirAside(props) {
                         background: `src(${seatImg})no-repeat center center`
                     }}>
 
-                        <div style={{ position: 'absolute' }}>
+                        <div className='airbagAsideHeader'>
                             <AsideTitle icon={<i className='iconfont'>&#xe66a;</i>} title={'区域调节'} />
                         </div>
-                        {!data.feedbackOnline && (
+                        {!displayedAirbagDataAvailable && (
                             <div className='airbagFeedbackNotice'>
                                 <i className='iconfont'>&#xe6a6;</i>
-                                <span>未收到气囊状态回传</span>
+                                <span>{unavailableMessage}</span>
                             </div>
                         )}
                         <div className='imgContent'>
-                            <div className={`airbagSeatCanvas${!data.feedbackOnline ? ' isFeedbackOffline' : ''}`}>
+                            <div className={`airbagSeatCanvas${!displayedAirbagDataAvailable ? ' isFeedbackOffline' : ''}`}>
                                 <img src={seatImg} alt="" />
                                 {
                                     airArr.map((a, index) => {
 
-                                        const command = data.controlFeed //: data.control_command
-                                        if (a.type == 'circle') {
-                                            return <div key={`airbag-${index}`} className={`circleAir ${command && command[index] == 3 ? 'onCircleAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                        const command = displayedAirbagCommand
+                                        const gear = Number(command?.[index]) || 0
+                                        const airbagAttributes = {
+                                            'data-airbag-id': index + 1,
+                                            'data-airbag-gear': gear,
+                                            title: `${index + 1} 号气囊：${isAlgorithmDisplay ? '算法指令' : '当前状态'} ${gear} 档`,
+                                        }
+                                        if (a.type === 'circle') {
+                                            return <div {...airbagAttributes} key={`airbag-${index}`} className={`circleAir ${gear === 3 ? 'onCircleAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                 {/* <div className='circleAirItem'></div> */}
-                                                <img src={command && command[index] == 3 ? onmassage : unmassage} alt="" />
+                                                <img src={gear === 3 ? onmassage : unmassage} alt="" />
                                             </div>
 
                                         } else {
 
-                                            if (index == 6) {
-                                                return <div key={`airbag-${index}`} className={`leftRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                            if (index === 6) {
+                                                return <div {...airbagAttributes} key={`airbag-${index}`} className={`leftRectAir ${gear === 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                     <div className='leftTopRectAir leftRectAirItem'></div>
                                                     <div className='leftBottomRectAir leftRectAirItem'></div>
                                                 </div>
-                                            } else if (index == 7) {
-                                                return <div key={`airbag-${index}`} className={`rightRectAir ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
+                                            } else if (index === 7) {
+                                                return <div {...airbagAttributes} key={`airbag-${index}`} className={`rightRectAir ${gear === 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}>
                                                     <div className='rightTopRectAir rightRectAirItem'></div>
                                                     <div className='rightBottomRectAir rightRectAirItem'></div>
                                                 </div>
                                             } else {
-                                                return <div key={`airbag-${index}`} className={` ${'rectAir'} ${command && command[index] == 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}></div>
+                                                return <div {...airbagAttributes} key={`airbag-${index}`} className={`rectAir ${gear === 3 ? 'onRectAir' : ''}`} style={{ position: 'absolute', width: `${a.width}%`, height: `${a.height}%`, top: `${a.top}%`, left: `${a.left}%`, }}></div>
 
                                             }
                                         }

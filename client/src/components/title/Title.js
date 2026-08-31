@@ -16,6 +16,10 @@ import { useWindowSize } from '../../hooks/useWindowsize'
 import { AppstoreOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { connectCarAdaptiveDevice } from '../../util/carAdaptiveStartup'
+import {
+  AIRBAG_DISPLAY_MODES,
+  DEFAULT_AIRBAG_DISPLAY_MODE
+} from '../../airComponents/aside/airAsideDisplayData'
 
 
 const Title = memo((props) => {
@@ -106,6 +110,19 @@ const Title = memo((props) => {
                 { label: '副驾', value: 2 }
               ]}
               onChange={pageInfo.selectCarAdaptiveSensor}
+            />
+          </div>
+          <div className="airbagDisplaySelector" title="切换气囊最终状态和 Python 算法原始控制指令">
+            <span className="airbagDisplaySelectorLabel">气囊</span>
+            <Segmented
+              aria-label="气囊展示数据来源"
+              size="small"
+              value={pageInfo.airbagDisplayMode || DEFAULT_AIRBAG_DISPLAY_MODE}
+              options={[
+                { label: '当前状态', value: AIRBAG_DISPLAY_MODES.EFFECTIVE },
+                { label: '算法指令', value: AIRBAG_DISPLAY_MODES.ALGORITHM }
+              ]}
+              onChange={pageInfo.setAirbagDisplayMode}
             />
           </div>
           <div className={`${!Object.keys(equipStatus).length || Object.values(equipStatus).includes('offline') ? 'connectPort' : 'unclickButton'} cursor connectButton`} style={{ marginRight: '2.1rem' }} onClick={() => { connent() }}>

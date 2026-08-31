@@ -233,7 +233,6 @@ Assert-File $wpfDll
 Assert-File $nativeDll
 Assert-File (Join-Path $serviceDir "mock-service.js")
 Assert-File (Join-Path $frontendDir "index.html")
-Assert-File (Join-Path $frontendDir "model\seat2.glb")
 Assert-File $customerSeatModel
 Assert-File $apiDoc
 Assert-File $quickStartDoc
@@ -247,6 +246,11 @@ Assert-File (Join-Path $realBackendDir "python\app\integrated_system.pyc")
 Assert-File (Join-Path $realBackendDir "node_modules\express\package.json")
 Assert-RuntimePathMissing $appWebViewRuntimeData
 Assert-RuntimePathMissing $sqliteBuildTempData
+Assert-PathMissing (Join-Path $frontendDir "model\seat2.glb")
+Assert-PathMissing (Join-Path $realBackendDir "python\Python311\ffmpeg")
+Assert-PathMissing (Join-Path $realBackendDir "python\Python311\Lib\site-packages\scipy")
+Assert-PathMissing (Join-Path $realBackendDir "python\Python311\Lib\site-packages\cv2")
+Assert-PathMissing (Join-Path $realBackendDir "python\Python311\Lib\site-packages\pandas")
 Assert-PathMissing (Join-Path $realBackendDir "server\serialServer.js")
 Assert-PathMissing (Join-Path $realBackendDir "pyWorker.js")
 Assert-PathMissing (Join-Path $realBackendDir "python\app\server.py")
@@ -316,11 +320,12 @@ try {
     }
     Write-Host "[OK] HTTP /app current frontend"
 
-    $modelHead = Invoke-WebRequest "http://${HostName}:${HttpPort}/model/seat2.glb" -Method Head -UseBasicParsing
+    $encodedModelName = [Uri]::EscapeDataString($customerSeatModelFileName)
+    $modelHead = Invoke-WebRequest "http://${HostName}:${HttpPort}/model/$encodedModelName" -Method Head -UseBasicParsing
     if ($modelHead.StatusCode -ne 200) {
         throw "Frontend model verification failed."
     }
-    Write-Host "[OK] Three.js model asset /model/seat2.glb"
+    Write-Host "[OK] Three.js model asset /model/$customerSeatModelFileName"
 
     $ports = Invoke-RestMethod "http://${HostName}:${HttpPort}/getPort"
     if ($ports.code -ne 0) {

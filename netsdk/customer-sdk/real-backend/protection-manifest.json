@@ -13,6 +13,7 @@
     "util/carAdaptiveCommandHistory.js",
     "util/carAdaptiveControlMode.js",
     "util/carAdaptiveProtocol.js",
+    "util/carAdaptiveSnapshotBroadcast.js",
     "util/carAdaptiveUiControl.js",
     "util/clientDevServer.js",
     "util/collectionHistory.js",
@@ -32,6 +33,6 @@
     "control.pyc",
     "tap_massage.pyc"
   ],
-  "packageSha256": "69e50df61df5280f332b1d8f7a9ef25bf44312716ceb66244123d4b9b80a16a0",
-  "hostSha256": "aca278e6c725f49bfae071af3813e2b5aef8aadd88183b3d995f5cdcb41bd165"
+  "packageSha256": "9ae35d3d2fc459f2d0cf3a0f1751f5e149c12a3e7e605b9f7bc67ac35a2e9887",
+  "hostSha256": "84602c62460bddd3201a77bec5a5db11d4717782591cae160a6b9a59650d703a"
 }

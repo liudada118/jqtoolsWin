@@ -1,12 +1,43 @@
 param(
     [switch]$SkipBuild,
-    [switch]$SkipProtection
+    [switch]$SkipProtection,
+    [string]$AlgorithmSourcePath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $outRoot = Join-Path $PSScriptRoot "customer-sdk"
+$productionPythonAppRoot = Join-Path $repoRoot "python\app"
+$requiredPythonAlgorithmFiles = @(
+    "integrated_system.py",
+    "config.py",
+    "control.py",
+    "tap_massage.py",
+    "sensor_config.yaml"
+)
+$algorithmSourceCandidates = @(
+    (Join-Path $productionPythonAppRoot "appV2_optimized_final\appV2"),
+    (Join-Path $productionPythonAppRoot "appV2_optimized_final\appV2_optimized_final\appV2")
+)
+if ([string]::IsNullOrWhiteSpace($AlgorithmSourcePath)) {
+    foreach ($candidate in $algorithmSourceCandidates) {
+        $missingFiles = @($requiredPythonAlgorithmFiles | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $candidate $_) -PathType Leaf)
+        })
+        if ($missingFiles.Count -eq 0) {
+            $AlgorithmSourcePath = $candidate
+            break
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($AlgorithmSourcePath)) {
+    throw "No complete optimized Python algorithm directory was found under: $(Join-Path $productionPythonAppRoot 'appV2_optimized_final')"
+}
+if (-not (Test-Path -LiteralPath $AlgorithmSourcePath -PathType Container)) {
+    throw "Python algorithm source directory not found: $AlgorithmSourcePath"
+}
+$algorithmSourceRoot = (Resolve-Path -LiteralPath $AlgorithmSourcePath).Path
 $webViewRuntimeDirName = "JqTools.CarAdaptive.ClientWpf.exe.WebView2"
 $customerSeatModelFileName = 'FAST27-' +
     [char]0x524D +
@@ -131,6 +162,82 @@ function Copy-FrontendBuild {
         -ExtraArgs $copyArgs
 }
 
+function Remove-CustomerBuildItemWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [int]$MaxAttempts = 8,
+        [int]$DelayMilliseconds = 500
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $LiteralPath -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+            Write-Warning "Cleanup is waiting for a temporary file lock: $LiteralPath (attempt $attempt/$MaxAttempts)"
+            Start-Sleep -Milliseconds $DelayMilliseconds
+        }
+    }
+}
+
+function Remove-UnusedCustomerFrontendModels {
+    param([Parameter(Mandatory = $true)][string]$Destination)
+
+    $modelDirectory = Join-Path $Destination "model"
+    if (-not (Test-Path -LiteralPath $modelDirectory -PathType Container)) {
+        return
+    }
+
+    $resolvedModelDirectory = (Resolve-Path -LiteralPath $modelDirectory).Path
+    $activeModelPath = [IO.Path]::GetFullPath((Join-Path $resolvedModelDirectory $customerSeatModelFileName))
+    foreach ($item in Get-ChildItem -LiteralPath $resolvedModelDirectory -Force) {
+        $itemPath = [IO.Path]::GetFullPath($item.FullName)
+        if (-not $itemPath.Equals($activeModelPath, [StringComparison]::OrdinalIgnoreCase)) {
+            Remove-CustomerBuildItemWithRetry -LiteralPath $itemPath
+        }
+    }
+
+    Write-Host "Removed unused customer frontend models; keeping: $activeModelPath"
+}
+
+function Remove-UnusedCustomerPythonRuntime {
+    param([Parameter(Mandatory = $true)][string]$RuntimeRoot)
+
+    $resolvedRuntimeRoot = (Resolve-Path -LiteralPath $RuntimeRoot).Path
+    $sitePackages = Join-Path $resolvedRuntimeRoot "Lib\site-packages"
+    if (-not (Test-Path -LiteralPath $sitePackages -PathType Container)) {
+        throw "Bundled Python site-packages directory not found: $sitePackages"
+    }
+
+    $unusedRuntimeDirectories = @("ffmpeg", "tcl", "include", "libs", "Scripts", "share")
+    foreach ($directoryName in $unusedRuntimeDirectories) {
+        $directoryPath = [IO.Path]::GetFullPath((Join-Path $resolvedRuntimeRoot $directoryName))
+        if ($directoryPath.StartsWith("$resolvedRuntimeRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+            Remove-Item -LiteralPath $directoryPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    foreach ($item in Get-ChildItem -LiteralPath $sitePackages -Force) {
+        $keepItem =
+            $item.Name.Equals("numpy", [StringComparison]::OrdinalIgnoreCase) -or
+            $item.Name.Equals("numpy.libs", [StringComparison]::OrdinalIgnoreCase) -or
+            $item.Name.Equals("ruamel", [StringComparison]::OrdinalIgnoreCase) -or
+            $item.Name.StartsWith("numpy-", [StringComparison]::OrdinalIgnoreCase)
+        if (-not $keepItem) {
+            $itemPath = [IO.Path]::GetFullPath($item.FullName)
+            if ($itemPath.StartsWith("$sitePackages\", [StringComparison]::OrdinalIgnoreCase)) {
+                Remove-Item -LiteralPath $itemPath -Recurse -Force
+            }
+        }
+    }
+
+    Write-Host "Trimmed bundled Python runtime to NumPy and ruamel.yaml dependencies."
+}
+
 Push-Location $repoRoot
 try {
     if (-not $SkipBuild) {
@@ -180,6 +287,7 @@ try {
     New-Item -ItemType Directory -Force -Path $appOut, $serviceOut, $wpfControlOut, $nativeOut, $docsOut, $scriptsOut, $frontendOut, $realBackendOut, $backendServerOut, $runtimeNodeOut | Out-Null
 
     Copy-FrontendBuild -Destination $frontendOut
+    Remove-UnusedCustomerFrontendModels -Destination $frontendOut
 
     Invoke-Robocopy `
         -Source (Join-Path $repoRoot "dotnet-wrapper\JqTools.CarAdaptive.ClientWpf\bin\Release\net8.0-windows") `
@@ -251,19 +359,28 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot "db\init.db") -Destination (Join-Path $realBackendOut "db") -Force
 
-    $pythonAppFiles = @(
-        "server.py",
-        "integrated_system.py",
-        "config.py",
-        "control.py",
-        "tap_massage.py",
-        "sensor_config.yaml"
-    )
-    foreach ($pythonAppFile in $pythonAppFiles) {
-        Copy-Item -LiteralPath (Join-Path $repoRoot "python\app\$pythonAppFile") -Destination (Join-Path $realBackendOut "python\app") -Force
+    # Keep the dual-sensor JSON-RPC entry and replace only algorithm implementation files.
+    $pythonServiceFiles = @("server.py")
+    $pythonAlgorithmFiles = $requiredPythonAlgorithmFiles
+    foreach ($pythonServiceFile in $pythonServiceFiles) {
+        $sourceFile = Join-Path $productionPythonAppRoot $pythonServiceFile
+        if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+            throw "Python service source file not found: $sourceFile"
+        }
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $realBackendOut "python\app") -Force
     }
+    foreach ($pythonAlgorithmFile in $pythonAlgorithmFiles) {
+        $sourceFile = Join-Path $algorithmSourceRoot $pythonAlgorithmFile
+        if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+            throw "Python algorithm source file not found: $sourceFile"
+        }
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $realBackendOut "python\app") -Force
+    }
+    Write-Host "Python algorithm source: $algorithmSourceRoot"
 
-    Invoke-Robocopy -Source (Join-Path $repoRoot "python\Python311") -Destination (Join-Path $realBackendOut "python\Python311") -ExtraArgs @("/XD", "__pycache__", "idlelib", "Doc", "Tools")
+    $bundledPythonRuntime = Join-Path $realBackendOut "python\Python311"
+    Invoke-Robocopy -Source (Join-Path $repoRoot "python\Python311") -Destination $bundledPythonRuntime -ExtraArgs @("/XD", "__pycache__", "idlelib", "Doc", "Tools")
+    Remove-UnusedCustomerPythonRuntime -RuntimeRoot $bundledPythonRuntime
 
     $nodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
     Copy-Item -LiteralPath $nodeExecutable -Destination (Join-Path $runtimeNodeOut "node.exe") -Force
@@ -274,15 +391,15 @@ try {
         throw "npm ci for standalone real-backend failed with exit code $LASTEXITCODE"
     }
 
-    # sqlite3 安装器可能留下约 60 MB 的原生模块编译临时目录，运行时只需要 lib/binding 下的 DLL。
-    $resolvedBackendRoot = [System.IO.Path]::GetFullPath($realBackendOut).TrimEnd('\')
+    # sqlite3 may leave a native build cache; runtime only needs lib/binding.
     if ([string]::IsNullOrWhiteSpace($sqliteBuildTemp)) {
         throw "sqlite3 build cache path was not initialized"
     }
     if ([System.IO.Directory]::Exists($sqliteBuildTemp)) {
         $resolvedSqliteBuildTemp = (Resolve-Path -LiteralPath $sqliteBuildTemp).Path
-        if (-not $resolvedSqliteBuildTemp.StartsWith(
-            "$resolvedBackendRoot\node_modules\sqlite3\",
+        $expectedSqliteBuildTemp = [System.IO.Path]::GetFullPath([string]$sqliteBuildTemp)
+        if (-not $resolvedSqliteBuildTemp.Equals(
+            $expectedSqliteBuildTemp,
             [StringComparison]::OrdinalIgnoreCase
         )) {
             throw "Refusing to delete unexpected sqlite3 build directory: $resolvedSqliteBuildTemp"

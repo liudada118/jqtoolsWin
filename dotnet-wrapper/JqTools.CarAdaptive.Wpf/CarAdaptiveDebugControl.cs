@@ -14,6 +14,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
 {
     private readonly Grid _root = new();
     private readonly WebView2 _webView = new();
+    private readonly Grid _loadingPanel;
     private readonly Border _errorPanel;
     private readonly TextBlock _errorMessage;
     private CarAdaptiveMockServiceHost? _serviceHost;
@@ -41,6 +42,18 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// </summary>
     public CarAdaptiveDebugControl()
     {
+        var startupBackground = Color.FromRgb(20, 19, 25);
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR")))
+        {
+            Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF141319");
+        }
+
+        _root.Background = new SolidColorBrush(startupBackground);
+        _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(
+            255,
+            startupBackground.R,
+            startupBackground.G,
+            startupBackground.B);
         _errorMessage = new TextBlock
         {
             Foreground = Brushes.White,
@@ -48,13 +61,16 @@ public sealed class CarAdaptiveDebugControl : UserControl
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 18)
         };
+        _loadingPanel = CreateLoadingPanel();
         _errorPanel = CreateErrorPanel();
         _root.Children.Add(_webView);
+        _root.Children.Add(_loadingPanel);
         _root.Children.Add(_errorPanel);
         Content = _root;
         Loaded += HandleLoaded;
         Unloaded += HandleUnloaded;
         Dispatcher.ShutdownStarted += HandleDispatcherShutdownStarted;
+        _webView.NavigationCompleted += HandleNavigationCompleted;
 
         if (Application.Current != null)
         {
@@ -271,13 +287,15 @@ public sealed class CarAdaptiveDebugControl : UserControl
         try
         {
             var options = CreateOptions();
+            Task serviceStartup = Task.CompletedTask;
             if (AutoStartService)
             {
                 _serviceHost ??= CreateServiceHost();
-                await _serviceHost.StartAsync(options, cancellationToken).ConfigureAwait(true);
+                serviceStartup = _serviceHost.StartAsync(options, cancellationToken);
             }
 
-            await _webView.EnsureCoreWebView2Async();
+            var webViewStartup = _webView.EnsureCoreWebView2Async();
+            await Task.WhenAll(serviceStartup, webViewStartup).ConfigureAwait(true);
             AttachWebMessageBridge();
             _webView.Source = options.DebugUri;
         }
@@ -313,7 +331,19 @@ public sealed class CarAdaptiveDebugControl : UserControl
     /// </summary>
     public void Reload()
     {
+        _loadingPanel.Visibility = Visibility.Visible;
         _webView.Reload();
+    }
+
+    /// <summary>
+    /// 页面完成首次导航后隐藏启动进度层。
+    /// </summary>
+    private void HandleNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (e.IsSuccess)
+        {
+            _loadingPanel.Visibility = Visibility.Collapsed;
+        }
     }
 
     /// <summary>
@@ -542,6 +572,28 @@ public sealed class CarAdaptiveDebugControl : UserControl
     }
 
     /// <summary>
+    /// 创建覆盖 WebView2 冷启动阶段的轻量加载层，避免默认白色闪屏。
+    /// </summary>
+    private static Grid CreateLoadingPanel()
+    {
+        var progress = new ProgressBar
+        {
+            IsIndeterminate = true,
+            Width = 180,
+            Height = 3,
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var panel = new Grid
+        {
+            Background = new SolidColorBrush(Color.FromRgb(20, 19, 25))
+        };
+        panel.Children.Add(progress);
+        return panel;
+    }
+
+    /// <summary>
     /// 点击重试后重新启动服务并加载页面。
     /// </summary>
     private async void HandleRetryClick(object sender, RoutedEventArgs e)
@@ -566,6 +618,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
 
         _errorMessage.Text = message;
         _webView.Visibility = Visibility.Collapsed;
+        _loadingPanel.Visibility = Visibility.Collapsed;
         _errorPanel.Visibility = Visibility.Visible;
     }
 
@@ -575,6 +628,7 @@ public sealed class CarAdaptiveDebugControl : UserControl
     private void HideStartupError()
     {
         _errorPanel.Visibility = Visibility.Collapsed;
+        _loadingPanel.Visibility = Visibility.Visible;
         _webView.Visibility = Visibility.Visible;
     }
 }

@@ -164,6 +164,11 @@
             重新加载当前调试页面。
             </summary>
         </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleNavigationCompleted(System.Object,Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs)">
+            <summary>
+            页面完成首次导航后隐藏启动进度层。
+            </summary>
+        </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateOptions">
             <summary>
             根据控件依赖属性创建当前服务启动配置。
@@ -227,6 +232,11 @@
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateErrorPanel">
             <summary>
             创建启动失败提示面板和重试按钮。
+            </summary>
+        </member>
+        <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.CreateLoadingPanel">
+            <summary>
+            创建覆盖 WebView2 冷启动阶段的轻量加载层，避免默认白色闪屏。
             </summary>
         </member>
         <member name="M:JqTools.CarAdaptive.Wpf.CarAdaptiveDebugControl.HandleRetryClick(System.Object,System.Windows.RoutedEventArgs)">

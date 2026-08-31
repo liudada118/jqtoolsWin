@@ -287,6 +287,36 @@
     }
 }
 
+.airbagDisplaySelector {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-right: 1rem;
+
+    .airbagDisplaySelectorLabel {
+        color: #aeb7c2;
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+
+    .ant-segmented {
+        padding: 2px;
+        border: 1px solid #39414a;
+        background: #101216;
+    }
+
+    .ant-segmented-item {
+        min-width: 3.6rem;
+        color: #aeb7c2;
+    }
+
+    .ant-segmented-item-selected {
+        color: #fff;
+        background: #087ec1;
+        box-shadow: none;
+    }
+}
+
 @media (max-width: 600px) {
     .titleContent {
         .firstTitle {
@@ -298,7 +328,7 @@
                 display: grid;
                 grid-template-areas:
                     "logo status raw connect"
-                    "selector selector selector selector";
+                    "sensor sensor airbag airbag";
                 grid-template-columns: auto minmax(0, 1fr) auto auto;
                 column-gap: 0.55rem;
                 row-gap: 0.3rem;
@@ -351,12 +381,26 @@
                 }
 
                 .sensorSelector {
-                    grid-area: selector;
+                    grid-area: sensor;
                     justify-self: center;
                     margin: 0;
 
                     .sensorSelectorLabel {
                         display: none;
+                    }
+                }
+
+                .airbagDisplaySelector {
+                    grid-area: airbag;
+                    justify-self: center;
+                    margin: 0;
+
+                    .airbagDisplaySelectorLabel {
+                        display: none;
+                    }
+
+                    .ant-segmented-item {
+                        min-width: 3.2rem;
                     }
                 }
             }

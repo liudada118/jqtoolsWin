@@ -29,6 +29,9 @@ import { newRuler } from '../../components/ruler/newRuler'
 import NumThres from '../../components/three/NumThres'
 import { endiBackPressFn, endiSitPressFn } from '../../util/util'
 import AirAside from '../../airComponents/aside/AirAside'
+import {
+    DEFAULT_AIRBAG_DISPLAY_MODE
+} from '../../airComponents/aside/airAsideDisplayData'
 import CarAir from '../../airComponents/three/CarAir'
 import SceneAdjustPanel from '../../airComponents/sceneAdjust/SceneAdjustPanel'
 import AlgorithmConfigDrawer from '../../airComponents/algorithmConfig/AlgorithmConfigDrawer'
@@ -121,6 +124,7 @@ function Test() {
 
     const initialCarAdaptiveSensorId = useRef(getStoredCarAdaptiveSensorId()).current
     const [carAdaptiveSensorId, setCarAdaptiveSensorId] = useState(initialCarAdaptiveSensorId)
+    const [airbagDisplayMode, setAirbagDisplayMode] = useState(DEFAULT_AIRBAG_DISPLAY_MODE)
     const carAdaptiveSensorIdRef = useRef(initialCarAdaptiveSensorId)
     const carAdaptiveWsRef = useRef(null)
     const carAdaptiveHistoryPlaybackRef = useRef(false)
@@ -861,6 +865,8 @@ function Test() {
                 airbagAdjustOpen, setAirbagAdjustOpen,
                 carAdaptiveSensorId,
                 carAdaptiveSensorSwitching,
+                airbagDisplayMode,
+                setAirbagDisplayMode,
                 carAdaptiveRemoteController,
                 requestCarAdaptiveReturnHome,
                 selectCarAdaptiveSensor: selectCarAdaptiveSensorFromUi,
@@ -882,6 +888,7 @@ function Test() {
                 handle={handle}
                 controlsMode={controlsMode}
                 airbagLayout={airbagLayout}
+                airbagDisplayMode={airbagDisplayMode}
                 />
                 <CarAir
                     sitData={disPlayDataRef}

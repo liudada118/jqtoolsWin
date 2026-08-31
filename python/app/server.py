@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import traceback
+from contextlib import redirect_stdout
 
 import numpy as np
 
@@ -13,7 +14,9 @@ SENSOR_IDS = (1, 2)
 
 def create_system():
     """根据当前 YAML 配置创建一套新的算法系统。"""
-    return IntegratedSeatSystem(CONFIG_PATH)
+    # stdout 专用于 JSON-RPC；算法诊断输出统一转到 stderr。
+    with redirect_stdout(sys.stderr):
+        return IntegratedSeatSystem(CONFIG_PATH)
 
 
 def create_systems():
@@ -104,13 +107,30 @@ FUNCS = {
 }
 
 
+def to_json_compatible(value):
+    """递归将 NumPy 返回值转换为 JSON 原生类型，不改变算法字段结构。"""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {
+            str(key): to_json_compatible(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [to_json_compatible(item) for item in value]
+    return value
+
+
 def handle(req):
     """校验一条 JSON 请求并调用对应的算法函数。"""
     fn = req.get("fn")
     if fn not in FUNCS:
         raise ValueError(f"Unknown function: {fn}")
     args = req.get("args") or {}
-    return {"ok": True, "data": FUNCS[fn](**args)}
+    with redirect_stdout(sys.stderr):
+        return {"ok": True, "data": FUNCS[fn](**args)}
 
 
 def main():
@@ -123,7 +143,7 @@ def main():
             req = json.loads(line)
             rid = req.get("id")
             res = handle(req)
-            print(json.dumps({"id": rid, **res}), flush=True)
+            print(json.dumps(to_json_compatible({"id": rid, **res})), flush=True)
         except Exception as error:
             print(json.dumps({
                 "id": req.get("id") if "req" in locals() else None,
